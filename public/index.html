@@ -13,16 +13,23 @@
         }
 
         :root {
-            --primary: #2563eb;
-            --success: #16a34a;
-            --warning: #ea580c;
-            --danger: #dc2626;
-            --bg: #f8fafc;
-            --text: #1e293b;
-            --text-light: #64748b;
-            --border: #e2e8f0;
-            --sidebar-dark: #1e293b;
-            --sidebar-darker: #0f172a;
+            --primary: #b8860b;
+            --primary-hover: #996f0a;
+            --primary-light: rgba(184, 134, 11, 0.1);
+            --accent: #d4760a;
+            --success: #2d7a3a;
+            --warning: #c4650a;
+            --danger: #b52a1c;
+            --bg: #faf6f0;
+            --bg-warm: #f5ede0;
+            --text: #2c1810;
+            --text-light: #7a6b5e;
+            --border: #e3d5c3;
+            --sidebar-dark: #2c1810;
+            --sidebar-darker: #1a0f09;
+            --card-bg: #fffcf7;
+            --gold: #b8860b;
+            --gold-light: #d4a843;
         }
 
         body {
@@ -89,9 +96,9 @@
         }
 
         .sidebar-nav a.active {
-            background: rgba(37, 99, 235, 0.2);
-            color: white;
-            border-left-color: var(--primary);
+            background: rgba(184, 134, 11, 0.25);
+            color: #f5deb3;
+            border-left-color: var(--gold-light);
         }
 
         .sidebar-bottom {
@@ -131,7 +138,7 @@
         }
 
         .topbar {
-            background: white;
+            background: var(--card-bg);
             border-bottom: 1px solid var(--border);
             padding: 16px 32px;
             display: flex;
@@ -172,7 +179,22 @@
         }
 
         .back-to-all-btn:hover {
-            background: #1d4ed8;
+            background: var(--primary-hover);
+        }
+
+        .interest-summary {
+            background: var(--bg-warm);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 14px 16px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: var(--text);
+            line-height: 1.7;
+        }
+
+        .interest-summary strong {
+            color: var(--primary);
         }
 
         .topbar-right {
@@ -205,7 +227,7 @@
         }
 
         .stat-card {
-            background: white;
+            background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 20px;
@@ -282,11 +304,11 @@
         }
 
         .btn-primary:hover {
-            background: #1d4ed8;
+            background: var(--primary-hover);
         }
 
         .btn-secondary {
-            background: white;
+            background: var(--card-bg);
             border: 1px solid var(--border);
             color: var(--text);
         }
@@ -313,7 +335,7 @@
         }
 
         .table-container {
-            background: white;
+            background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 8px;
             overflow-x: auto;
@@ -393,14 +415,15 @@
         }
 
         .modal {
-            background: white;
+            background: var(--card-bg);
             border-radius: 12px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.15);
             width: 90%;
             max-width: 500px;
             max-height: 90vh;
             overflow-y: auto;
             animation: slideUp 0.3s ease;
+            border-top: 3px solid var(--gold);
         }
 
         @keyframes slideUp {
@@ -475,8 +498,8 @@
         .form-group select:focus,
         .form-group textarea:focus {
             outline: none;
-            border-color: var(--primary);
-            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+            border-color: var(--gold);
+            box-shadow: 0 0 0 3px rgba(184, 134, 11, 0.12);
         }
 
         .form-group textarea {
@@ -515,23 +538,36 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+            background: linear-gradient(135deg, #2c1810 0%, #4a2c1a 50%, #3d2010 100%);
         }
 
         .login-box {
-            background: white;
+            background: var(--card-bg);
             border-radius: 12px;
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
             padding: 40px;
             width: 100%;
             max-width: 400px;
+            border-top: 3px solid var(--gold);
+        }
+
+        .login-logo {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .login-logo img {
+            max-height: 56px;
+            object-fit: contain;
         }
 
         .login-box h1 {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
             margin-bottom: 24px;
             text-align: center;
+            color: var(--text);
+            letter-spacing: 0.5px;
         }
 
         .login-error {
@@ -549,7 +585,7 @@
         }
 
         .branch-card {
-            background: white;
+            background: var(--card-bg);
             border: 1px solid var(--border);
             border-radius: 8px;
             padding: 20px;
@@ -559,8 +595,8 @@
         }
 
         .branch-card:hover {
-            border-color: var(--primary);
-            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1);
+            border-color: var(--gold);
+            box-shadow: 0 4px 12px rgba(184, 134, 11, 0.12);
         }
 
         .branch-card-title {
@@ -733,7 +769,7 @@
         }
 
         .unit-card {
-            background: white;
+            background: var(--card-bg);
             border: 3px solid var(--border);
             border-radius: 8px;
             padding: 16px;
@@ -866,7 +902,8 @@
 <body>
     <div id="loginScreen" class="login-container">
         <div class="login-box">
-            <h1>🔐 LockerHub</h1>
+            <div class="login-logo" id="loginLogo"></div>
+            <h1>LockerHub</h1>
             <div id="loginError" class="login-error"></div>
             <form id="loginForm">
                 <div class="form-group">
@@ -885,7 +922,7 @@
     <div id="appContainer" class="app-container" style="display: none;">
         <div class="sidebar">
             <div class="sidebar-header">
-                <span>🔐</span>
+                <div id="sidebarLogo" style="max-height:32px;"></div>
                 <h1>LockerHub</h1>
             </div>
             <ul class="sidebar-nav">
@@ -1117,7 +1154,7 @@
                         </div>
                     </div>
                     <div class="section-toolbar">
-                        <button class="btn btn-primary" onclick="downloadFullBackup()">📥 Download Full Backup</button>
+                        <button class="btn btn-primary" onclick="downloadFullBackup()">Download Full Backup</button>
                     </div>
                 </div>
 
@@ -1337,13 +1374,13 @@
                         </div>
                         <div class="form-group">
                             <label for="tenantInterestRate">Interest Rate (%)</label>
-                            <input type="number" id="tenantInterestRate" step="0.1" value="8" required>
+                            <input type="number" id="tenantInterestRate" step="0.1" value="8" required oninput="updateInterestSummary()">
                         </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="tenantInterestFreq">Interest Frequency</label>
-                            <select id="tenantInterestFreq">
+                            <select id="tenantInterestFreq" onchange="updateInterestSummary()">
                                 <option value="monthly">Monthly</option>
                                 <option value="quarterly">Quarterly</option>
                                 <option value="annual">Annual</option>
@@ -1351,11 +1388,12 @@
                         </div>
                         <div class="form-group" style="display: flex; align-items: flex-end;">
                             <label style="flex: 1;">
-                                <input type="checkbox" id="tenantInterestEnabled"> Enable Interest Payout
+                                <input type="checkbox" id="tenantInterestEnabled" onchange="updateInterestSummary()"> Enable Interest Payout
                             </label>
                         </div>
                     </div>
-                    <div style="background: var(--bg); padding: 16px; border-radius: 6px; margin-bottom: 16px;">
+                    <div id="interestSummaryBox" class="interest-summary" style="display:none;"></div>
+                    <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
                         <h4 style="margin-bottom: 12px;">Background Verification</h4>
                         <div class="form-row">
                             <div class="form-group">
@@ -1768,9 +1806,9 @@
                 overlay = document.createElement('div');
                 overlay.id = 'loadingOverlay';
                 overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:10000;';
-                overlay.innerHTML = `<div style="background:#fff;padding:30px 40px;border-radius:12px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
-                    <div style="width:40px;height:40px;border:4px solid #e0e0e0;border-top-color:#1a73e8;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 15px;"></div>
-                    <div id="loadingMsg" style="font-size:14px;color:#333;">${msg}</div>
+                overlay.innerHTML = `<div style="background:#fffcf7;padding:30px 40px;border-radius:12px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);border-top:3px solid #b8860b;">
+                    <div style="width:40px;height:40px;border:4px solid #e3d5c3;border-top-color:#b8860b;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 15px;"></div>
+                    <div id="loadingMsg" style="font-size:14px;color:#2c1810;">${msg}</div>
                 </div>`;
                 document.body.appendChild(overlay);
             } else {
@@ -2173,6 +2211,7 @@
                     <td>
                         <div class="action-buttons">
                             <button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>
+                            <button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>
                             <button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>
                         </div>
                     </td>
@@ -2669,9 +2708,9 @@
                     <td><strong>${t.name}</strong></td>
                     <td>${capitalize(t.bg_id_type) || '-'}</td>
                     <td>${t.bg_id_number || '-'}</td>
-                    <td><span class="badge ${t.bg_id_verified ? 'badge-success' : 'badge-warning'}">✓</span></td>
-                    <td><span class="badge ${t.bg_addr_verified ? 'badge-success' : 'badge-warning'}">✓</span></td>
-                    <td><span class="badge ${t.bg_ref_checked ? 'badge-success' : 'badge-warning'}">✓</span></td>
+                    <td><span class="badge ${t.bg_id_verified ? 'badge-success' : 'badge-warning'}">${t.bg_id_verified ? 'Yes' : 'No'}</span></td>
+                    <td><span class="badge ${t.bg_addr_verified ? 'badge-success' : 'badge-warning'}">${t.bg_addr_verified ? 'Yes' : 'No'}</span></td>
+                    <td><span class="badge ${t.bg_ref_checked ? 'badge-success' : 'badge-warning'}">${t.bg_ref_checked ? 'Yes' : 'No'}</span></td>
                     <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status)}</span></td>
                     <td>
                         <div class="action-buttons">
@@ -2715,7 +2754,7 @@
             const html = reports.map(r => `
                 <div class="stat-card" style="display: flex; flex-direction: column; gap: 12px; cursor: pointer;" onclick="generateReport('${r.id}')">
                     <div class="stat-card-label">${r.name}</div>
-                    <button class="btn btn-primary" onclick="event.stopPropagation(); generateReport('${r.id}')">📥 Download</button>
+                    <button class="btn btn-primary" onclick="event.stopPropagation(); generateReport('${r.id}')">Download</button>
                 </div>
             `).join('');
 
@@ -3083,7 +3122,7 @@
                             </div>
                             <span>${occupancyPct}%</span>
                         </div>
-                        <div class="unit-card-location">📍 ${u.location || 'No location'}</div>
+                        <div class="unit-card-location">${u.location || 'No location'}</div>
                         <div class="unit-card-actions">
                             ${u.status === 'upcoming' ? `<button class="btn btn-primary" onclick="activateUnit('${u.id}')">Activate</button>` : ''}
                             <button class="btn btn-danger" onclick="deleteUnit('${u.id}')">Delete</button>
@@ -3356,6 +3395,126 @@
             const wb = XLSX.utils.book_new();
             XLSX.utils.book_append_sheet(wb, ws, 'Report');
             XLSX.writeFile(wb, fileName);
+        }
+
+        // ===== Interest Summary Preview =====
+        function updateInterestSummary() {
+            const box = document.getElementById('interestSummaryBox');
+            const enabled = document.getElementById('tenantInterestEnabled').checked;
+            const rate = parseFloat(document.getElementById('tenantInterestRate').value) || 0;
+            const freq = document.getElementById('tenantInterestFreq').value;
+
+            if (!enabled || rate <= 0) {
+                box.style.display = 'none';
+                return;
+            }
+
+            const freqLabel = freq === 'monthly' ? 'Monthly' : freq === 'quarterly' ? 'Quarterly' : 'Annual';
+            const periods = freq === 'monthly' ? 12 : freq === 'quarterly' ? 4 : 1;
+            const perPeriodRate = (rate / periods).toFixed(2);
+
+            // Assuming principal = annual rent (user hasn't entered it yet, show formula)
+            const note = `For every Rs.10,000 of annual rent paid:`;
+            const totalInterest = (10000 * rate / 100).toFixed(0);
+            const perPeriodAmt = (10000 * rate / 100 / periods).toFixed(0);
+
+            box.style.display = 'block';
+            box.innerHTML = `
+                <strong>Interest Schedule Preview</strong><br>
+                ${note}<br>
+                Rate: <strong>${rate}% p.a.</strong> | Frequency: <strong>${freqLabel}</strong> (${periods} payouts/year)<br>
+                Per payout: <strong>Rs.${formatIndianNumber(parseInt(perPeriodAmt))}</strong> | Total annual interest: <strong>Rs.${formatIndianNumber(parseInt(totalInterest))}</strong>
+            `;
+        }
+
+        // ===== SOA Download (Ledger Style) =====
+        async function downloadSOA(tenantId) {
+            showLoading('Generating Statement of Account...');
+            try {
+                const soa = await api('GET', `/api/soa/${tenantId}`);
+                hideLoading();
+
+                if (!soa || !soa.tenant) {
+                    alert('No data found for this tenant.');
+                    return;
+                }
+
+                const t = soa.tenant;
+                const rows = [];
+                let balance = 0;
+
+                // Add all transactions sorted by date
+                const transactions = [];
+
+                // Payments received (debit from tenant's perspective = credit to company)
+                (soa.payments || []).forEach(p => {
+                    transactions.push({
+                        date: p.paid_on || p.due_date || p.created_at,
+                        description: 'Rent Payment' + (p.method ? ' (' + capitalize(p.method) + ')' : '') + (p.period ? ' - ' + p.period : ''),
+                        debit: p.amount,
+                        credit: 0,
+                        status: capitalize(p.status)
+                    });
+                });
+
+                // Interest payouts (credit to tenant)
+                (soa.payouts || []).forEach(p => {
+                    transactions.push({
+                        date: p.paid_on || p.due_date || p.created_at,
+                        description: 'Interest Payout' + (p.period ? ' - ' + p.period : '') + (p.rate ? ' (' + p.rate + '%)' : ''),
+                        debit: 0,
+                        credit: p.amount,
+                        status: capitalize(p.status)
+                    });
+                });
+
+                // Sort by date
+                transactions.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                // Build ledger with running balance
+                transactions.forEach(tx => {
+                    balance = balance + tx.debit - tx.credit;
+                    rows.push({
+                        'Date': tx.date,
+                        'Description': tx.description,
+                        'Debit (Rs.)': tx.debit || '',
+                        'Credit (Rs.)': tx.credit || '',
+                        'Balance (Rs.)': balance,
+                        'Status': tx.status
+                    });
+                });
+
+                if (rows.length === 0) {
+                    alert('No transactions found for this tenant.');
+                    return;
+                }
+
+                // Create Excel with header info
+                const wb = XLSX.utils.book_new();
+                const headerRows = [
+                    ['Statement of Account - Dhanam Finance'],
+                    ['Tenant:', t.name, '', 'Phone:', '+91 ' + (t.phone || '')],
+                    ['Locker:', t.locker_number || '-', '', 'Lease Start:', t.lease_start || '-'],
+                    ['Interest:', t.interest_enabled ? ((t.interest_rate || 0) + '% ' + capitalize(t.interest_freq || '')) : 'Disabled'],
+                    ['Generated:', new Date().toLocaleDateString('en-IN')],
+                    [],
+                ];
+
+                const ws = XLSX.utils.aoa_to_sheet(headerRows);
+                XLSX.utils.sheet_add_json(ws, rows, { origin: 'A6' });
+
+                // Set column widths
+                ws['!cols'] = [
+                    { wch: 14 }, { wch: 40 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
+                ];
+
+                XLSX.utils.book_append_sheet(wb, ws, 'SOA');
+                XLSX.writeFile(wb, `SOA_${t.name.replace(/\s+/g, '_')}.xlsx`);
+            } catch (error) {
+                hideLoading();
+                alert('Failed to generate SOA: ' + error.message);
+                console.error('SOA error:', error);
+            }
         }
     </script>
 </body>

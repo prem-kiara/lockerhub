@@ -465,6 +465,37 @@ app.delete('/api/tenants/:id', (req, res) => {
 });
 
 // ============================
+//  STATEMENT OF ACCOUNT (SOA)
+// ============================
+app.get('/api/soa/:id', (req, res) => {
+  try {
+    const tenant = db.prepare(`
+      SELECT t.*, l.number as locker_number
+      FROM tenants t
+      LEFT JOIN lockers l ON t.locker_id = l.id
+      WHERE t.id = ?
+    `).get(req.params.id);
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Tenant not found' });
+    }
+
+    const payments = db.prepare(`
+      SELECT * FROM payments WHERE tenant_id = ? ORDER BY COALESCE(paid_on, due_date, created_at) ASC
+    `).all(req.params.id);
+
+    const payouts = db.prepare(`
+      SELECT * FROM payouts WHERE tenant_id = ? ORDER BY COALESCE(paid_on, due_date, created_at) ASC
+    `).all(req.params.id);
+
+    res.json({ tenant, payments, payouts });
+  } catch (err) {
+    console.error('SOA error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================
 //  PAYMENTS
 // ============================
 app.get('/api/payments', (req, res) => {
