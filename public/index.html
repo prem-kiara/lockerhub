@@ -1,0 +1,3362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LockerHub - Locker Management System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --success: #16a34a;
+            --warning: #ea580c;
+            --danger: #dc2626;
+            --bg: #f8fafc;
+            --text: #1e293b;
+            --text-light: #64748b;
+            --border: #e2e8f0;
+            --sidebar-dark: #1e293b;
+            --sidebar-darker: #0f172a;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .app-container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .sidebar {
+            width: 250px;
+            background: linear-gradient(135deg, var(--sidebar-dark) 0%, var(--sidebar-darker) 100%);
+            color: white;
+            overflow-y: auto;
+            padding: 0;
+            position: fixed;
+            left: 0;
+            top: 0;
+            height: 100vh;
+            z-index: 1000;
+        }
+
+        .sidebar-header {
+            padding: 24px 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .sidebar-header h1 {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .sidebar-nav {
+            padding: 20px 0;
+            list-style: none;
+        }
+
+        .sidebar-nav li {
+            margin: 0;
+        }
+
+        .sidebar-nav a {
+            display: block;
+            padding: 12px 20px;
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            font-size: 14px;
+            border-left: 3px solid transparent;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+
+        .sidebar-nav a:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .sidebar-nav a.active {
+            background: rgba(37, 99, 235, 0.2);
+            color: white;
+            border-left-color: var(--primary);
+        }
+
+        .sidebar-bottom {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            background: linear-gradient(135deg, var(--sidebar-dark) 0%, var(--sidebar-darker) 100%);
+        }
+
+        .logout-btn {
+            width: 100%;
+            padding: 10px 16px;
+            background: rgba(220, 38, 38, 0.2);
+            color: #fca5a5;
+            border: 1px solid rgba(220, 38, 38, 0.4);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+
+        .logout-btn:hover {
+            background: rgba(220, 38, 38, 0.3);
+            color: white;
+        }
+
+        .main-content {
+            flex: 1;
+            margin-left: 250px;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .topbar {
+            background: white;
+            border-bottom: 1px solid var(--border);
+            padding: 16px 32px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .topbar-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .topbar-title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .branch-selector {
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+        }
+
+        .back-to-all-btn {
+            padding: 8px 16px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .back-to-all-btn:hover {
+            background: #1d4ed8;
+        }
+
+        .topbar-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 14px;
+            color: var(--text-light);
+        }
+
+        .content-area {
+            flex: 1;
+            overflow-y: auto;
+            padding: 32px;
+        }
+
+        .screen {
+            display: none;
+        }
+
+        .screen.active {
+            display: block;
+        }
+
+        .stat-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-card-label {
+            font-size: 13px;
+            color: var(--text-light);
+            font-weight: 500;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .stat-card-value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .stat-card-subtext {
+            font-size: 12px;
+            color: var(--text-light);
+        }
+
+        .stat-card.primary .stat-card-value {
+            color: var(--primary);
+        }
+
+        .stat-card.success .stat-card-value {
+            color: var(--success);
+        }
+
+        .stat-card.warning .stat-card-value {
+            color: var(--warning);
+        }
+
+        .stat-card.danger .stat-card-value {
+            color: var(--danger);
+        }
+
+        .section-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            color: var(--text);
+        }
+
+        .section-toolbar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .btn {
+            padding: 10px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1d4ed8;
+        }
+
+        .btn-secondary {
+            background: white;
+            border: 1px solid var(--border);
+            color: var(--text);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #b91c1c;
+        }
+
+        .search-box {
+            padding: 10px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            width: 250px;
+        }
+
+        .table-container {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow-x: auto;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        thead {
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+        }
+
+        th {
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: var(--text);
+        }
+
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tbody tr:hover {
+            background: var(--bg);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge-success {
+            background: rgba(22, 163, 74, 0.1);
+            color: var(--success);
+        }
+
+        .badge-danger {
+            background: rgba(220, 38, 38, 0.1);
+            color: var(--danger);
+        }
+
+        .badge-warning {
+            background: rgba(234, 88, 12, 0.1);
+            color: var(--warning);
+        }
+
+        .badge-primary {
+            background: rgba(37, 99, 235, 0.1);
+            color: var(--primary);
+        }
+
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: var(--text-light);
+        }
+
+        .modal-body {
+            padding: 24px;
+        }
+
+        .modal-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 500;
+            font-size: 14px;
+            color: var(--text);
+        }
+
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            font-family: inherit;
+            transition: border-color 0.3s ease;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .form-row-full {
+            grid-column: 1 / -1;
+        }
+
+        .checkbox-group {
+            display: flex;
+            gap: 20px;
+            margin-top: 8px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .checkbox-item input {
+            width: auto;
+        }
+
+        .login-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, var(--primary) 0%, #1d4ed8 100%);
+        }
+
+        .login-box {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-box h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 24px;
+            text-align: center;
+        }
+
+        .login-error {
+            background: rgba(220, 38, 38, 0.1);
+            color: var(--danger);
+            padding: 12px 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .login-error.show {
+            display: block;
+        }
+
+        .branch-card {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 16px;
+        }
+
+        .branch-card:hover {
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.1);
+        }
+
+        .branch-card-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+
+        .branch-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+
+        .branch-stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .branch-stat-label {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-bottom: 4px;
+        }
+
+        .branch-stat-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-light);
+        }
+
+        .empty-state svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-light);
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--border);
+            border-top-color: var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-buttons button {
+            padding: 6px 12px;
+            font-size: 12px;
+            white-space: nowrap;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 24px;
+        }
+
+        .tab {
+            padding: 12px 20px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-light);
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .alert {
+            padding: 16px;
+            border-radius: 6px;
+            margin-bottom: 16px;
+            font-size: 14px;
+        }
+
+        .alert-success {
+            background: rgba(22, 163, 74, 0.1);
+            color: var(--success);
+            border: 1px solid rgba(22, 163, 74, 0.2);
+        }
+
+        .alert-error {
+            background: rgba(220, 38, 38, 0.1);
+            color: var(--danger);
+            border: 1px solid rgba(220, 38, 38, 0.2);
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 200px;
+            }
+
+            .main-content {
+                margin-left: 200px;
+            }
+
+            .stat-cards {
+                grid-template-columns: 1fr;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .content-area {
+                padding: 16px;
+            }
+
+            .modal {
+                width: 95%;
+                max-width: 100%;
+            }
+
+            .branch-stats {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .units-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            padding: 20px 0;
+        }
+
+        .unit-card {
+            background: white;
+            border: 3px solid var(--border);
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: all 0.3s ease;
+        }
+
+        .unit-card:hover {
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+
+        .unit-card.active {
+            border-color: var(--success);
+        }
+
+        .unit-card.upcoming {
+            border-color: var(--warning);
+        }
+
+        .unit-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            margin-bottom: 12px;
+        }
+
+        .unit-card-number {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .unit-card-badge {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .unit-card-badge.active {
+            background: rgba(22, 163, 74, 0.1);
+            color: var(--success);
+        }
+
+        .unit-card-badge.upcoming {
+            background: rgba(234, 88, 12, 0.1);
+            color: var(--warning);
+        }
+
+        .unit-card-info {
+            font-size: 13px;
+            color: var(--text-light);
+            margin-bottom: 8px;
+        }
+
+        .unit-card-info strong {
+            color: var(--text);
+        }
+
+        .unit-card-type {
+            background: var(--bg);
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 10px;
+            word-break: break-word;
+        }
+
+        .unit-card-occupancy {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 10px;
+            font-size: 13px;
+        }
+
+        .unit-card-occupancy-bar {
+            flex-grow: 1;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            margin: 0 8px;
+            overflow: hidden;
+        }
+
+        .unit-card-occupancy-fill {
+            height: 100%;
+            background: var(--success);
+            border-radius: 3px;
+        }
+
+        .unit-card-location {
+            font-size: 12px;
+            color: var(--text-light);
+            margin-bottom: 10px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+
+        .unit-card-branch {
+            font-size: 11px;
+            background: var(--primary);
+            color: white;
+            padding: 3px 6px;
+            border-radius: 3px;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+
+        .unit-card-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .unit-card-actions button {
+            flex: 1;
+            padding: 6px 8px;
+            font-size: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .units-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="loginScreen" class="login-container">
+        <div class="login-box">
+            <h1>🔐 LockerHub</h1>
+            <div id="loginError" class="login-error"></div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width: 100%;">Login</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="appContainer" class="app-container" style="display: none;">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <span>🔐</span>
+                <h1>LockerHub</h1>
+            </div>
+            <ul class="sidebar-nav">
+                <li><a onclick="switchSection('dashboard')" class="nav-link active" data-section="dashboard">Dashboard</a></li>
+                <li><a onclick="switchSection('lockers')" class="nav-link" data-section="lockers">Lockers</a></li>
+                <li id="lockerTypesMgmt" style="display: none;"><a onclick="switchSection('lockerTypes')" class="nav-link" data-section="lockerTypes">Locker Types</a></li>
+                <li><a onclick="switchSection('units')" class="nav-link" data-section="units">Units & Cabinets</a></li>
+                <li><a onclick="switchSection('tenants')" class="nav-link" data-section="tenants">Tenants</a></li>
+                <li><a onclick="switchSection('payments')" class="nav-link" data-section="payments">Rent & Payments</a></li>
+                <li><a onclick="switchSection('payouts')" class="nav-link" data-section="payouts">Interest & Payouts</a></li>
+                <li><a onclick="switchSection('visits')" class="nav-link" data-section="visits">Visit Log</a></li>
+                <li><a onclick="switchSection('bgchecks')" class="nav-link" data-section="bgchecks">Background Checks</a></li>
+                <li><a onclick="switchSection('reports')" class="nav-link" data-section="reports">Reports (Excel)</a></li>
+                <li><a onclick="switchSection('backup')" class="nav-link" data-section="backup">Data & Backup</a></li>
+                <li id="branchMgmt" style="display: none;"><a onclick="switchSection('branches')" class="nav-link" data-section="branches">Manage Branches</a></li>
+                <li id="userMgmt" style="display: none;"><a onclick="switchSection('users')" class="nav-link" data-section="users">Manage Users</a></li>
+            </ul>
+            <div class="sidebar-bottom">
+                <button class="logout-btn" onclick="logout()">Logout</button>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="topbar">
+                <div class="topbar-left">
+                    <div class="topbar-title" id="topbarTitle">Dashboard</div>
+                    <div id="branchSelectorContainer" style="display: none;">
+                        <select id="branchSelector" class="branch-selector" onchange="switchBranch()">
+                            <option value="all">All Branches</option>
+                        </select>
+                    </div>
+                    <button id="backToAllBtn" class="back-to-all-btn" style="display: none;" onclick="backToAllBranches()">← Back to All Branches</button>
+                </div>
+                <div class="topbar-right">
+                    <span id="userInfo"></span>
+                </div>
+            </div>
+
+            <div class="content-area">
+                <!-- Dashboard Screen -->
+                <div id="dashboardScreen" class="screen active">
+                    <div class="section-title">Dashboard</div>
+                    <div id="dashboardStats" class="stat-cards"></div>
+                    <div id="dashboardContent"></div>
+                </div>
+
+                <!-- Lockers Screen -->
+                <div id="lockersScreen" class="screen">
+                    <div class="section-title">Lockers</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddLockerModal()">+ Add Locker</button>
+                        <button class="btn btn-secondary" onclick="openBulkAddModal()">+ Add Multiple</button>
+                        <input type="text" class="search-box" id="lockerSearch" placeholder="Search by number or location..." onkeyup="filterLockers()">
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Locker #</th>
+                                    <th>Type</th>
+                                    <th>Unit</th>
+                                    <th>Size</th>
+                                    <th>Status</th>
+                                    <th>Tenant</th>
+                                    <th>Location</th>
+                                    <th>Monthly Rent</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lockersTable">
+                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Tenants Screen -->
+                <div id="tenantsScreen" class="screen">
+                    <div class="section-title">Tenants</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddTenantModal()">+ Add Tenant</button>
+                        <input type="text" class="search-box" id="tenantSearch" placeholder="Search by name or phone..." onkeyup="filterTenants()">
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Phone</th>
+                                    <th>Locker</th>
+                                    <th>Email</th>
+                                    <th>Interest Rate</th>
+                                    <th>BG Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tenantsTable">
+                                <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Payments Screen -->
+                <div id="paymentsScreen" class="screen">
+                    <div class="section-title">Rent & Payments</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddPaymentModal()">+ Record Payment</button>
+                        <input type="text" class="search-box" id="paymentSearch" placeholder="Search by tenant..." onkeyup="filterPayments()">
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tenant</th>
+                                    <th>Locker</th>
+                                    <th>Amount</th>
+                                    <th>Payment Method</th>
+                                    <th>Date</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="paymentsTable">
+                                <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Payouts Screen -->
+                <div id="payoutsScreen" class="screen">
+                    <div class="section-title">Interest & Payouts</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddPayoutModal()">+ Record Payout</button>
+                        <input type="text" class="search-box" id="payoutSearch" placeholder="Search by tenant..." onkeyup="filterPayouts()">
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tenant</th>
+                                    <th>Locker</th>
+                                    <th>Period</th>
+                                    <th>Principal</th>
+                                    <th>Interest Rate</th>
+                                    <th>Interest Amount</th>
+                                    <th>Payout Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="payoutsTable">
+                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Visit Log Screen -->
+                <div id="visitsScreen" class="screen">
+                    <div class="section-title">Visit Log</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddVisitModal()">+ Log Visit</button>
+                        <input type="text" class="search-box" id="visitSearch" placeholder="Search by tenant..." onkeyup="filterVisits()">
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tenant</th>
+                                    <th>Locker</th>
+                                    <th>Visit Date</th>
+                                    <th>Purpose</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="visitsTable">
+                                <tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Background Checks Screen -->
+                <div id="bgchecksScreen" class="screen">
+                    <div class="section-title">Background Checks</div>
+                    <div class="section-toolbar">
+                        <input type="text" class="search-box" id="bgSearch" placeholder="Search by tenant..." onkeyup="filterBGChecks()">
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Tenant</th>
+                                    <th>ID Type</th>
+                                    <th>ID Number</th>
+                                    <th>ID Verified</th>
+                                    <th>Address Verified</th>
+                                    <th>Reference Checked</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bgchecksTable">
+                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Reports Screen -->
+                <div id="reportsScreen" class="screen">
+                    <div class="section-title">Reports</div>
+                    <div class="section-toolbar">
+                        <span style="font-weight: 500; color: var(--text-light);">Financial Year: 2025-26</span>
+                    </div>
+                    <div id="reportsGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;"></div>
+                </div>
+
+                <!-- Backup Screen -->
+                <div id="backupScreen" class="screen">
+                    <div class="section-title">Data & Backup</div>
+                    <div class="stat-cards">
+                        <div class="stat-card">
+                            <div class="stat-card-label">Database Status</div>
+                            <div class="stat-card-value" style="color: var(--success);">Active</div>
+                            <div class="stat-card-subtext">All data synced</div>
+                        </div>
+                    </div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="downloadFullBackup()">📥 Download Full Backup</button>
+                    </div>
+                </div>
+
+                <!-- Branches Screen (Head Office Only) -->
+                <div id="branchesScreen" class="screen">
+                    <div class="section-title">Manage Branches</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddBranchModal()">+ Add Branch</button>
+                    </div>
+                    <div id="branchesContainer"></div>
+                </div>
+
+                <!-- Users Screen (Head Office Only) -->
+                <div id="usersScreen" class="screen">
+                    <div class="section-title">Manage Users</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddUserModal()">+ Add User</button>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Username</th>
+                                    <th>Role</th>
+                                    <th>Branch</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usersTable">
+                                <tr><td colspan="5" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Locker Types Screen (Head Office Only) -->
+                <div id="lockerTypesScreen" class="screen">
+                    <div class="section-title">Locker Types</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddLockerTypeModal()">+ Add Locker Type</button>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Variant</th>
+                                    <th>Lockers/Unit</th>
+                                    <th>Unit Dimensions (HxWxD mm)</th>
+                                    <th>Locker Dimensions (HxWxD mm)</th>
+                                    <th>Volume (L)</th>
+                                    <th>Auto-Size</th>
+                                    <th>Weight (kg)</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="lockerTypesTable">
+                                <tr><td colspan="10" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Units & Cabinets Screen -->
+                <div id="unitsScreen" class="screen">
+                    <div class="section-title">Units & Cabinets</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openAddUnitModal()">+ Add Unit</button>
+                    </div>
+                    <div id="unitsGrid" class="units-grid">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add/Edit Locker -->
+    <div id="lockerModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="lockerModalTitle">Add Locker</h2>
+                <button class="modal-close" onclick="closeModal('lockerModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="lockerForm">
+                    <input type="hidden" id="lockerId">
+                    <div class="form-group">
+                        <label for="lockerNumber">Locker Number</label>
+                        <input type="text" id="lockerNumber" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="lockerSize">Size</label>
+                            <select id="lockerSize" required>
+                                <option value="">Select size</option>
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="lockerRent">Monthly Rent (₹)</label>
+                            <input type="number" id="lockerRent" required step="100">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="lockerLocation">Location</label>
+                        <input type="text" id="lockerLocation" placeholder="e.g., Floor 1, Row A">
+                    </div>
+                    <div class="form-group">
+                        <label for="lockerNotes">Notes</label>
+                        <textarea id="lockerNotes"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('lockerModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveLocker()">Save Locker</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Bulk Add Lockers -->
+    <div id="bulkLockerModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Multiple Lockers</h2>
+                <button class="modal-close" onclick="closeModal('bulkLockerModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="bulkLockerForm">
+                    <div class="form-group">
+                        <label for="bulkPrefix">Locker Prefix</label>
+                        <input type="text" id="bulkPrefix" placeholder="e.g., FL1-" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="bulkCount">Count</label>
+                            <input type="number" id="bulkCount" min="1" max="100" value="10" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="bulkSize">Size</label>
+                            <select id="bulkSize" required>
+                                <option value="">Select size</option>
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="bulkRent">Monthly Rent (₹)</label>
+                            <input type="number" id="bulkRent" required step="100">
+                        </div>
+                        <div class="form-group">
+                            <label for="bulkLocation">Location</label>
+                            <input type="text" id="bulkLocation" placeholder="e.g., Floor 1, Row A">
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('bulkLockerModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveBulkLockers()">Add Lockers</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add/Edit Tenant -->
+    <div id="tenantModal" class="modal-overlay">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h2 id="tenantModalTitle">Add Tenant</h2>
+                <button class="modal-close" onclick="closeModal('tenantModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="tenantForm">
+                    <input type="hidden" id="tenantId">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="tenantName">Name</label>
+                            <input type="text" id="tenantName" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="tenantPhone">Phone (+91)</label>
+                            <input type="tel" id="tenantPhone" pattern="[0-9]{10}" placeholder="9876543210" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="tenantEmail">Email</label>
+                            <input type="email" id="tenantEmail">
+                        </div>
+                        <div class="form-group">
+                            <label for="tenantLocker">Locker</label>
+                            <select id="tenantLocker" required>
+                                <option value="">Select locker</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="tenantAddress">Address</label>
+                        <textarea id="tenantAddress"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="tenantEmergency">Emergency Contact</label>
+                        <input type="tel" id="tenantEmergency" pattern="[0-9]{10}" placeholder="9876543210">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="tenantLeaseStart">Lease Start Date</label>
+                            <input type="date" id="tenantLeaseStart" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="tenantInterestRate">Interest Rate (%)</label>
+                            <input type="number" id="tenantInterestRate" step="0.1" value="8" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="tenantInterestFreq">Interest Frequency</label>
+                            <select id="tenantInterestFreq">
+                                <option value="monthly">Monthly</option>
+                                <option value="quarterly">Quarterly</option>
+                                <option value="annual">Annual</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="display: flex; align-items: flex-end;">
+                            <label style="flex: 1;">
+                                <input type="checkbox" id="tenantInterestEnabled"> Enable Interest Payout
+                            </label>
+                        </div>
+                    </div>
+                    <div style="background: var(--bg); padding: 16px; border-radius: 6px; margin-bottom: 16px;">
+                        <h4 style="margin-bottom: 12px;">Background Verification</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenantBgIdType">ID Type</label>
+                                <select id="tenantBgIdType">
+                                    <option value="">Select ID type</option>
+                                    <option value="aadhaar">Aadhaar</option>
+                                    <option value="pan">PAN</option>
+                                    <option value="voter">Voter ID</option>
+                                    <option value="driving">Driving Licence</option>
+                                    <option value="passport">Passport</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="tenantBgIdNumber">ID Number</label>
+                                <input type="text" id="tenantBgIdNumber">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="tenantBgReference">Reference Name & Contact</label>
+                            <input type="text" id="tenantBgReference" placeholder="Name, Phone, Address">
+                        </div>
+                        <div class="checkbox-group">
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="tenantBgIdVerified">
+                                <label for="tenantBgIdVerified">ID Verified</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="tenantBgAddrVerified">
+                                <label for="tenantBgAddrVerified">Address Verified</label>
+                            </div>
+                            <div class="checkbox-item">
+                                <input type="checkbox" id="tenantBgRefChecked">
+                                <label for="tenantBgRefChecked">Reference Checked</label>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('tenantModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveTenant()">Save Tenant</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add/Edit Payment -->
+    <div id="paymentModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="paymentModalTitle">Record Payment</h2>
+                <button class="modal-close" onclick="closeModal('paymentModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="paymentForm">
+                    <input type="hidden" id="paymentId">
+                    <div class="form-group">
+                        <label for="paymentTenant">Tenant</label>
+                        <select id="paymentTenant" required onchange="populatePaymentAmount()">
+                            <option value="">Select tenant</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="paymentAmount">Amount (₹)</label>
+                            <input type="number" id="paymentAmount" required step="100">
+                        </div>
+                        <div class="form-group">
+                            <label for="paymentMethod">Payment Method</label>
+                            <select id="paymentMethod" required>
+                                <option value="">Select method</option>
+                                <option value="cash">Cash</option>
+                                <option value="upi">UPI</option>
+                                <option value="neft">NEFT/RTGS</option>
+                                <option value="cheque">Cheque</option>
+                                <option value="bank">Bank Transfer</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="paymentDate">Date</label>
+                            <input type="date" id="paymentDate" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="paymentStatus">Status</label>
+                            <select id="paymentStatus" required>
+                                <option value="completed">Completed</option>
+                                <option value="pending">Pending</option>
+                                <option value="failed">Failed</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="paymentNotes">Notes</label>
+                        <textarea id="paymentNotes"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="savePayment()">Save Payment</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add/Edit Payout -->
+    <div id="payoutModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="payoutModalTitle">Record Interest Payout</h2>
+                <button class="modal-close" onclick="closeModal('payoutModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="payoutForm">
+                    <input type="hidden" id="payoutId">
+                    <div class="form-group">
+                        <label for="payoutTenant">Tenant</label>
+                        <select id="payoutTenant" required>
+                            <option value="">Select tenant</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="payoutPeriod">Financial Year</label>
+                            <select id="payoutPeriod" required>
+                                <option value="2024-25">2024-25</option>
+                                <option value="2025-26" selected>2025-26</option>
+                                <option value="2026-27">2026-27</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="payoutPrincipal">Principal (₹)</label>
+                            <input type="number" id="payoutPrincipal" required step="100">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="payoutRate">Interest Rate (%)</label>
+                            <input type="number" id="payoutRate" required step="0.1" value="8">
+                        </div>
+                        <div class="form-group">
+                            <label for="payoutInterest">Interest Amount (₹)</label>
+                            <input type="number" id="payoutInterest" required step="100">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="payoutPayoutDate">Payout Date</label>
+                            <input type="date" id="payoutPayoutDate" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="payoutPayoutStatus">Status</label>
+                            <select id="payoutPayoutStatus" required>
+                                <option value="pending">Pending</option>
+                                <option value="completed">Completed</option>
+                                <option value="delayed">Delayed</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('payoutModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="savePayout()">Save Payout</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add Visit -->
+    <div id="visitModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="visitModalTitle">Log Visit</h2>
+                <button class="modal-close" onclick="closeModal('visitModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="visitForm">
+                    <input type="hidden" id="visitId">
+                    <div class="form-group">
+                        <label for="visitTenant">Tenant</label>
+                        <select id="visitTenant" required>
+                            <option value="">Select tenant</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="visitDate">Visit Date</label>
+                            <input type="date" id="visitDate" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="visitPurpose">Purpose</label>
+                            <select id="visitPurpose" required>
+                                <option value="">Select purpose</option>
+                                <option value="access">Locker Access</option>
+                                <option value="maintenance">Maintenance</option>
+                                <option value="inspection">Inspection</option>
+                                <option value="payment">Payment Collection</option>
+                                <option value="other">Other</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="visitNotes">Notes</label>
+                        <textarea id="visitNotes"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('visitModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveVisit()">Log Visit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add Branch (Head Office Only) -->
+    <div id="branchModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Branch</h2>
+                <button class="modal-close" onclick="closeModal('branchModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="branchForm">
+                    <div class="form-group">
+                        <label for="branchName">Branch Name</label>
+                        <input type="text" id="branchName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="branchLocation">Location</label>
+                        <input type="text" id="branchLocation" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="branchManager">Manager Name</label>
+                        <input type="text" id="branchManager">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('branchModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveBranch()">Add Branch</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add User (Head Office Only) -->
+    <div id="userModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add User</h2>
+                <button class="modal-close" onclick="closeModal('userModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="userForm">
+                    <div class="form-group">
+                        <label for="userName">Name</label>
+                        <input type="text" id="userName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="userUsername">Username</label>
+                        <input type="text" id="userUsername" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="userPassword">Password</label>
+                        <input type="password" id="userPassword" required>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="userRole">Role</label>
+                            <select id="userRole" required onchange="updateBranchSelectForUser()">
+                                <option value="">Select role</option>
+                                <option value="headoffice">Head Office</option>
+                                <option value="branch">Branch Manager</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="userBranchGroup" style="display: none;">
+                            <label for="userBranch">Branch</label>
+                            <select id="userBranch">
+                                <option value="">Select branch</option>
+                            </select>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('userModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveUser()">Add User</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add Locker Type (Head Office Only) -->
+    <div id="lockerTypeModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Locker Type</h2>
+                <button class="modal-close" onclick="closeModal('lockerTypeModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="lockerTypeForm">
+                    <div class="form-group">
+                        <label for="ltName">Name</label>
+                        <input type="text" id="ltName" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="ltVariant">Variant</label>
+                        <input type="text" id="ltVariant" placeholder="e.g., Standard, Compact">
+                    </div>
+                    <div class="form-group">
+                        <label for="ltLockersPerUnit">Lockers per Unit</label>
+                        <input type="number" id="ltLockersPerUnit" required min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Unit Dimensions (HxWxD mm)</label>
+                        <div class="form-row">
+                            <input type="number" id="ltUnitH" placeholder="Height" required min="1" style="flex: 1;">
+                            <span style="padding: 0 8px;">×</span>
+                            <input type="number" id="ltUnitW" placeholder="Width" required min="1" style="flex: 1;">
+                            <span style="padding: 0 8px;">×</span>
+                            <input type="number" id="ltUnitD" placeholder="Depth" required min="1" style="flex: 1;">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Locker Dimensions (HxWxD mm)</label>
+                        <div class="form-row">
+                            <input type="number" id="ltLockerH" placeholder="Height" required min="1" style="flex: 1;">
+                            <span style="padding: 0 8px;">×</span>
+                            <input type="number" id="ltLockerW" placeholder="Width" required min="1" style="flex: 1;">
+                            <span style="padding: 0 8px;">×</span>
+                            <input type="number" id="ltLockerD" placeholder="Depth" required min="1" style="flex: 1;">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="ltWeight">Weight (kg)</label>
+                        <input type="number" id="ltWeight" required min="0" step="0.1">
+                    </div>
+                    <div class="form-group">
+                        <label for="ltDescription">Description</label>
+                        <textarea id="ltDescription" rows="3"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="ltIsUpcoming">
+                            Is Upcoming
+                        </label>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('lockerTypeModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveLockerType()">Add Type</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Add Unit -->
+    <div id="unitModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Add Unit</h2>
+                <button class="modal-close" onclick="closeModal('unitModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="unitForm">
+                    <div class="form-group" id="unitBranchGroup" style="display: none;">
+                        <label for="unitBranch">Branch</label>
+                        <select id="unitBranch" required>
+                            <option value="">Select branch</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="unitType">Locker Type</label>
+                        <select id="unitType" required>
+                            <option value="">Select locker type</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="unitNumber">Unit Number</label>
+                        <input type="text" id="unitNumber" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="unitLocation">Location</label>
+                        <input type="text" id="unitLocation" placeholder="e.g., Ground Floor, Lobby">
+                    </div>
+                    <div class="form-group">
+                        <label for="unitNotes">Notes</label>
+                        <textarea id="unitNotes" rows="3"></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('unitModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveUnit()">Add Unit</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===== Global State =====
+        let currentUser = null;
+        let currentBranchId = null;
+        let allBranches = [];
+        let currentEditingId = null;
+
+        // ===== API Helper =====
+        // Loading overlay
+        function showLoading(msg = 'Please wait...') {
+            let overlay = document.getElementById('loadingOverlay');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'loadingOverlay';
+                overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:10000;';
+                overlay.innerHTML = `<div style="background:#fff;padding:30px 40px;border-radius:12px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                    <div style="width:40px;height:40px;border:4px solid #e0e0e0;border-top-color:#1a73e8;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 15px;"></div>
+                    <div id="loadingMsg" style="font-size:14px;color:#333;">${msg}</div>
+                </div>`;
+                document.body.appendChild(overlay);
+            } else {
+                document.getElementById('loadingMsg').textContent = msg;
+                overlay.style.display = 'flex';
+            }
+        }
+        function hideLoading() {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+
+        async function api(method, path, body = null, timeout = 30000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeout);
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                signal: controller.signal
+            };
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+            try {
+                const response = await fetch(path, options);
+                clearTimeout(timer);
+                if (!response.ok) {
+                    const errBody = await response.json().catch(() => ({}));
+                    throw new Error(errBody.error || `Server error: ${response.status}`);
+                }
+                return await response.json();
+            } catch (err) {
+                clearTimeout(timer);
+                if (err.name === 'AbortError') {
+                    throw new Error('Request timed out. The server may be waking up — please try again in a few seconds.');
+                }
+                throw err;
+            }
+        }
+
+        // ===== Login =====
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            showLoading('Logging in...');
+            try {
+                const result = await api('POST', '/api/login', { username, password }, 45000);
+                hideLoading();
+                currentUser = result;
+                currentBranchId = result.branch_id;
+
+                // Show app
+                document.getElementById('loginScreen').style.display = 'none';
+                document.getElementById('appContainer').style.display = 'flex';
+
+                // Update UI based on role
+                const isHeadOffice = result.role === 'headoffice';
+                document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
+
+                // Update user info
+                document.getElementById('userInfo').textContent = `${result.name} (${result.role === 'headoffice' ? 'Head Office' : 'Branch'})`;
+
+                // Load branches for selector
+                if (isHeadOffice) {
+                    loadBranchSelector();
+                    await switchSection('dashboard');
+                } else {
+                    await switchSection('dashboard');
+                }
+            } catch (error) {
+                hideLoading();
+                const msg = error.message.includes('timed out') ? 'Server is starting up — please wait 30 seconds and try again.' : 'Invalid credentials';
+                document.getElementById('loginError').textContent = msg;
+                document.getElementById('loginError').classList.add('show');
+            }
+        });
+
+        function logout() {
+            currentUser = null;
+            currentBranchId = null;
+            document.getElementById('loginScreen').style.display = 'flex';
+            document.getElementById('appContainer').style.display = 'none';
+            document.getElementById('username').value = '';
+            document.getElementById('password').value = '';
+        }
+
+        // ===== Navigation =====
+        async function switchSection(section) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(section + 'Screen').classList.add('active');
+
+            document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
+            document.querySelector(`[data-section="${section}"]`).classList.add('active');
+
+            // Update title
+            const titles = {
+                dashboard: 'Dashboard',
+                lockers: 'Lockers',
+                lockerTypes: 'Locker Types',
+                units: 'Units & Cabinets',
+                tenants: 'Tenants',
+                payments: 'Rent & Payments',
+                payouts: 'Interest & Payouts',
+                visits: 'Visit Log',
+                bgchecks: 'Background Checks',
+                reports: 'Reports',
+                backup: 'Data & Backup',
+                branches: 'Manage Branches',
+                users: 'Manage Users'
+            };
+            document.getElementById('topbarTitle').textContent = titles[section];
+
+            // Load data
+            if (section === 'dashboard') await loadDashboard();
+            else if (section === 'lockers') await loadLockers();
+            else if (section === 'lockerTypes') await loadLockerTypes();
+            else if (section === 'units') await loadUnits();
+            else if (section === 'tenants') await loadTenants();
+            else if (section === 'payments') await loadPayments();
+            else if (section === 'payouts') await loadPayouts();
+            else if (section === 'visits') await loadVisits();
+            else if (section === 'bgchecks') await loadBGChecks();
+            else if (section === 'reports') await loadReports();
+            else if (section === 'branches') await loadBranches();
+            else if (section === 'users') await loadUsers();
+        }
+
+        // ===== Dashboard =====
+        async function loadDashboard() {
+            try {
+                const isHeadOffice = currentUser.role === 'headoffice';
+
+                if (isHeadOffice) {
+                    // Load head office dashboard
+                    const data = await api('GET', '/api/stats/all');
+                    renderHeadOfficeDashboard(data);
+                } else {
+                    // Load branch dashboard
+                    const stats = await api('GET', `/api/stats?branch_id=${currentBranchId}`);
+                    renderBranchDashboard(stats);
+                }
+            } catch (error) {
+                console.error('Failed to load dashboard:', error);
+            }
+        }
+
+        function renderBranchDashboard(stats) {
+            const html = `
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Total Lockers</div>
+                    <div class="stat-card-value">${stats.total_lockers || 0}</div>
+                    <div class="stat-card-subtext">${stats.occupied || 0} occupied</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="stat-card-label">Occupancy Rate</div>
+                    <div class="stat-card-value">${stats.occupancy_pct || 0}%</div>
+                    <div class="stat-card-subtext">${stats.vacant || 0} vacant</div>
+                </div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Monthly Revenue</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.monthly_revenue || 0)}</div>
+                    <div class="stat-card-subtext">Annual: ₹${formatIndianNumber(stats.annual_revenue || 0)}</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="stat-card-label">Overdue Rent</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.overdue_amount || 0)}</div>
+                    <div class="stat-card-subtext">${stats.overdue_count || 0} tenants</div>
+                </div>
+            `;
+            document.getElementById('dashboardStats').innerHTML = html;
+            document.getElementById('dashboardContent').innerHTML = '';
+        }
+
+        function renderHeadOfficeDashboard(branches) {
+            const totalLockers = branches.reduce((sum, b) => sum + (b.total_lockers || 0), 0);
+            const totalOccupied = branches.reduce((sum, b) => sum + (b.occupied || 0), 0);
+            const totalRevenue = branches.reduce((sum, b) => sum + (b.annual_revenue || 0), 0);
+            const totalOverdue = branches.reduce((sum, b) => sum + (b.overdue_amount || 0), 0);
+
+            const summaryHtml = `
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Total Lockers (All Branches)</div>
+                    <div class="stat-card-value">${totalLockers}</div>
+                    <div class="stat-card-subtext">${totalOccupied} occupied</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="stat-card-label">Combined Annual Revenue</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalRevenue)}</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="stat-card-label">Total Overdue Amount</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalOverdue)}</div>
+                </div>
+            `;
+            document.getElementById('dashboardStats').innerHTML = summaryHtml;
+
+            const branchesHtml = branches.map(b => `
+                <div class="branch-card" onclick="viewBranch('${b.branch_id}')">
+                    <div class="branch-card-title">${b.branch_name}</div>
+                    <div class="branch-stats">
+                        <div class="branch-stat">
+                            <div class="branch-stat-label">Lockers</div>
+                            <div class="branch-stat-value">${b.total_lockers || 0}</div>
+                        </div>
+                        <div class="branch-stat">
+                            <div class="branch-stat-label">Occupancy</div>
+                            <div class="branch-stat-value">${b.occupancy_pct || 0}%</div>
+                        </div>
+                        <div class="branch-stat">
+                            <div class="branch-stat-label">Revenue</div>
+                            <div class="branch-stat-value">₹${formatIndianNumberCompact(b.annual_revenue || 0)}</div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            document.getElementById('dashboardContent').innerHTML = branchesHtml;
+        }
+
+        function viewBranch(branchId) {
+            currentBranchId = branchId;
+            document.getElementById('backToAllBtn').style.display = 'inline-block';
+            document.getElementById('branchSelector').value = branchId;
+            switchSection('lockers');
+        }
+
+        function backToAllBranches() {
+            currentBranchId = null;
+            document.getElementById('backToAllBtn').style.display = 'none';
+            document.getElementById('branchSelector').value = 'all';
+            switchSection('dashboard');
+        }
+
+        // ===== Lockers =====
+        async function loadLockers() {
+            try {
+                const url = currentBranchId
+                    ? `/api/lockers?branch_id=${currentBranchId}`
+                    : '/api/lockers?branch_id=all';
+                const lockers = await api('GET', url);
+                renderLockers(lockers);
+            } catch (error) {
+                console.error('Failed to load lockers:', error);
+            }
+        }
+
+        function renderLockers(lockers) {
+            const html = lockers.map(l => {
+                let badgeClass = 'badge-success';
+                let badgeText = capitalize(l.status);
+                if (l.status === 'occupied') badgeClass = 'badge-danger';
+                else if (l.status === 'upcoming') badgeClass = 'badge-warning';
+
+                return `
+                    <tr>
+                        <td><strong>${l.number}</strong></td>
+                        <td>${l.locker_type || '-'}</td>
+                        <td>${l.unit_number || '-'}</td>
+                        <td>${capitalize(l.size)}</td>
+                        <td><span class="badge ${badgeClass}">${badgeText}</span></td>
+                        <td>${l.tenant_name || '-'}</td>
+                        <td>${l.location || '-'}</td>
+                        <td>₹${formatIndianNumber(l.rent)}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn btn-secondary" onclick="openEditLockerModal('${l.id}')">Edit</button>
+                                <button class="btn btn-danger" onclick="deleteLocker('${l.id}')">Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            if (lockers.length === 0) {
+                html = '<tr><td colspan="9" style="text-align: center; padding: 40px;">No lockers found</td></tr>';
+            }
+
+            document.getElementById('lockersTable').innerHTML = html;
+        }
+
+        function filterLockers() {
+            const search = document.getElementById('lockerSearch').value.toLowerCase();
+            document.querySelectorAll('#lockersTable tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(search) ? '' : 'none';
+            });
+        }
+
+        function openAddLockerModal() {
+            currentEditingId = null;
+            document.getElementById('lockerModalTitle').textContent = 'Add Locker';
+            document.getElementById('lockerForm').reset();
+            document.getElementById('lockerId').value = '';
+            document.getElementById('lockerModal').classList.add('active');
+        }
+
+        async function openEditLockerModal(id) {
+            currentEditingId = id;
+            try {
+                const locker = await api('GET', `/api/lockers/${id}`);
+                document.getElementById('lockerModalTitle').textContent = 'Edit Locker';
+                document.getElementById('lockerId').value = id;
+                document.getElementById('lockerNumber').value = locker.number;
+                document.getElementById('lockerSize').value = locker.size;
+                document.getElementById('lockerRent').value = locker.rent;
+                document.getElementById('lockerLocation').value = locker.location || '';
+                document.getElementById('lockerNotes').value = locker.notes || '';
+                document.getElementById('lockerModal').classList.add('active');
+            } catch (error) {
+                console.error('Failed to load locker:', error);
+            }
+        }
+
+        async function saveLocker() {
+            const lockerId = document.getElementById('lockerId').value;
+            const data = {
+                number: document.getElementById('lockerNumber').value,
+                size: document.getElementById('lockerSize').value,
+                rent: parseInt(document.getElementById('lockerRent').value),
+                location: document.getElementById('lockerLocation').value,
+                notes: document.getElementById('lockerNotes').value,
+                branch_id: currentBranchId
+            };
+
+            try {
+                if (lockerId) {
+                    await api('PUT', `/api/lockers/${lockerId}`, data);
+                } else {
+                    await api('POST', '/api/lockers', data);
+                }
+                closeModal('lockerModal');
+                await loadLockers();
+            } catch (error) {
+                console.error('Failed to save locker:', error);
+            }
+        }
+
+        async function deleteLocker(id) {
+            if (confirm('Are you sure you want to delete this locker?')) {
+                try {
+                    await api('DELETE', `/api/lockers/${id}`);
+                    await loadLockers();
+                } catch (error) {
+                    console.error('Failed to delete locker:', error);
+                }
+            }
+        }
+
+        function openBulkAddModal() {
+            document.getElementById('bulkLockerForm').reset();
+            document.getElementById('bulkLockerModal').classList.add('active');
+        }
+
+        async function saveBulkLockers() {
+            const data = {
+                branch_id: currentBranchId,
+                prefix: document.getElementById('bulkPrefix').value,
+                count: parseInt(document.getElementById('bulkCount').value),
+                size: document.getElementById('bulkSize').value,
+                rent: parseInt(document.getElementById('bulkRent').value),
+                location: document.getElementById('bulkLocation').value
+            };
+
+            try {
+                await api('POST', '/api/lockers/bulk', data);
+                closeModal('bulkLockerModal');
+                await loadLockers();
+            } catch (error) {
+                console.error('Failed to add bulk lockers:', error);
+            }
+        }
+
+        // ===== Tenants =====
+        async function loadTenants() {
+            try {
+                const url = currentBranchId
+                    ? `/api/tenants?branch_id=${currentBranchId}`
+                    : '/api/tenants?branch_id=all';
+                const tenants = await api('GET', url);
+                renderTenants(tenants);
+            } catch (error) {
+                console.error('Failed to load tenants:', error);
+            }
+        }
+
+        function renderTenants(tenants) {
+            const html = tenants.map(t => `
+                <tr>
+                    <td><strong>${t.name}</strong></td>
+                    <td>+91 ${t.phone}</td>
+                    <td>${t.locker_number || '-'}</td>
+                    <td>${t.email || '-'}</td>
+                    <td>${t.interest_rate}%</td>
+                    <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status || 'pending')}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>
+                            <button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (tenants.length === 0) {
+                html = '<tr><td colspan="7" style="text-align: center; padding: 40px;">No tenants found</td></tr>';
+            }
+
+            document.getElementById('tenantsTable').innerHTML = html;
+        }
+
+        function filterTenants() {
+            const search = document.getElementById('tenantSearch').value.toLowerCase();
+            document.querySelectorAll('#tenantsTable tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(search) ? '' : 'none';
+            });
+        }
+
+        function openAddTenantModal() {
+            currentEditingId = null;
+            document.getElementById('tenantModalTitle').textContent = 'Add Tenant';
+            document.getElementById('tenantForm').reset();
+            document.getElementById('tenantId').value = '';
+            document.getElementById('tenantLeaseStart').valueAsDate = new Date();
+
+            // Load available lockers
+            loadLockerSelect();
+            document.getElementById('tenantModal').classList.add('active');
+        }
+
+        async function openEditTenantModal(id) {
+            currentEditingId = id;
+            try {
+                const tenant = await api('GET', `/api/tenants/${id}`);
+                document.getElementById('tenantModalTitle').textContent = 'Edit Tenant';
+                document.getElementById('tenantId').value = id;
+                document.getElementById('tenantName').value = tenant.name;
+                document.getElementById('tenantPhone').value = tenant.phone;
+                document.getElementById('tenantEmail').value = tenant.email || '';
+                document.getElementById('tenantAddress').value = tenant.address || '';
+                document.getElementById('tenantEmergency').value = tenant.emergency || '';
+                document.getElementById('tenantLeaseStart').value = tenant.lease_start;
+                document.getElementById('tenantInterestRate').value = tenant.interest_rate;
+                document.getElementById('tenantInterestFreq').value = tenant.interest_freq;
+                document.getElementById('tenantInterestEnabled').checked = tenant.interest_enabled;
+                document.getElementById('tenantBgIdType').value = tenant.bg_id_type || '';
+                document.getElementById('tenantBgIdNumber').value = tenant.bg_id_number || '';
+                document.getElementById('tenantBgReference').value = tenant.bg_reference || '';
+                document.getElementById('tenantBgIdVerified').checked = tenant.bg_id_verified;
+                document.getElementById('tenantBgAddrVerified').checked = tenant.bg_addr_verified;
+                document.getElementById('tenantBgRefChecked').checked = tenant.bg_ref_checked;
+
+                await loadLockerSelect();
+                document.getElementById('tenantLocker').value = tenant.locker_id || '';
+                document.getElementById('tenantModal').classList.add('active');
+            } catch (error) {
+                console.error('Failed to load tenant:', error);
+            }
+        }
+
+        async function loadLockerSelect() {
+            try {
+                const url = currentBranchId
+                    ? `/api/lockers?branch_id=${currentBranchId}`
+                    : '/api/lockers?branch_id=all';
+                const lockers = await api('GET', url);
+                const select = document.getElementById('tenantLocker');
+                select.innerHTML = '<option value="">Select locker</option>' +
+                    lockers.map(l => `<option value="${l.id}">${l.number}</option>`).join('');
+            } catch (error) {
+                console.error('Failed to load lockers:', error);
+            }
+        }
+
+        async function saveTenant() {
+            const tenantId = document.getElementById('tenantId').value;
+            const data = {
+                branch_id: currentBranchId,
+                name: document.getElementById('tenantName').value,
+                phone: document.getElementById('tenantPhone').value,
+                email: document.getElementById('tenantEmail').value,
+                address: document.getElementById('tenantAddress').value,
+                emergency: document.getElementById('tenantEmergency').value,
+                locker_id: document.getElementById('tenantLocker').value || null,
+                lease_start: document.getElementById('tenantLeaseStart').value,
+                interest_rate: parseFloat(document.getElementById('tenantInterestRate').value),
+                interest_freq: document.getElementById('tenantInterestFreq').value,
+                interest_enabled: document.getElementById('tenantInterestEnabled').checked,
+                bg_id_type: document.getElementById('tenantBgIdType').value || null,
+                bg_id_number: document.getElementById('tenantBgIdNumber').value || null,
+                bg_reference: document.getElementById('tenantBgReference').value || null,
+                bg_id_verified: document.getElementById('tenantBgIdVerified').checked,
+                bg_addr_verified: document.getElementById('tenantBgAddrVerified').checked,
+                bg_ref_checked: document.getElementById('tenantBgRefChecked').checked,
+                bg_status: document.getElementById('tenantBgIdVerified').checked ? 'verified' : 'pending'
+            };
+
+            showLoading('Saving tenant...');
+            try {
+                if (tenantId) {
+                    await api('PUT', `/api/tenants/${tenantId}`, data);
+                } else {
+                    await api('POST', '/api/tenants', data);
+                }
+                hideLoading();
+                closeModal('tenantModal');
+                await loadTenants();
+            } catch (error) {
+                hideLoading();
+                alert('Failed to save tenant: ' + error.message);
+                console.error('Failed to save tenant:', error);
+            }
+        }
+
+        async function deleteTenant(id) {
+            if (confirm('Are you sure you want to delete this tenant?')) {
+                try {
+                    await api('DELETE', `/api/tenants/${id}`);
+                    await loadTenants();
+                } catch (error) {
+                    console.error('Failed to delete tenant:', error);
+                }
+            }
+        }
+
+        // ===== Payments =====
+        async function loadPayments() {
+            try {
+                const url = currentBranchId
+                    ? `/api/payments?branch_id=${currentBranchId}`
+                    : '/api/payments?branch_id=all';
+                const payments = await api('GET', url);
+                renderPayments(payments);
+            } catch (error) {
+                console.error('Failed to load payments:', error);
+            }
+        }
+
+        function renderPayments(payments) {
+            const html = payments.map(p => `
+                <tr>
+                    <td><strong>${p.tenant_name}</strong></td>
+                    <td>${p.locker_number}</td>
+                    <td>₹${formatIndianNumber(p.amount)}</td>
+                    <td>${capitalize(p.payment_method)}</td>
+                    <td>${new Date(p.payment_date).toLocaleDateString('en-IN')}</td>
+                    <td><span class="badge ${getPaymentStatusBadge(p.status)}">${capitalize(p.status)}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')">Edit</button>
+                            <button class="btn btn-danger" onclick="deletePayment('${p.id}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (payments.length === 0) {
+                html = '<tr><td colspan="7" style="text-align: center; padding: 40px;">No payments found</td></tr>';
+            }
+
+            document.getElementById('paymentsTable').innerHTML = html;
+        }
+
+        function filterPayments() {
+            const search = document.getElementById('paymentSearch').value.toLowerCase();
+            document.querySelectorAll('#paymentsTable tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(search) ? '' : 'none';
+            });
+        }
+
+        function openAddPaymentModal() {
+            currentEditingId = null;
+            document.getElementById('paymentModalTitle').textContent = 'Record Payment';
+            document.getElementById('paymentForm').reset();
+            document.getElementById('paymentId').value = '';
+            document.getElementById('paymentDate').valueAsDate = new Date();
+            document.getElementById('paymentStatus').value = 'completed';
+
+            // Load tenants
+            loadTenantSelect('paymentTenant');
+            document.getElementById('paymentModal').classList.add('active');
+        }
+
+        async function openEditPaymentModal(id) {
+            currentEditingId = id;
+            try {
+                const payment = await api('GET', `/api/payments/${id}`);
+                document.getElementById('paymentModalTitle').textContent = 'Edit Payment';
+                document.getElementById('paymentId').value = id;
+                await loadTenantSelect('paymentTenant');
+                document.getElementById('paymentTenant').value = payment.tenant_id;
+                document.getElementById('paymentAmount').value = payment.amount;
+                document.getElementById('paymentMethod').value = payment.payment_method;
+                document.getElementById('paymentDate').value = payment.payment_date;
+                document.getElementById('paymentStatus').value = payment.status;
+                document.getElementById('paymentNotes').value = payment.notes || '';
+                document.getElementById('paymentModal').classList.add('active');
+            } catch (error) {
+                console.error('Failed to load payment:', error);
+            }
+        }
+
+        async function loadTenantSelect(selectId) {
+            try {
+                const url = currentBranchId
+                    ? `/api/tenants?branch_id=${currentBranchId}`
+                    : '/api/tenants?branch_id=all';
+                const tenants = await api('GET', url);
+                const select = document.getElementById(selectId);
+                select.innerHTML = '<option value="">Select tenant</option>' +
+                    tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+            } catch (error) {
+                console.error('Failed to load tenants:', error);
+            }
+        }
+
+        function populatePaymentAmount() {
+            // Would fetch monthly rent here if needed
+        }
+
+        async function savePayment() {
+            const paymentId = document.getElementById('paymentId').value;
+            const data = {
+                branch_id: currentBranchId,
+                tenant_id: document.getElementById('paymentTenant').value,
+                amount: parseInt(document.getElementById('paymentAmount').value),
+                payment_method: document.getElementById('paymentMethod').value,
+                payment_date: document.getElementById('paymentDate').value,
+                status: document.getElementById('paymentStatus').value,
+                notes: document.getElementById('paymentNotes').value
+            };
+
+            showLoading('Saving payment...');
+            try {
+                if (paymentId) {
+                    await api('PUT', `/api/payments/${paymentId}`, data);
+                } else {
+                    await api('POST', '/api/payments', data);
+                }
+                hideLoading();
+                closeModal('paymentModal');
+                await loadPayments();
+            } catch (error) {
+                hideLoading();
+                alert('Failed to save payment: ' + error.message);
+                console.error('Failed to save payment:', error);
+            }
+        }
+
+        async function deletePayment(id) {
+            if (confirm('Are you sure?')) {
+                try {
+                    await api('DELETE', `/api/payments/${id}`);
+                    await loadPayments();
+                } catch (error) {
+                    console.error('Failed to delete payment:', error);
+                }
+            }
+        }
+
+        // ===== Payouts =====
+        async function loadPayouts() {
+            try {
+                const url = currentBranchId
+                    ? `/api/payouts?branch_id=${currentBranchId}`
+                    : '/api/payouts?branch_id=all';
+                const payouts = await api('GET', url);
+                renderPayouts(payouts);
+            } catch (error) {
+                console.error('Failed to load payouts:', error);
+            }
+        }
+
+        function renderPayouts(payouts) {
+            const html = payouts.map(p => `
+                <tr>
+                    <td><strong>${p.tenant_name}</strong></td>
+                    <td>${p.locker_number}</td>
+                    <td>${p.financial_year}</td>
+                    <td>₹${formatIndianNumber(p.principal)}</td>
+                    <td>${p.interest_rate}%</td>
+                    <td>₹${formatIndianNumber(p.interest_amount)}</td>
+                    <td><span class="badge ${getPayoutStatusBadge(p.payout_status)}">${capitalize(p.payout_status)}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" onclick="openEditPayoutModal('${p.id}')">Edit</button>
+                            <button class="btn btn-danger" onclick="deletePayout('${p.id}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (payouts.length === 0) {
+                html = '<tr><td colspan="8" style="text-align: center; padding: 40px;">No payouts found</td></tr>';
+            }
+
+            document.getElementById('payoutsTable').innerHTML = html;
+        }
+
+        function filterPayouts() {
+            const search = document.getElementById('payoutSearch').value.toLowerCase();
+            document.querySelectorAll('#payoutsTable tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(search) ? '' : 'none';
+            });
+        }
+
+        function openAddPayoutModal() {
+            currentEditingId = null;
+            document.getElementById('payoutModalTitle').textContent = 'Record Interest Payout';
+            document.getElementById('payoutForm').reset();
+            document.getElementById('payoutId').value = '';
+            document.getElementById('payoutPayoutDate').valueAsDate = new Date();
+            document.getElementById('payoutPayoutStatus').value = 'pending';
+
+            loadTenantSelect('payoutTenant');
+            document.getElementById('payoutModal').classList.add('active');
+        }
+
+        async function openEditPayoutModal(id) {
+            currentEditingId = id;
+            try {
+                const payout = await api('GET', `/api/payouts/${id}`);
+                document.getElementById('payoutModalTitle').textContent = 'Edit Interest Payout';
+                document.getElementById('payoutId').value = id;
+                await loadTenantSelect('payoutTenant');
+                document.getElementById('payoutTenant').value = payout.tenant_id;
+                document.getElementById('payoutPeriod').value = payout.financial_year;
+                document.getElementById('payoutPrincipal').value = payout.principal;
+                document.getElementById('payoutRate').value = payout.interest_rate;
+                document.getElementById('payoutInterest').value = payout.interest_amount;
+                document.getElementById('payoutPayoutDate').value = payout.payout_date;
+                document.getElementById('payoutPayoutStatus').value = payout.payout_status;
+                document.getElementById('payoutModal').classList.add('active');
+            } catch (error) {
+                console.error('Failed to load payout:', error);
+            }
+        }
+
+        async function savePayout() {
+            const payoutId = document.getElementById('payoutId').value;
+            const data = {
+                branch_id: currentBranchId,
+                tenant_id: document.getElementById('payoutTenant').value,
+                financial_year: document.getElementById('payoutPeriod').value,
+                principal: parseInt(document.getElementById('payoutPrincipal').value),
+                interest_rate: parseFloat(document.getElementById('payoutRate').value),
+                interest_amount: parseInt(document.getElementById('payoutInterest').value),
+                payout_date: document.getElementById('payoutPayoutDate').value,
+                payout_status: document.getElementById('payoutPayoutStatus').value
+            };
+
+            showLoading('Saving payout...');
+            try {
+                if (payoutId) {
+                    await api('PUT', `/api/payouts/${payoutId}`, data);
+                } else {
+                    await api('POST', '/api/payouts', data);
+                }
+                hideLoading();
+                closeModal('payoutModal');
+                await loadPayouts();
+            } catch (error) {
+                hideLoading();
+                alert('Failed to save payout: ' + error.message);
+                console.error('Failed to save payout:', error);
+            }
+        }
+
+        async function deletePayout(id) {
+            if (confirm('Are you sure?')) {
+                try {
+                    await api('DELETE', `/api/payouts/${id}`);
+                    await loadPayouts();
+                } catch (error) {
+                    console.error('Failed to delete payout:', error);
+                }
+            }
+        }
+
+        // ===== Visits =====
+        async function loadVisits() {
+            try {
+                const url = currentBranchId
+                    ? `/api/visits?branch_id=${currentBranchId}`
+                    : '/api/visits?branch_id=all';
+                const visits = await api('GET', url);
+                renderVisits(visits);
+            } catch (error) {
+                console.error('Failed to load visits:', error);
+            }
+        }
+
+        function renderVisits(visits) {
+            const html = visits.map(v => `
+                <tr>
+                    <td><strong>${v.tenant_name}</strong></td>
+                    <td>${v.locker_number}</td>
+                    <td>${new Date(v.visit_date).toLocaleDateString('en-IN')}</td>
+                    <td>${capitalize(v.purpose)}</td>
+                    <td>${v.notes || '-'}</td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-danger" onclick="deleteVisit('${v.id}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (visits.length === 0) {
+                html = '<tr><td colspan="6" style="text-align: center; padding: 40px;">No visits logged</td></tr>';
+            }
+
+            document.getElementById('visitsTable').innerHTML = html;
+        }
+
+        function filterVisits() {
+            const search = document.getElementById('visitSearch').value.toLowerCase();
+            document.querySelectorAll('#visitsTable tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(search) ? '' : 'none';
+            });
+        }
+
+        function openAddVisitModal() {
+            currentEditingId = null;
+            document.getElementById('visitModalTitle').textContent = 'Log Visit';
+            document.getElementById('visitForm').reset();
+            document.getElementById('visitId').value = '';
+            document.getElementById('visitDate').valueAsDate = new Date();
+
+            loadTenantSelect('visitTenant');
+            document.getElementById('visitModal').classList.add('active');
+        }
+
+        async function saveVisit() {
+            const visitId = document.getElementById('visitId').value;
+            const data = {
+                branch_id: currentBranchId,
+                tenant_id: document.getElementById('visitTenant').value,
+                visit_date: document.getElementById('visitDate').value,
+                purpose: document.getElementById('visitPurpose').value,
+                notes: document.getElementById('visitNotes').value
+            };
+
+            showLoading('Saving visit...');
+            try {
+                if (visitId) {
+                    await api('PUT', `/api/visits/${visitId}`, data);
+                } else {
+                    await api('POST', '/api/visits', data);
+                }
+                hideLoading();
+                closeModal('visitModal');
+                await loadVisits();
+            } catch (error) {
+                hideLoading();
+                alert('Failed to save visit: ' + error.message);
+                console.error('Failed to save visit:', error);
+            }
+        }
+
+        async function deleteVisit(id) {
+            if (confirm('Are you sure?')) {
+                try {
+                    await api('DELETE', `/api/visits/${id}`);
+                    await loadVisits();
+                } catch (error) {
+                    console.error('Failed to delete visit:', error);
+                }
+            }
+        }
+
+        // ===== Background Checks =====
+        async function loadBGChecks() {
+            try {
+                const url = currentBranchId
+                    ? `/api/tenants?branch_id=${currentBranchId}`
+                    : '/api/tenants?branch_id=all';
+                const tenants = await api('GET', url);
+                renderBGChecks(tenants);
+            } catch (error) {
+                console.error('Failed to load BG checks:', error);
+            }
+        }
+
+        function renderBGChecks(tenants) {
+            const html = tenants.map(t => `
+                <tr>
+                    <td><strong>${t.name}</strong></td>
+                    <td>${capitalize(t.bg_id_type) || '-'}</td>
+                    <td>${t.bg_id_number || '-'}</td>
+                    <td><span class="badge ${t.bg_id_verified ? 'badge-success' : 'badge-warning'}">✓</span></td>
+                    <td><span class="badge ${t.bg_addr_verified ? 'badge-success' : 'badge-warning'}">✓</span></td>
+                    <td><span class="badge ${t.bg_ref_checked ? 'badge-success' : 'badge-warning'}">✓</span></td>
+                    <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status)}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Update</button>
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (tenants.length === 0) {
+                html = '<tr><td colspan="8" style="text-align: center; padding: 40px;">No tenants found</td></tr>';
+            }
+
+            document.getElementById('bgchecksTable').innerHTML = html;
+        }
+
+        function filterBGChecks() {
+            const search = document.getElementById('bgSearch').value.toLowerCase();
+            document.querySelectorAll('#bgchecksTable tr').forEach(row => {
+                const text = row.textContent.toLowerCase();
+                row.style.display = text.includes(search) ? '' : 'none';
+            });
+        }
+
+        // ===== Reports =====
+        async function loadReports() {
+            const reports = [
+                { name: 'Locker Inventory', id: 'inventory' },
+                { name: 'Tenant Directory', id: 'directory' },
+                { name: 'Rent Collection', id: 'rent' },
+                { name: 'Overdue Summary', id: 'overdue' },
+                { name: 'Interest Payouts', id: 'interest' },
+                { name: 'Missed Payouts', id: 'missed' },
+                { name: 'Visit Log', id: 'visits' },
+                { name: 'BG Check Report', id: 'bgcheck' },
+                { name: 'Occupancy Summary', id: 'occupancy' },
+                { name: 'Tenant Ledger', id: 'ledger' },
+                { name: 'Complete Data Dump', id: 'dump' }
+            ];
+
+            const html = reports.map(r => `
+                <div class="stat-card" style="display: flex; flex-direction: column; gap: 12px; cursor: pointer;" onclick="generateReport('${r.id}')">
+                    <div class="stat-card-label">${r.name}</div>
+                    <button class="btn btn-primary" onclick="event.stopPropagation(); generateReport('${r.id}')">📥 Download</button>
+                </div>
+            `).join('');
+
+            document.getElementById('reportsGrid').innerHTML = html;
+        }
+
+        async function generateReport(reportId) {
+            try {
+                const isHeadOffice = currentUser.role === 'headoffice';
+                let data = [];
+                let fileName = '';
+
+                if (reportId === 'inventory') {
+                    data = await api('GET', currentBranchId ? `/api/lockers?branch_id=${currentBranchId}` : '/api/lockers?branch_id=all');
+                    fileName = 'Locker_Inventory.xlsx';
+                    downloadExcel(formatLockerInventoryReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'directory') {
+                    data = await api('GET', currentBranchId ? `/api/tenants?branch_id=${currentBranchId}` : '/api/tenants?branch_id=all');
+                    fileName = 'Tenant_Directory.xlsx';
+                    downloadExcel(formatTenantDirectoryReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'rent') {
+                    data = await api('GET', currentBranchId ? `/api/payments?branch_id=${currentBranchId}` : '/api/payments?branch_id=all');
+                    fileName = 'Rent_Collection.xlsx';
+                    downloadExcel(formatRentCollectionReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'overdue') {
+                    data = await api('GET', currentBranchId ? `/api/payments?branch_id=${currentBranchId}&overdue=true` : '/api/payments?branch_id=all&overdue=true');
+                    fileName = 'Overdue_Summary.xlsx';
+                    downloadExcel(formatOverdueReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'interest') {
+                    data = await api('GET', currentBranchId ? `/api/payouts?branch_id=${currentBranchId}` : '/api/payouts?branch_id=all');
+                    fileName = 'Interest_Payouts.xlsx';
+                    downloadExcel(formatInterestReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'missed') {
+                    data = await api('GET', currentBranchId ? `/api/payouts?branch_id=${currentBranchId}&status=pending` : '/api/payouts?branch_id=all&status=pending');
+                    fileName = 'Missed_Payouts.xlsx';
+                    downloadExcel(formatMissedPayoutsReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'visits') {
+                    data = await api('GET', currentBranchId ? `/api/visits?branch_id=${currentBranchId}` : '/api/visits?branch_id=all');
+                    fileName = 'Visit_Log.xlsx';
+                    downloadExcel(formatVisitLogReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'bgcheck') {
+                    data = await api('GET', currentBranchId ? `/api/tenants?branch_id=${currentBranchId}` : '/api/tenants?branch_id=all');
+                    fileName = 'Background_Checks.xlsx';
+                    downloadExcel(formatBGCheckReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'occupancy') {
+                    data = await api('GET', currentBranchId ? `/api/lockers?branch_id=${currentBranchId}` : '/api/lockers?branch_id=all');
+                    fileName = 'Occupancy_Summary.xlsx';
+                    downloadExcel(formatOccupancyReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'ledger') {
+                    data = await api('GET', currentBranchId ? `/api/tenants?branch_id=${currentBranchId}` : '/api/tenants?branch_id=all');
+                    fileName = 'Tenant_Ledger.xlsx';
+                    downloadExcel(formatTenantLedgerReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'dump') {
+                    fileName = 'Complete_Data_Dump.xlsx';
+                    downloadFullBackup();
+                }
+            } catch (error) {
+                console.error('Failed to generate report:', error);
+            }
+        }
+
+        // ===== Backup =====
+        async function downloadFullBackup() {
+            try {
+                const data = await api('GET', '/api/backup');
+                const ws = XLSX.utils.json_to_sheet(data || []);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'Backup');
+                XLSX.writeFile(wb, 'Complete_Backup.xlsx');
+            } catch (error) {
+                console.error('Failed to download backup:', error);
+            }
+        }
+
+        // ===== Branches (Head Office Only) =====
+        async function loadBranches() {
+            try {
+                const branches = await api('GET', '/api/branches');
+                renderBranches(branches);
+            } catch (error) {
+                console.error('Failed to load branches:', error);
+            }
+        }
+
+        function renderBranches(branches) {
+            const html = branches.map(b => `
+                <div class="stat-card">
+                    <h3>${b.name}</h3>
+                    <p>Location: ${b.location}</p>
+                    <p>Manager: ${b.manager_name || '-'}</p>
+                </div>
+            `).join('');
+
+            document.getElementById('branchesContainer').innerHTML = html;
+        }
+
+        function openAddBranchModal() {
+            document.getElementById('branchForm').reset();
+            document.getElementById('branchModal').classList.add('active');
+        }
+
+        async function saveBranch() {
+            const data = {
+                name: document.getElementById('branchName').value,
+                location: document.getElementById('branchLocation').value,
+                manager_name: document.getElementById('branchManager').value
+            };
+
+            try {
+                await api('POST', '/api/branches', data);
+                closeModal('branchModal');
+                await loadBranches();
+                await loadBranchSelector();
+            } catch (error) {
+                console.error('Failed to save branch:', error);
+            }
+        }
+
+        async function loadBranchSelector() {
+            try {
+                const branches = await api('GET', '/api/branches');
+                allBranches = branches;
+                const selector = document.getElementById('branchSelector');
+                selector.innerHTML = '<option value="all">All Branches</option>' +
+                    branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+            } catch (error) {
+                console.error('Failed to load branches:', error);
+            }
+        }
+
+        function switchBranch() {
+            const branchId = document.getElementById('branchSelector').value;
+            if (branchId === 'all') {
+                currentBranchId = null;
+                document.getElementById('backToAllBtn').style.display = 'none';
+                switchSection('dashboard');
+            } else {
+                currentBranchId = branchId;
+                document.getElementById('backToAllBtn').style.display = 'inline-block';
+                switchSection('lockers');
+            }
+        }
+
+        // ===== Users (Head Office Only) =====
+        async function loadUsers() {
+            try {
+                const users = await api('GET', '/api/users');
+                renderUsers(users);
+            } catch (error) {
+                console.error('Failed to load users:', error);
+            }
+        }
+
+        function renderUsers(users) {
+            const html = users.map(u => `
+                <tr>
+                    <td><strong>${u.name}</strong></td>
+                    <td>${u.username}</td>
+                    <td><span class="badge badge-primary">${capitalize(u.role)}</span></td>
+                    <td>${u.branch_name || 'All Branches'}</td>
+                    <td>
+                        <button class="btn btn-danger" onclick="deleteUser('${u.id}')">Delete</button>
+                    </td>
+                </tr>
+            `).join('');
+
+            if (users.length === 0) {
+                html = '<tr><td colspan="5" style="text-align: center; padding: 40px;">No users found</td></tr>';
+            }
+
+            document.getElementById('usersTable').innerHTML = html;
+        }
+
+        function openAddUserModal() {
+            document.getElementById('userForm').reset();
+            loadBranchSelectorForUser();
+            document.getElementById('userModal').classList.add('active');
+        }
+
+        function updateBranchSelectForUser() {
+            const role = document.getElementById('userRole').value;
+            document.getElementById('userBranchGroup').style.display = role === 'branch' ? 'block' : 'none';
+        }
+
+        async function loadBranchSelectorForUser() {
+            try {
+                const branches = await api('GET', '/api/branches');
+                const selector = document.getElementById('userBranch');
+                selector.innerHTML = '<option value="">Select branch</option>' +
+                    branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+            } catch (error) {
+                console.error('Failed to load branches:', error);
+            }
+        }
+
+        async function saveUser() {
+            const data = {
+                name: document.getElementById('userName').value,
+                username: document.getElementById('userUsername').value,
+                password: document.getElementById('userPassword').value,
+                role: document.getElementById('userRole').value,
+                branch_id: document.getElementById('userRole').value === 'branch' ? document.getElementById('userBranch').value : null
+            };
+
+            try {
+                await api('POST', '/api/users', data);
+                closeModal('userModal');
+                await loadUsers();
+            } catch (error) {
+                console.error('Failed to save user:', error);
+            }
+        }
+
+        async function deleteUser(id) {
+            if (confirm('Are you sure?')) {
+                try {
+                    await api('DELETE', `/api/users/${id}`);
+                    await loadUsers();
+                } catch (error) {
+                    console.error('Failed to delete user:', error);
+                }
+            }
+        }
+
+        // ===== Locker Types (Head Office Only) =====
+        async function loadLockerTypes() {
+            try {
+                const types = await api('GET', '/api/locker-types');
+                renderLockerTypes(types);
+            } catch (error) {
+                console.error('Failed to load locker types:', error);
+            }
+        }
+
+        function calculateAutoSize(volume) {
+            if (volume <= 50) return 'Small';
+            if (volume <= 120) return 'Medium';
+            if (volume <= 250) return 'Large';
+            return 'XL';
+        }
+
+        function renderLockerTypes(types) {
+            const html = types.map(t => {
+                const volume = (t.unit_h * t.unit_w * t.unit_d) / 1000000;
+                const autoSize = calculateAutoSize(volume);
+                const badge = t.is_upcoming ? '<span class="badge badge-warning">Upcoming</span>' : '<span class="badge badge-success">Active</span>';
+                return `
+                    <tr>
+                        <td><strong>${t.name}</strong></td>
+                        <td>${t.variant || '-'}</td>
+                        <td>${t.lockers_per_unit}</td>
+                        <td>${t.unit_h}×${t.unit_w}×${t.unit_d}</td>
+                        <td>${t.locker_h}×${t.locker_w}×${t.locker_d}</td>
+                        <td>${(volume).toFixed(1)}</td>
+                        <td>${autoSize}</td>
+                        <td>${t.weight}</td>
+                        <td>${badge}</td>
+                        <td>
+                            <div class="action-buttons">
+                                <button class="btn btn-danger" onclick="deleteLockerType('${t.id}')">Delete</button>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            if (types.length === 0) {
+                html = '<tr><td colspan="10" style="text-align: center; padding: 40px;">No locker types found</td></tr>';
+            }
+
+            document.getElementById('lockerTypesTable').innerHTML = html;
+        }
+
+        function openAddLockerTypeModal() {
+            document.getElementById('lockerTypeForm').reset();
+            document.getElementById('lockerTypeModal').classList.add('active');
+        }
+
+        async function saveLockerType() {
+            const data = {
+                name: document.getElementById('ltName').value,
+                variant: document.getElementById('ltVariant').value || null,
+                lockers_per_unit: parseInt(document.getElementById('ltLockersPerUnit').value),
+                unit_h: parseInt(document.getElementById('ltUnitH').value),
+                unit_w: parseInt(document.getElementById('ltUnitW').value),
+                unit_d: parseInt(document.getElementById('ltUnitD').value),
+                locker_h: parseInt(document.getElementById('ltLockerH').value),
+                locker_w: parseInt(document.getElementById('ltLockerW').value),
+                locker_d: parseInt(document.getElementById('ltLockerD').value),
+                weight: parseFloat(document.getElementById('ltWeight').value),
+                description: document.getElementById('ltDescription').value || null,
+                is_upcoming: document.getElementById('ltIsUpcoming').checked
+            };
+
+            try {
+                await api('POST', '/api/locker-types', data);
+                closeModal('lockerTypeModal');
+                await loadLockerTypes();
+            } catch (error) {
+                console.error('Failed to save locker type:', error);
+                alert('Failed to save locker type');
+            }
+        }
+
+        async function deleteLockerType(id) {
+            if (confirm('Are you sure you want to delete this locker type?')) {
+                try {
+                    await api('DELETE', `/api/locker-types/${id}`);
+                    await loadLockerTypes();
+                } catch (error) {
+                    console.error('Failed to delete locker type:', error);
+                    alert('Failed to delete locker type');
+                }
+            }
+        }
+
+        // ===== Units & Cabinets =====
+        async function loadUnits() {
+            try {
+                const isHeadOffice = currentUser.role === 'headoffice';
+                const url = isHeadOffice ? '/api/units?branch_id=all' : `/api/units?branch_id=${currentBranchId}`;
+                const units = await api('GET', url);
+
+                if (isHeadOffice) {
+                    document.getElementById('unitBranchGroup').style.display = 'block';
+                    await loadBranchSelectorForUnits();
+                } else {
+                    document.getElementById('unitBranchGroup').style.display = 'none';
+                }
+
+                renderUnits(units, isHeadOffice);
+            } catch (error) {
+                console.error('Failed to load units:', error);
+            }
+        }
+
+        function renderUnits(units, isHeadOffice) {
+            if (units.length === 0) {
+                document.getElementById('unitsGrid').innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px;">No units found</div>';
+                return;
+            }
+
+            const html = units.map(u => {
+                const occupied = u.occupied_count || 0;
+                const total = u.locker_count || 0;
+                const occupancyPct = total > 0 ? Math.round((occupied / total) * 100) : 0;
+                const badge = u.status === 'upcoming' ? 'badge-warning upcoming' : 'badge-success active';
+                const branchTag = isHeadOffice ? `<div class="unit-card-branch">${u.branch_name}</div>` : '';
+
+                return `
+                    <div class="unit-card ${u.status === 'upcoming' ? 'upcoming' : 'active'}">
+                        <div class="unit-card-header">
+                            <div class="unit-card-number">${u.unit_number}</div>
+                            <span class="unit-card-badge ${u.status === 'upcoming' ? 'upcoming' : 'active'}">${capitalize(u.status)}</span>
+                        </div>
+                        ${branchTag}
+                        <div class="unit-card-type">
+                            <strong>${u.locker_type_name}</strong>
+                            ${u.locker_type_variant ? ` (${u.locker_type_variant})` : ''}
+                        </div>
+                        <div class="unit-card-occupancy">
+                            <span>${occupied}/${total}</span>
+                            <div class="unit-card-occupancy-bar">
+                                <div class="unit-card-occupancy-fill" style="width: ${occupancyPct}%"></div>
+                            </div>
+                            <span>${occupancyPct}%</span>
+                        </div>
+                        <div class="unit-card-location">📍 ${u.location || 'No location'}</div>
+                        <div class="unit-card-actions">
+                            ${u.status === 'upcoming' ? `<button class="btn btn-primary" onclick="activateUnit('${u.id}')">Activate</button>` : ''}
+                            <button class="btn btn-danger" onclick="deleteUnit('${u.id}')">Delete</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            document.getElementById('unitsGrid').innerHTML = html;
+        }
+
+        function openAddUnitModal() {
+            document.getElementById('unitForm').reset();
+            const isHeadOffice = currentUser.role === 'headoffice';
+            document.getElementById('unitBranchGroup').style.display = isHeadOffice ? 'block' : 'none';
+            loadLockerTypeSelectorForUnits();
+            document.getElementById('unitModal').classList.add('active');
+        }
+
+        async function loadLockerTypeSelectorForUnits() {
+            try {
+                const types = await api('GET', '/api/locker-types');
+                const selector = document.getElementById('unitType');
+                selector.innerHTML = '<option value="">Select locker type</option>' +
+                    types.map(t => `<option value="${t.id}">${t.name}${t.variant ? ' (' + t.variant + ')' : ''}</option>`).join('');
+            } catch (error) {
+                console.error('Failed to load locker types:', error);
+            }
+        }
+
+        async function loadBranchSelectorForUnits() {
+            try {
+                const branches = await api('GET', '/api/branches');
+                const selector = document.getElementById('unitBranch');
+                selector.innerHTML = '<option value="">Select branch</option>' +
+                    branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+            } catch (error) {
+                console.error('Failed to load branches:', error);
+            }
+        }
+
+        async function saveUnit() {
+            const isHeadOffice = currentUser.role === 'headoffice';
+            const data = {
+                branch_id: isHeadOffice ? document.getElementById('unitBranch').value : currentBranchId,
+                locker_type_id: document.getElementById('unitType').value,
+                unit_number: document.getElementById('unitNumber').value,
+                location: document.getElementById('unitLocation').value || null,
+                notes: document.getElementById('unitNotes').value || null
+            };
+
+            if (isHeadOffice && !data.branch_id) {
+                alert('Please select a branch');
+                return;
+            }
+
+            try {
+                await api('POST', '/api/units', data);
+                closeModal('unitModal');
+                await loadUnits();
+            } catch (error) {
+                console.error('Failed to save unit:', error);
+                alert('Failed to save unit');
+            }
+        }
+
+        async function activateUnit(id) {
+            if (confirm('Activate this unit? This will set all child lockers to vacant status.')) {
+                try {
+                    await api('PUT', `/api/units/${id}`, { status: 'active' });
+                    await loadUnits();
+                } catch (error) {
+                    console.error('Failed to activate unit:', error);
+                    alert('Failed to activate unit');
+                }
+            }
+        }
+
+        async function deleteUnit(id) {
+            if (confirm('Are you sure you want to delete this unit and all its lockers?')) {
+                try {
+                    await api('DELETE', `/api/units/${id}`);
+                    await loadUnits();
+                } catch (error) {
+                    console.error('Failed to delete unit:', error);
+                    alert('Failed to delete unit');
+                }
+            }
+        }
+
+        // ===== Modals =====
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('modal-overlay')) {
+                e.target.classList.remove('active');
+            }
+        });
+
+        // ===== Utility Functions =====
+        function capitalize(str) {
+            if (!str) return '';
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function formatIndianNumber(num) {
+            if (!num) return '0';
+            return num.toLocaleString('en-IN');
+        }
+
+        function formatIndianNumberCompact(num) {
+            if (!num) return '0';
+            if (num >= 10000000) {
+                return (num / 10000000).toFixed(1) + ' Cr';
+            } else if (num >= 100000) {
+                return (num / 100000).toFixed(1) + ' L';
+            }
+            return num.toLocaleString('en-IN');
+        }
+
+        function getBGStatusBadge(status) {
+            if (status === 'verified') return 'badge-success';
+            if (status === 'pending') return 'badge-warning';
+            return 'badge-danger';
+        }
+
+        function getPaymentStatusBadge(status) {
+            if (status === 'completed') return 'badge-success';
+            if (status === 'pending') return 'badge-warning';
+            return 'badge-danger';
+        }
+
+        function getPayoutStatusBadge(status) {
+            if (status === 'completed') return 'badge-success';
+            if (status === 'pending') return 'badge-warning';
+            if (status === 'delayed') return 'badge-danger';
+            return 'badge-primary';
+        }
+
+        // ===== Report Formatters =====
+        function formatLockerInventoryReport(lockers, isHeadOffice) {
+            return lockers.map(l => ({
+                ...(isHeadOffice && { Branch: l.branch_name }),
+                'Locker #': l.number,
+                Size: capitalize(l.size),
+                Status: capitalize(l.status),
+                Tenant: l.tenant_name || '-',
+                Location: l.location || '-',
+                'Monthly Rent (₹)': l.rent,
+                Notes: l.notes || ''
+            }));
+        }
+
+        function formatTenantDirectoryReport(tenants, isHeadOffice) {
+            return tenants.map(t => ({
+                ...(isHeadOffice && { Branch: t.branch_name }),
+                Name: t.name,
+                'Phone': '+91 ' + t.phone,
+                Email: t.email || '-',
+                Address: t.address || '-',
+                'Emergency Contact': t.emergency || '-',
+                'Locker': t.locker_number || '-',
+                'Lease Start': t.lease_start,
+                'Interest Rate (%)': t.interest_rate,
+                'BG Status': capitalize(t.bg_status)
+            }));
+        }
+
+        function formatRentCollectionReport(payments, isHeadOffice) {
+            return payments.map(p => ({
+                ...(isHeadOffice && { Branch: p.branch_name }),
+                Tenant: p.tenant_name,
+                Locker: p.locker_number,
+                'Amount (₹)': p.amount,
+                Method: capitalize(p.payment_method),
+                Date: p.payment_date,
+                Status: capitalize(p.status),
+                Notes: p.notes || ''
+            }));
+        }
+
+        function formatOverdueReport(payments, isHeadOffice) {
+            return payments.map(p => ({
+                ...(isHeadOffice && { Branch: p.branch_name }),
+                Tenant: p.tenant_name,
+                Locker: p.locker_number,
+                'Amount Due (₹)': p.amount,
+                'Days Overdue': Math.floor((Date.now() - new Date(p.payment_date)) / (1000 * 60 * 60 * 24))
+            }));
+        }
+
+        function formatInterestReport(payouts, isHeadOffice) {
+            return payouts.map(p => ({
+                ...(isHeadOffice && { Branch: p.branch_name }),
+                Tenant: p.tenant_name,
+                Period: p.financial_year,
+                'Principal (₹)': p.principal,
+                'Interest Rate (%)': p.interest_rate,
+                'Interest (₹)': p.interest_amount,
+                'Total (₹)': p.principal + p.interest_amount
+            }));
+        }
+
+        function formatMissedPayoutsReport(payouts, isHeadOffice) {
+            return payouts.map(p => ({
+                ...(isHeadOffice && { Branch: p.branch_name }),
+                Tenant: p.tenant_name,
+                Period: p.financial_year,
+                'Interest Amount (₹)': p.interest_amount,
+                Status: capitalize(p.payout_status),
+                'Expected Date': p.payout_date
+            }));
+        }
+
+        function formatVisitLogReport(visits, isHeadOffice) {
+            return visits.map(v => ({
+                ...(isHeadOffice && { Branch: v.branch_name }),
+                Tenant: v.tenant_name,
+                Locker: v.locker_number,
+                'Visit Date': v.visit_date,
+                Purpose: capitalize(v.purpose),
+                Notes: v.notes || ''
+            }));
+        }
+
+        function formatBGCheckReport(tenants, isHeadOffice) {
+            return tenants.map(t => ({
+                ...(isHeadOffice && { Branch: t.branch_name }),
+                Name: t.name,
+                'ID Type': capitalize(t.bg_id_type) || '-',
+                'ID Number': t.bg_id_number || '-',
+                'ID Verified': t.bg_id_verified ? 'Yes' : 'No',
+                'Address Verified': t.bg_addr_verified ? 'Yes' : 'No',
+                'Reference Checked': t.bg_ref_checked ? 'Yes' : 'No',
+                Status: capitalize(t.bg_status)
+            }));
+        }
+
+        function formatOccupancyReport(lockers, isHeadOffice) {
+            const occupied = lockers.filter(l => l.status === 'occupied').length;
+            return [{
+                ...(isHeadOffice && { Branch: lockers[0]?.branch_name || 'All' }),
+                'Total Lockers': lockers.length,
+                'Occupied': occupied,
+                'Vacant': lockers.length - occupied,
+                'Occupancy %': Math.round((occupied / lockers.length) * 100)
+            }];
+        }
+
+        function formatTenantLedgerReport(tenants, isHeadOffice) {
+            return tenants.map(t => ({
+                ...(isHeadOffice && { Branch: t.branch_name }),
+                'Tenant': t.name,
+                'Phone': t.phone,
+                'Locker': t.locker_number || '-',
+                'Lease Start': t.lease_start,
+                'Email': t.email || '-',
+                'Status': t.bg_status
+            }));
+        }
+
+        function downloadExcel(data, fileName) {
+            if (!data || data.length === 0) {
+                alert('No data to export');
+                return;
+            }
+            const ws = XLSX.utils.json_to_sheet(data);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, 'Report');
+            XLSX.writeFile(wb, fileName);
+        }
+    </script>
+</body>
+</html>

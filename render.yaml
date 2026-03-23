@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: lockerhub
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: NODE_ENV
+        value: production
+    disk:
+      name: lockerhub-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

@@ -1,0 +1,537 @@
+const express = require('express');
+const Database = require('better-sqlite3');
+const cors = require('cors');
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+const PORT = process.env.PORT || 8080;
+
+// Ensure data directory exists
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+
+// Database setup
+const db = new Database(path.join(DATA_DIR, 'lockerhub.db'));
+db.pragma('journal_mode = WAL');
+db.pragma('foreign_keys = ON');
+
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// ============================
+//  DATABASE SCHEMA
+// ============================
+db.exec(`
+  CREATE TABLE IF NOT EXISTS branches (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    address TEXT DEFAULT '',
+    phone TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE NOT NULL,
+    password TEXT NOT NULL,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'branch',
+    branch_id TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS lockers (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    number TEXT NOT NULL,
+    size TEXT DEFAULT 'Large',
+    location TEXT DEFAULT '',
+    rent REAL DEFAULT 0,
+    status TEXT DEFAULT 'vacant',
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS tenants (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    address TEXT DEFAULT '',
+    emergency TEXT DEFAULT '',
+    locker_id TEXT DEFAULT '',
+    lease_start TEXT DEFAULT '',
+    interest_rate REAL,
+    interest_freq TEXT,
+    interest_enabled INTEGER DEFAULT 1,
+    bg_id_type TEXT DEFAULT '',
+    bg_id_number TEXT DEFAULT '',
+    bg_reference TEXT DEFAULT '',
+    bg_id_verified INTEGER DEFAULT 0,
+    bg_addr_verified INTEGER DEFAULT 0,
+    bg_ref_checked INTEGER DEFAULT 0,
+    bg_status TEXT DEFAULT 'Unverified',
+    bg_notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS payments (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    locker_id TEXT DEFAULT '',
+    period TEXT DEFAULT '',
+    amount REAL DEFAULT 0,
+    due_date TEXT DEFAULT '',
+    status TEXT DEFAULT 'Pending',
+    paid_on TEXT DEFAULT '',
+    method TEXT DEFAULT '',
+    ref_no TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS payouts (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    locker_id TEXT DEFAULT '',
+    period TEXT DEFAULT '',
+    rate REAL DEFAULT 0,
+    principal REAL DEFAULT 0,
+    amount REAL DEFAULT 0,
+    due_date TEXT DEFAULT '',
+    status TEXT DEFAULT 'Pending',
+    paid_on TEXT DEFAULT '',
+    method TEXT DEFAULT '',
+    ref_no TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS visits (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    locker_id TEXT DEFAULT '',
+    datetime TEXT DEFAULT '',
+    purpose TEXT DEFAULT '',
+    duration TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS activities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    branch_id TEXT NOT NULL,
+    message TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS config (
+    branch_id TEXT PRIMARY KEY,
+    rate REAL DEFAULT 8,
+    freq TEXT DEFAULT 'monthly',
+    calc_on TEXT DEFAULT 'rent_paid',
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
+  );
+`);
+
+// ============================
+//  HELPER: Generate ID
+// ============================
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+}
+
+// ============================
+//  AUTH & LOGIN
+// ============================
+app.post('/api/login', (req, res) => {
+  const { username, password } = req.body;
+  const user = db.prepare('SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE u.username = ?').get(username);
+  if (!user || user.password !== password) {
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+  res.json({ id: user.id, name: user.name, role: user.role, branch_id: user.branch_id, branch_name: user.branch_name });
+});
+
+// ============================
+//  BRANCHES
+// ============================
+app.get('/api/branches', (req, res) => {
+  const branches = db.prepare('SELECT * FROM branches ORDER BY name').all();
+  res.json(branches);
+});
+
+app.post('/api/branches', (req, res) => {
+  const { name, address, phone } = req.body;
+  const id = genId();
+  db.prepare('INSERT INTO branches (id, name, address, phone) VALUES (?, ?, ?, ?)').run(id, name, address || '', phone || '');
+  db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(id);
+  res.json({ id, name });
+});
+
+// ============================
+//  LOCKERS
+// ============================
+app.get('/api/lockers', (req, res) => {
+  const { branch_id } = req.query;
+  let lockers;
+  if (branch_id && branch_id !== 'all') {
+    lockers = db.prepare('SELECT * FROM lockers WHERE branch_id = ? ORDER BY number').all(branch_id);
+  } else {
+    lockers = db.prepare('SELECT l.*, b.name as branch_name FROM lockers l JOIN branches b ON l.branch_id = b.id ORDER BY b.name, l.number').all();
+  }
+  res.json(lockers);
+});
+
+app.post('/api/lockers', (req, res) => {
+  const { branch_id, number, size, location, rent, notes } = req.body;
+  const id = genId();
+  db.prepare('INSERT INTO lockers (id, branch_id, number, size, location, rent, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, branch_id, number, size || 'Large', location || '', rent || 0, 'vacant', notes || '');
+  res.json({ id });
+});
+
+app.post('/api/lockers/bulk', (req, res) => {
+  const { branch_id, prefix, count, size, rent, location } = req.body;
+  const insert = db.prepare('INSERT INTO lockers (id, branch_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const existing = db.prepare('SELECT number FROM lockers WHERE branch_id = ? AND number = ?');
+  let added = 0;
+  const tx = db.transaction(() => {
+    for (let i = 1; i <= count; i++) {
+      const num = `${prefix}-${String(i).padStart(3, '0')}`;
+      if (!existing.get(branch_id, num)) {
+        insert.run(genId(), branch_id, num, size || 'Large', location || '', rent || 0, 'vacant');
+        added++;
+      }
+    }
+  });
+  tx();
+  res.json({ added });
+});
+
+app.put('/api/lockers/:id', (req, res) => {
+  const { status, notes } = req.body;
+  if (status !== undefined) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run(status, req.params.id);
+  if (notes !== undefined) db.prepare('UPDATE lockers SET notes = ? WHERE id = ?').run(notes, req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/lockers/:id', (req, res) => {
+  db.prepare('DELETE FROM lockers WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ============================
+//  TENANTS
+// ============================
+app.get('/api/tenants', (req, res) => {
+  const { branch_id } = req.query;
+  let tenants;
+  if (branch_id && branch_id !== 'all') {
+    tenants = db.prepare('SELECT * FROM tenants WHERE branch_id = ? ORDER BY name').all(branch_id);
+  } else {
+    tenants = db.prepare('SELECT t.*, b.name as branch_name FROM tenants t JOIN branches b ON t.branch_id = b.id ORDER BY b.name, t.name').all();
+  }
+  res.json(tenants);
+});
+
+app.post('/api/tenants', (req, res) => {
+  const d = req.body;
+  const id = genId();
+  db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency, locker_id, lease_start,
+    interest_rate, interest_freq, interest_enabled,
+    bg_id_type, bg_id_number, bg_reference, bg_id_verified, bg_addr_verified, bg_ref_checked, bg_status, bg_notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency || '', d.locker_id || '', d.lease_start || '',
+    d.interest_rate ?? null, d.interest_freq || null, d.interest_enabled ? 1 : 0,
+    d.bg_id_type || '', d.bg_id_number || '', d.bg_reference || '', d.bg_id_verified ? 1 : 0, d.bg_addr_verified ? 1 : 0, d.bg_ref_checked ? 1 : 0, d.bg_status || 'Unverified', d.bg_notes || ''
+  );
+  // Mark locker as occupied
+  if (d.locker_id) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('occupied', d.locker_id);
+  res.json({ id });
+});
+
+app.put('/api/tenants/:id', (req, res) => {
+  const d = req.body;
+  const fields = [];
+  const vals = [];
+  for (const [k, v] of Object.entries(d)) {
+    if (k === 'id' || k === 'branch_id') continue;
+    fields.push(`${k} = ?`);
+    vals.push(v);
+  }
+  if (fields.length) {
+    vals.push(req.params.id);
+    db.prepare(`UPDATE tenants SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  res.json({ ok: true });
+});
+
+app.delete('/api/tenants/:id', (req, res) => {
+  const tenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(req.params.id);
+  if (tenant && tenant.locker_id) {
+    db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('vacant', tenant.locker_id);
+  }
+  db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ============================
+//  PAYMENTS
+// ============================
+app.get('/api/payments', (req, res) => {
+  const { branch_id } = req.query;
+  let payments;
+  if (branch_id && branch_id !== 'all') {
+    payments = db.prepare('SELECT * FROM payments WHERE branch_id = ? ORDER BY created_at DESC').all(branch_id);
+  } else {
+    payments = db.prepare('SELECT p.*, b.name as branch_name FROM payments p JOIN branches b ON p.branch_id = b.id ORDER BY p.created_at DESC').all();
+  }
+  res.json(payments);
+});
+
+app.post('/api/payments', (req, res) => {
+  const d = req.body;
+  const id = genId();
+  db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, period, amount, due_date, status, paid_on, method, ref_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, d.branch_id, d.tenant_id, d.locker_id || '', d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || ''
+  );
+  res.json({ id });
+});
+
+app.put('/api/payments/:id', (req, res) => {
+  const d = req.body;
+  const fields = []; const vals = [];
+  for (const [k, v] of Object.entries(d)) { if (k === 'id' || k === 'branch_id') continue; fields.push(`${k} = ?`); vals.push(v); }
+  if (fields.length) { vals.push(req.params.id); db.prepare(`UPDATE payments SET ${fields.join(', ')} WHERE id = ?`).run(...vals); }
+  res.json({ ok: true });
+});
+
+// ============================
+//  PAYOUTS (INTEREST)
+// ============================
+app.get('/api/payouts', (req, res) => {
+  const { branch_id } = req.query;
+  let payouts;
+  if (branch_id && branch_id !== 'all') {
+    payouts = db.prepare('SELECT * FROM payouts WHERE branch_id = ? ORDER BY created_at DESC').all(branch_id);
+  } else {
+    payouts = db.prepare('SELECT p.*, b.name as branch_name FROM payouts p JOIN branches b ON p.branch_id = b.id ORDER BY p.created_at DESC').all();
+  }
+  res.json(payouts);
+});
+
+app.post('/api/payouts', (req, res) => {
+  const d = req.body;
+  const id = genId();
+  db.prepare('INSERT INTO payouts (id, branch_id, tenant_id, locker_id, period, rate, principal, amount, due_date, status, paid_on, method, ref_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, d.branch_id, d.tenant_id, d.locker_id || '', d.period || '', d.rate || 0, d.principal || 0, d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || ''
+  );
+  res.json({ id });
+});
+
+app.put('/api/payouts/:id', (req, res) => {
+  const d = req.body;
+  const fields = []; const vals = [];
+  for (const [k, v] of Object.entries(d)) { if (k === 'id' || k === 'branch_id') continue; fields.push(`${k} = ?`); vals.push(v); }
+  if (fields.length) { vals.push(req.params.id); db.prepare(`UPDATE payouts SET ${fields.join(', ')} WHERE id = ?`).run(...vals); }
+  res.json({ ok: true });
+});
+
+// ============================
+//  VISITS
+// ============================
+app.get('/api/visits', (req, res) => {
+  const { branch_id } = req.query;
+  let visits;
+  if (branch_id && branch_id !== 'all') {
+    visits = db.prepare('SELECT * FROM visits WHERE branch_id = ? ORDER BY datetime DESC').all(branch_id);
+  } else {
+    visits = db.prepare('SELECT v.*, b.name as branch_name FROM visits v JOIN branches b ON v.branch_id = b.id ORDER BY v.datetime DESC').all();
+  }
+  res.json(visits);
+});
+
+app.post('/api/visits', (req, res) => {
+  const d = req.body;
+  const id = genId();
+  db.prepare('INSERT INTO visits (id, branch_id, tenant_id, locker_id, datetime, purpose, duration, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, d.branch_id, d.tenant_id, d.locker_id || '', d.datetime || '', d.purpose || '', d.duration || '', d.notes || ''
+  );
+  res.json({ id });
+});
+
+// ============================
+//  ACTIVITY LOG
+// ============================
+app.get('/api/activities', (req, res) => {
+  const { branch_id } = req.query;
+  let activities;
+  if (branch_id && branch_id !== 'all') {
+    activities = db.prepare('SELECT a.*, b.name as branch_name FROM activities a JOIN branches b ON a.branch_id = b.id WHERE a.branch_id = ? ORDER BY a.created_at DESC LIMIT 50').all(branch_id);
+  } else {
+    activities = db.prepare('SELECT a.*, b.name as branch_name FROM activities a JOIN branches b ON a.branch_id = b.id ORDER BY a.created_at DESC LIMIT 100').all();
+  }
+  res.json(activities);
+});
+
+app.post('/api/activities', (req, res) => {
+  const { branch_id, message } = req.body;
+  db.prepare('INSERT INTO activities (branch_id, message) VALUES (?, ?)').run(branch_id, message);
+  res.json({ ok: true });
+});
+
+// ============================
+//  CONFIG
+// ============================
+app.get('/api/config/:branch_id', (req, res) => {
+  let config = db.prepare('SELECT * FROM config WHERE branch_id = ?').get(req.params.branch_id);
+  if (!config) config = { rate: 8, freq: 'monthly', calc_on: 'rent_paid' };
+  res.json(config);
+});
+
+app.put('/api/config/:branch_id', (req, res) => {
+  const { rate, freq, calc_on } = req.body;
+  const exists = db.prepare('SELECT 1 FROM config WHERE branch_id = ?').get(req.params.branch_id);
+  if (exists) {
+    db.prepare('UPDATE config SET rate = ?, freq = ?, calc_on = ? WHERE branch_id = ?').run(rate, freq, calc_on, req.params.branch_id);
+  } else {
+    db.prepare('INSERT INTO config (branch_id, rate, freq, calc_on) VALUES (?, ?, ?, ?)').run(req.params.branch_id, rate, freq, calc_on);
+  }
+  res.json({ ok: true });
+});
+
+// ============================
+//  SINGLE BRANCH STATS
+// ============================
+app.get('/api/stats', (req, res) => {
+  const { branch_id } = req.query;
+  if (!branch_id) return res.status(400).json({ error: 'branch_id required' });
+  const lockers = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) as occupied, SUM(CASE WHEN status='vacant' THEN 1 ELSE 0 END) as vacant FROM lockers WHERE branch_id = ?`).get(branch_id);
+  const revenue = db.prepare(`SELECT COALESCE(SUM(rent), 0) as total FROM lockers WHERE branch_id = ? AND status = 'occupied'`).get(branch_id);
+  const tenantCount = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ?`).get(branch_id);
+  const overdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(branch_id);
+  const missedPayouts = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND status = 'Missed'`).get(branch_id);
+  const collected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(branch_id);
+  const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM visits WHERE branch_id = ? AND date(datetime) = date('now')`).get(branch_id);
+  const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified'`).get(branch_id);
+  const pendingInterest = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND (status = 'Pending' OR status = 'Missed')`).get(branch_id);
+
+  res.json({
+    total_lockers: lockers.total || 0, occupied: lockers.occupied || 0, vacant: lockers.vacant || 0,
+    occupancy_pct: lockers.total ? Math.round((lockers.occupied || 0) / lockers.total * 100) : 0,
+    annual_revenue: revenue.total, monthly_revenue: Math.round(revenue.total / 12),
+    tenants: tenantCount.total,
+    overdue_count: overdue.count, overdue_amount: overdue.total,
+    missed_payouts: missedPayouts.count, missed_payout_amount: missedPayouts.total,
+    collected: collected.total, today_visits: todayVisits.count,
+    unverified_tenants: unverified.count,
+    pending_interest: pendingInterest.total
+  });
+});
+
+// ============================
+//  HEAD OFFICE: AGGREGATED STATS
+// ============================
+app.get('/api/stats/all', (req, res) => {
+  const branches = db.prepare('SELECT * FROM branches ORDER BY name').all();
+  const stats = branches.map(b => {
+    const lockers = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) as occupied, SUM(CASE WHEN status='vacant' THEN 1 ELSE 0 END) as vacant FROM lockers WHERE branch_id = ?`).get(b.id);
+    const revenue = db.prepare(`SELECT COALESCE(SUM(rent), 0) as total FROM lockers WHERE branch_id = ? AND status = 'occupied'`).get(b.id);
+    const tenants = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ?`).get(b.id);
+    const overdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(b.id);
+    const missedPayouts = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND status = 'Missed'`).get(b.id);
+    const collected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(b.id);
+    const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM visits WHERE branch_id = ? AND date(datetime) = date('now')`).get(b.id);
+    const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified'`).get(b.id);
+
+    return {
+      branch_id: b.id, branch_name: b.name,
+      total_lockers: lockers.total || 0, occupied: lockers.occupied || 0, vacant: lockers.vacant || 0,
+      occupancy: lockers.total ? Math.round((lockers.occupied || 0) / lockers.total * 100) : 0,
+      occupancy_pct: lockers.total ? Math.round((lockers.occupied || 0) / lockers.total * 100) : 0,
+      annual_revenue: revenue.total, tenants: tenants.total,
+      overdue_count: overdue.count, overdue_amount: overdue.total,
+      missed_payouts: missedPayouts.count, missed_payout_amount: missedPayouts.total,
+      collected: collected.total, today_visits: todayVisits.count,
+      unverified_tenants: unverified.count
+    };
+  });
+  res.json(stats);
+});
+
+// ============================
+//  BACKUP & RESTORE
+// ============================
+app.get('/api/backup', (req, res) => {
+  const backup = {
+    version: 3,
+    export_date: new Date().toISOString(),
+    branches: db.prepare('SELECT * FROM branches').all(),
+    users: db.prepare('SELECT * FROM users').all(),
+    lockers: db.prepare('SELECT * FROM lockers').all(),
+    tenants: db.prepare('SELECT * FROM tenants').all(),
+    payments: db.prepare('SELECT * FROM payments').all(),
+    payouts: db.prepare('SELECT * FROM payouts').all(),
+    visits: db.prepare('SELECT * FROM visits').all(),
+    config: db.prepare('SELECT * FROM config').all()
+  };
+  res.json(backup);
+});
+
+// ============================
+//  USERS MANAGEMENT
+// ============================
+app.get('/api/users', (req, res) => {
+  const users = db.prepare('SELECT u.id, u.username, u.name, u.role, u.branch_id, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id ORDER BY u.role, u.name').all();
+  res.json(users);
+});
+
+app.post('/api/users', (req, res) => {
+  const { username, password, name, role, branch_id } = req.body;
+  const id = genId();
+  try {
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, username, password, name, role || 'branch', branch_id || null);
+    res.json({ id });
+  } catch (e) {
+    res.status(400).json({ error: 'Username already exists' });
+  }
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ============================
+//  START SERVER
+// ============================
+app.listen(PORT, '0.0.0.0', () => {
+  console.log('');
+  console.log('  ╔══════════════════════════════════════════╗');
+  console.log('  ║         LockerHub Server Running         ║');
+  console.log('  ╠══════════════════════════════════════════╣');
+  console.log(`  ║  Local:   http://localhost:${PORT}          ║`);
+  console.log('  ║  Network: http://<your-ip>:' + PORT + '       ║');
+  console.log('  ║                                          ║');
+  console.log('  ║  All branches connect via browser to     ║');
+  console.log('  ║  the Network URL above.                  ║');
+  console.log('  ╚══════════════════════════════════════════╝');
+  console.log('');
+});
