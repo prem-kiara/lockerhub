@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
     "express": "^4.21.0",
-    "cors": "^2.8.5"
+    "pdfkit": "^0.18.0",
+    "pdfmake": "^0.3.7"
   }
 }

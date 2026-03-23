@@ -902,7 +902,7 @@
 <body>
     <div id="loginScreen" class="login-container">
         <div class="login-box">
-            <div class="login-logo" id="loginLogo"></div>
+            <div class="login-logo" id="loginLogo"><img src="/logo.png" alt="LockerHub" style="max-height:64px; max-width:200px; object-fit:contain;" onerror="this.style.display='none'"></div>
             <h1>LockerHub</h1>
             <div id="loginError" class="login-error"></div>
             <form id="loginForm">
@@ -922,7 +922,7 @@
     <div id="appContainer" class="app-container" style="display: none;">
         <div class="sidebar">
             <div class="sidebar-header">
-                <div id="sidebarLogo" style="max-height:32px;"></div>
+                <div id="sidebarLogo" style="max-height:32px;"><img src="/logo.png" alt="Logo" style="max-height:32px; max-width:80px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'"></div>
                 <h1>LockerHub</h1>
             </div>
             <ul class="sidebar-nav">
@@ -932,7 +932,6 @@
                 <li><a onclick="switchSection('units')" class="nav-link" data-section="units">Units & Cabinets</a></li>
                 <li><a onclick="switchSection('tenants')" class="nav-link" data-section="tenants">Tenants</a></li>
                 <li><a onclick="switchSection('payments')" class="nav-link" data-section="payments">Rent & Payments</a></li>
-                <li><a onclick="switchSection('payouts')" class="nav-link" data-section="payouts">Interest & Payouts</a></li>
                 <li><a onclick="switchSection('visits')" class="nav-link" data-section="visits">Visit Log</a></li>
                 <li><a onclick="switchSection('bgchecks')" class="nav-link" data-section="bgchecks">Background Checks</a></li>
                 <li><a onclick="switchSection('reports')" class="nav-link" data-section="reports">Reports (Excel)</a></li>
@@ -1013,8 +1012,8 @@
                                     <th>Name</th>
                                     <th>Phone</th>
                                     <th>Locker</th>
+                                    <th>Rent</th>
                                     <th>Email</th>
-                                    <th>Interest Rate</th>
                                     <th>BG Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -1048,34 +1047,6 @@
                             </thead>
                             <tbody id="paymentsTable">
                                 <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- Payouts Screen -->
-                <div id="payoutsScreen" class="screen">
-                    <div class="section-title">Interest & Payouts</div>
-                    <div class="section-toolbar">
-                        <button class="btn btn-primary" onclick="openAddPayoutModal()">+ Record Payout</button>
-                        <input type="text" class="search-box" id="payoutSearch" placeholder="Search by tenant..." onkeyup="filterPayouts()">
-                    </div>
-                    <div class="table-container">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Tenant</th>
-                                    <th>Locker</th>
-                                    <th>Period</th>
-                                    <th>Principal</th>
-                                    <th>Interest Rate</th>
-                                    <th>Interest Amount</th>
-                                    <th>Payout Status</th>
-                                    <th>Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="payoutsTable">
-                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1118,17 +1089,15 @@
                             <thead>
                                 <tr>
                                     <th>Tenant</th>
-                                    <th>ID Type</th>
-                                    <th>ID Number</th>
-                                    <th>ID Verified</th>
-                                    <th>Address Verified</th>
-                                    <th>Reference Checked</th>
+                                    <th>Aadhaar</th>
+                                    <th>PAN</th>
+                                    <th>Photos Collected</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="bgchecksTable">
-                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1208,13 +1177,12 @@
                                     <th>Locker Dimensions (HxWxD mm)</th>
                                     <th>Volume (L)</th>
                                     <th>Auto-Size</th>
-                                    <th>Weight (kg)</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="lockerTypesTable">
-                                <tr><td colspan="10" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1337,6 +1305,12 @@
             <div class="modal-body">
                 <form id="tenantForm">
                     <input type="hidden" id="tenantId">
+                    <div class="form-group" id="tenantBranchGroup" style="display:none;">
+                        <label for="tenantBranch">Branch</label>
+                        <select id="tenantBranch" required>
+                            <option value="">Select branch</option>
+                        </select>
+                    </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="tenantName">Name</label>
@@ -1344,7 +1318,7 @@
                         </div>
                         <div class="form-group">
                             <label for="tenantPhone">Phone (+91)</label>
-                            <input type="tel" id="tenantPhone" pattern="[0-9]{10}" placeholder="9876543210" required>
+                            <input type="tel" id="tenantPhone" placeholder="9876543210" required>
                         </div>
                     </div>
                     <div class="form-row">
@@ -1354,9 +1328,11 @@
                         </div>
                         <div class="form-group">
                             <label for="tenantLocker">Locker</label>
-                            <select id="tenantLocker" required>
+                            <select id="tenantLocker" required onchange="autoFillRent()">
                                 <option value="">Select locker</option>
                             </select>
+                            <div id="tenantRentDisplay" style="margin-top:6px;font-size:13px;color:#7a6b5e;"></div>
+                            <input type="hidden" id="tenantAnnualRent" value="0">
                         </div>
                     </div>
                     <div class="form-group">
@@ -1372,64 +1348,49 @@
                             <label for="tenantLeaseStart">Lease Start Date</label>
                             <input type="date" id="tenantLeaseStart" required>
                         </div>
-                        <div class="form-group">
-                            <label for="tenantInterestRate">Interest Rate (%)</label>
-                            <input type="number" id="tenantInterestRate" step="0.1" value="8" required oninput="updateInterestSummary()">
+                    </div>
+                    <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
+                        <h4 style="margin-bottom: 12px;">Bank Account Details</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenantBankName">Bank Name</label>
+                                <input type="text" id="tenantBankName" placeholder="e.g., State Bank of India">
+                            </div>
+                            <div class="form-group">
+                                <label for="tenantBankAccount">Account Number</label>
+                                <input type="text" id="tenantBankAccount">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenantBankIfsc">IFSC Code</label>
+                                <input type="text" id="tenantBankIfsc" placeholder="e.g., SBIN0001234" style="text-transform:uppercase;">
+                            </div>
+                            <div class="form-group">
+                                <label for="tenantBankBranch">Bank Branch</label>
+                                <input type="text" id="tenantBankBranch">
+                            </div>
                         </div>
                     </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="tenantInterestFreq">Interest Frequency</label>
-                            <select id="tenantInterestFreq" onchange="updateInterestSummary()">
-                                <option value="monthly">Monthly</option>
-                                <option value="quarterly">Quarterly</option>
-                                <option value="annual">Annual</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="display: flex; align-items: flex-end;">
-                            <label style="flex: 1;">
-                                <input type="checkbox" id="tenantInterestEnabled" onchange="updateInterestSummary()"> Enable Interest Payout
-                            </label>
-                        </div>
-                    </div>
-                    <div id="interestSummaryBox" class="interest-summary" style="display:none;"></div>
                     <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
                         <h4 style="margin-bottom: 12px;">Background Verification</h4>
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="tenantBgIdType">ID Type</label>
-                                <select id="tenantBgIdType">
-                                    <option value="">Select ID type</option>
-                                    <option value="aadhaar">Aadhaar</option>
-                                    <option value="pan">PAN</option>
-                                    <option value="voter">Voter ID</option>
-                                    <option value="driving">Driving Licence</option>
-                                    <option value="passport">Passport</option>
-                                </select>
+                                <label for="tenantBgAadhaar">Aadhaar Number <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBgAadhaar" placeholder="e.g., 1234 5678 9012" maxlength="14">
                             </div>
                             <div class="form-group">
-                                <label for="tenantBgIdNumber">ID Number</label>
-                                <input type="text" id="tenantBgIdNumber">
+                                <label for="tenantBgPan">PAN Number <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBgPan" placeholder="e.g., ABCDE1234F" maxlength="10" style="text-transform:uppercase;">
                             </div>
                         </div>
-                        <div class="form-group">
-                            <label for="tenantBgReference">Reference Name & Contact</label>
-                            <input type="text" id="tenantBgReference" placeholder="Name, Phone, Address">
-                        </div>
-                        <div class="checkbox-group">
+                        <div class="checkbox-group" style="margin-top: 8px;">
                             <div class="checkbox-item">
-                                <input type="checkbox" id="tenantBgIdVerified">
-                                <label for="tenantBgIdVerified">ID Verified</label>
-                            </div>
-                            <div class="checkbox-item">
-                                <input type="checkbox" id="tenantBgAddrVerified">
-                                <label for="tenantBgAddrVerified">Address Verified</label>
-                            </div>
-                            <div class="checkbox-item">
-                                <input type="checkbox" id="tenantBgRefChecked">
-                                <label for="tenantBgRefChecked">Reference Checked</label>
+                                <input type="checkbox" id="tenantBgPhotosCollected">
+                                <label for="tenantBgPhotosCollected">3 Passport-size Photos Collected</label>
                             </div>
                         </div>
+                        <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">Note: Collect 3 passport-size photographs from the tenant manually.</p>
                     </div>
                 </form>
             </div>
@@ -1496,69 +1457,6 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="savePayment()">Save Payment</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal for Add/Edit Payout -->
-    <div id="payoutModal" class="modal-overlay">
-        <div class="modal">
-            <div class="modal-header">
-                <h2 id="payoutModalTitle">Record Interest Payout</h2>
-                <button class="modal-close" onclick="closeModal('payoutModal')">×</button>
-            </div>
-            <div class="modal-body">
-                <form id="payoutForm">
-                    <input type="hidden" id="payoutId">
-                    <div class="form-group">
-                        <label for="payoutTenant">Tenant</label>
-                        <select id="payoutTenant" required>
-                            <option value="">Select tenant</option>
-                        </select>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="payoutPeriod">Financial Year</label>
-                            <select id="payoutPeriod" required>
-                                <option value="2024-25">2024-25</option>
-                                <option value="2025-26" selected>2025-26</option>
-                                <option value="2026-27">2026-27</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label for="payoutPrincipal">Principal (₹)</label>
-                            <input type="number" id="payoutPrincipal" required step="100">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="payoutRate">Interest Rate (%)</label>
-                            <input type="number" id="payoutRate" required step="0.1" value="8">
-                        </div>
-                        <div class="form-group">
-                            <label for="payoutInterest">Interest Amount (₹)</label>
-                            <input type="number" id="payoutInterest" required step="100">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label for="payoutPayoutDate">Payout Date</label>
-                            <input type="date" id="payoutPayoutDate" required>
-                        </div>
-                        <div class="form-group">
-                            <label for="payoutPayoutStatus">Status</label>
-                            <select id="payoutPayoutStatus" required>
-                                <option value="pending">Pending</option>
-                                <option value="completed">Completed</option>
-                                <option value="delayed">Delayed</option>
-                            </select>
-                        </div>
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('payoutModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="savePayout()">Save Payout</button>
             </div>
         </div>
     </div>
@@ -1725,10 +1623,6 @@
                             <span style="padding: 0 8px;">×</span>
                             <input type="number" id="ltLockerD" placeholder="Depth" required min="1" style="flex: 1;">
                         </div>
-                    </div>
-                    <div class="form-group">
-                        <label for="ltWeight">Weight (kg)</label>
-                        <input type="number" id="ltWeight" required min="0" step="0.1">
                     </div>
                     <div class="form-group">
                         <label for="ltDescription">Description</label>
@@ -1916,7 +1810,6 @@
                 units: 'Units & Cabinets',
                 tenants: 'Tenants',
                 payments: 'Rent & Payments',
-                payouts: 'Interest & Payouts',
                 visits: 'Visit Log',
                 bgchecks: 'Background Checks',
                 reports: 'Reports',
@@ -1933,7 +1826,6 @@
             else if (section === 'units') await loadUnits();
             else if (section === 'tenants') await loadTenants();
             else if (section === 'payments') await loadPayments();
-            else if (section === 'payouts') await loadPayouts();
             else if (section === 'visits') await loadVisits();
             else if (section === 'bgchecks') await loadBGChecks();
             else if (section === 'reports') await loadReports();
@@ -2061,6 +1953,11 @@
         }
 
         function renderLockers(lockers) {
+            if (lockers.length === 0) {
+                document.getElementById('lockersTable').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#7a6b5e;">No lockers found</td></tr>';
+                return;
+            }
+
             const html = lockers.map(l => {
                 let badgeClass = 'badge-success';
                 let badgeText = capitalize(l.status);
@@ -2086,10 +1983,6 @@
                     </tr>
                 `;
             }).join('');
-
-            if (lockers.length === 0) {
-                html = '<tr><td colspan="9" style="text-align: center; padding: 40px;">No lockers found</td></tr>';
-            }
 
             document.getElementById('lockersTable').innerHTML = html;
         }
@@ -2200,27 +2093,29 @@
         }
 
         function renderTenants(tenants) {
+            if (tenants.length === 0) {
+                document.getElementById('tenantsTable').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#7a6b5e;">No tenants found</td></tr>';
+                return;
+            }
+
             const html = tenants.map(t => `
                 <tr>
                     <td><strong>${t.name}</strong></td>
-                    <td>+91 ${t.phone}</td>
+                    <td>${t.phone.startsWith('+91') ? t.phone : '+91 ' + t.phone}</td>
                     <td>${t.locker_number || '-'}</td>
+                    <td>Rs.${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
                     <td>${t.email || '-'}</td>
-                    <td>${t.interest_rate}%</td>
                     <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status || 'pending')}</span></td>
                     <td>
                         <div class="action-buttons">
                             <button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>
                             <button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>
+                            <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
                             <button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>
                         </div>
                     </td>
                 </tr>
             `).join('');
-
-            if (tenants.length === 0) {
-                html = '<tr><td colspan="7" style="text-align: center; padding: 40px;">No tenants found</td></tr>';
-            }
 
             document.getElementById('tenantsTable').innerHTML = html;
         }
@@ -2240,9 +2135,23 @@
             document.getElementById('tenantId').value = '';
             document.getElementById('tenantLeaseStart').valueAsDate = new Date();
 
+            // Show branch selector for head office
+            const isHO = currentUser.role === 'headoffice';
+            document.getElementById('tenantBranchGroup').style.display = isHO ? 'block' : 'none';
+            if (isHO) loadBranchSelectorForTenant();
+
             // Load available lockers
             loadLockerSelect();
             document.getElementById('tenantModal').classList.add('active');
+        }
+
+        async function loadBranchSelectorForTenant() {
+            try {
+                const branches = await api('GET', '/api/branches');
+                const sel = document.getElementById('tenantBranch');
+                sel.innerHTML = '<option value="">Select branch</option>' +
+                    branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
+            } catch (e) { console.error(e); }
         }
 
         async function openEditTenantModal(id) {
@@ -2251,24 +2160,33 @@
                 const tenant = await api('GET', `/api/tenants/${id}`);
                 document.getElementById('tenantModalTitle').textContent = 'Edit Tenant';
                 document.getElementById('tenantId').value = id;
+
+                // Branch selector for head office
+                const isHO = currentUser.role === 'headoffice';
+                document.getElementById('tenantBranchGroup').style.display = isHO ? 'block' : 'none';
+                if (isHO) {
+                    await loadBranchSelectorForTenant();
+                    document.getElementById('tenantBranch').value = tenant.branch_id;
+                }
+
                 document.getElementById('tenantName').value = tenant.name;
                 document.getElementById('tenantPhone').value = tenant.phone;
                 document.getElementById('tenantEmail').value = tenant.email || '';
                 document.getElementById('tenantAddress').value = tenant.address || '';
                 document.getElementById('tenantEmergency').value = tenant.emergency || '';
                 document.getElementById('tenantLeaseStart').value = tenant.lease_start;
-                document.getElementById('tenantInterestRate').value = tenant.interest_rate;
-                document.getElementById('tenantInterestFreq').value = tenant.interest_freq;
-                document.getElementById('tenantInterestEnabled').checked = tenant.interest_enabled;
-                document.getElementById('tenantBgIdType').value = tenant.bg_id_type || '';
-                document.getElementById('tenantBgIdNumber').value = tenant.bg_id_number || '';
-                document.getElementById('tenantBgReference').value = tenant.bg_reference || '';
-                document.getElementById('tenantBgIdVerified').checked = tenant.bg_id_verified;
-                document.getElementById('tenantBgAddrVerified').checked = tenant.bg_addr_verified;
-                document.getElementById('tenantBgRefChecked').checked = tenant.bg_ref_checked;
+                document.getElementById('tenantAnnualRent').value = tenant.annual_rent || '';
+                document.getElementById('tenantBankName').value = tenant.bank_name || '';
+                document.getElementById('tenantBankAccount').value = tenant.bank_account || '';
+                document.getElementById('tenantBankIfsc').value = tenant.bank_ifsc || '';
+                document.getElementById('tenantBankBranch').value = tenant.bank_branch || '';
+                document.getElementById('tenantBgAadhaar').value = tenant.bg_aadhaar || '';
+                document.getElementById('tenantBgPan').value = tenant.bg_pan || '';
+                document.getElementById('tenantBgPhotosCollected').checked = tenant.bg_photos_collected;
 
                 await loadLockerSelect();
                 document.getElementById('tenantLocker').value = tenant.locker_id || '';
+                autoFillRent();
                 document.getElementById('tenantModal').classList.add('active');
             } catch (error) {
                 console.error('Failed to load tenant:', error);
@@ -2283,45 +2201,83 @@
                 const lockers = await api('GET', url);
                 const select = document.getElementById('tenantLocker');
                 select.innerHTML = '<option value="">Select locker</option>' +
-                    lockers.map(l => `<option value="${l.id}">${l.number}</option>`).join('');
+                    lockers.filter(l => l.status === 'vacant' || l.id === document.getElementById('tenantId').value)
+                    .map(l => `<option value="${l.id}" data-size="${l.size}">${l.number} (${capitalize(l.size)})</option>`).join('');
             } catch (error) {
                 console.error('Failed to load lockers:', error);
             }
         }
 
+        function autoFillRent() {
+            const select = document.getElementById('tenantLocker');
+            const opt = select.options[select.selectedIndex];
+            const size = opt ? opt.getAttribute('data-size') : '';
+            let rent = 0;
+            if (size === 'Large' || size === 'large') rent = 25000;
+            else if (size === 'Medium' || size === 'medium') rent = 20000;
+            else if (size === 'XL' || size === 'xl') rent = 30000;
+            else if (size === 'Small' || size === 'small') rent = 15000;
+
+            document.getElementById('tenantAnnualRent').value = rent;
+            document.getElementById('tenantRentDisplay').textContent = rent > 0 ? 'Annual Rent: Rs.' + rent.toLocaleString('en-IN') : '';
+        }
+
         async function saveTenant() {
+            const name = document.getElementById('tenantName').value.trim();
+            const phone = document.getElementById('tenantPhone').value.trim();
+            const aadhaar = document.getElementById('tenantBgAadhaar').value.trim();
+            const pan = document.getElementById('tenantBgPan').value.trim();
+            if (!name) { alert('Please enter tenant name'); return; }
+            if (!phone) { alert('Please enter phone number'); return; }
+            if (!aadhaar) { alert('Aadhaar number is mandatory'); return; }
+            if (!pan) { alert('PAN number is mandatory'); return; }
+
             const tenantId = document.getElementById('tenantId').value;
+            const isHO = currentUser.role === 'headoffice';
+            const branchId = isHO ? document.getElementById('tenantBranch').value : currentBranchId;
+            if (!branchId) { alert('Please select a branch'); return; }
+
             const data = {
-                branch_id: currentBranchId,
-                name: document.getElementById('tenantName').value,
-                phone: document.getElementById('tenantPhone').value,
+                branch_id: branchId,
+                name: name,
+                phone: phone,
                 email: document.getElementById('tenantEmail').value,
                 address: document.getElementById('tenantAddress').value,
                 emergency: document.getElementById('tenantEmergency').value,
                 locker_id: document.getElementById('tenantLocker').value || null,
                 lease_start: document.getElementById('tenantLeaseStart').value,
-                interest_rate: parseFloat(document.getElementById('tenantInterestRate').value),
-                interest_freq: document.getElementById('tenantInterestFreq').value,
-                interest_enabled: document.getElementById('tenantInterestEnabled').checked,
-                bg_id_type: document.getElementById('tenantBgIdType').value || null,
-                bg_id_number: document.getElementById('tenantBgIdNumber').value || null,
-                bg_reference: document.getElementById('tenantBgReference').value || null,
-                bg_id_verified: document.getElementById('tenantBgIdVerified').checked,
-                bg_addr_verified: document.getElementById('tenantBgAddrVerified').checked,
-                bg_ref_checked: document.getElementById('tenantBgRefChecked').checked,
-                bg_status: document.getElementById('tenantBgIdVerified').checked ? 'verified' : 'pending'
+                bg_aadhaar: document.getElementById('tenantBgAadhaar').value.trim(),
+                bg_pan: document.getElementById('tenantBgPan').value.trim().toUpperCase(),
+                bg_photos_collected: document.getElementById('tenantBgPhotosCollected').checked,
+                bg_status: (document.getElementById('tenantBgAadhaar').value.trim() && document.getElementById('tenantBgPan').value.trim() && document.getElementById('tenantBgPhotosCollected').checked) ? 'Verified' : 'Pending',
+                annual_rent: parseInt(document.getElementById('tenantAnnualRent').value) || 0,
+                bank_name: document.getElementById('tenantBankName').value,
+                bank_account: document.getElementById('tenantBankAccount').value,
+                bank_ifsc: document.getElementById('tenantBankIfsc').value.toUpperCase(),
+                bank_branch: document.getElementById('tenantBankBranch').value
             };
 
             showLoading('Saving tenant...');
             try {
+                let newId = null;
                 if (tenantId) {
                     await api('PUT', `/api/tenants/${tenantId}`, data);
                 } else {
-                    await api('POST', '/api/tenants', data);
+                    const result = await api('POST', '/api/tenants', data);
+                    newId = result.id;
                 }
                 hideLoading();
                 closeModal('tenantModal');
                 await loadTenants();
+
+                // Auto-download allotment form for new tenants
+                if (newId) {
+                    setTimeout(() => {
+                        if (confirm('Tenant created successfully. Download the Allotment Form PDF?')) {
+                            downloadAllotmentForm(newId);
+                        }
+                    }, 300);
+                }
             } catch (error) {
                 hideLoading();
                 alert('Failed to save tenant: ' + error.message);
@@ -2354,13 +2310,18 @@
         }
 
         function renderPayments(payments) {
+            if (payments.length === 0) {
+                document.getElementById('paymentsTable').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#7a6b5e;">No payments found</td></tr>';
+                return;
+            }
+
             const html = payments.map(p => `
                 <tr>
                     <td><strong>${p.tenant_name}</strong></td>
                     <td>${p.locker_number}</td>
                     <td>₹${formatIndianNumber(p.amount)}</td>
-                    <td>${capitalize(p.payment_method)}</td>
-                    <td>${new Date(p.payment_date).toLocaleDateString('en-IN')}</td>
+                    <td>${capitalize(p.method)}</td>
+                    <td>${new Date(p.paid_on || p.due_date).toLocaleDateString('en-IN')}</td>
                     <td><span class="badge ${getPaymentStatusBadge(p.status)}">${capitalize(p.status)}</span></td>
                     <td>
                         <div class="action-buttons">
@@ -2370,10 +2331,6 @@
                     </td>
                 </tr>
             `).join('');
-
-            if (payments.length === 0) {
-                html = '<tr><td colspan="7" style="text-align: center; padding: 40px;">No payments found</td></tr>';
-            }
 
             document.getElementById('paymentsTable').innerHTML = html;
         }
@@ -2408,8 +2365,8 @@
                 await loadTenantSelect('paymentTenant');
                 document.getElementById('paymentTenant').value = payment.tenant_id;
                 document.getElementById('paymentAmount').value = payment.amount;
-                document.getElementById('paymentMethod').value = payment.payment_method;
-                document.getElementById('paymentDate').value = payment.payment_date;
+                document.getElementById('paymentMethod').value = payment.method;
+                document.getElementById('paymentDate').value = payment.paid_on || payment.due_date;
                 document.getElementById('paymentStatus').value = payment.status;
                 document.getElementById('paymentNotes').value = payment.notes || '';
                 document.getElementById('paymentModal').classList.add('active');
@@ -2442,8 +2399,9 @@
                 branch_id: currentBranchId,
                 tenant_id: document.getElementById('paymentTenant').value,
                 amount: parseInt(document.getElementById('paymentAmount').value),
-                payment_method: document.getElementById('paymentMethod').value,
-                payment_date: document.getElementById('paymentDate').value,
+                method: document.getElementById('paymentMethod').value,
+                due_date: document.getElementById('paymentDate').value,
+                paid_on: document.getElementById('paymentDate').value,
                 status: document.getElementById('paymentStatus').value,
                 notes: document.getElementById('paymentNotes').value
             };
@@ -2476,126 +2434,6 @@
             }
         }
 
-        // ===== Payouts =====
-        async function loadPayouts() {
-            try {
-                const url = currentBranchId
-                    ? `/api/payouts?branch_id=${currentBranchId}`
-                    : '/api/payouts?branch_id=all';
-                const payouts = await api('GET', url);
-                renderPayouts(payouts);
-            } catch (error) {
-                console.error('Failed to load payouts:', error);
-            }
-        }
-
-        function renderPayouts(payouts) {
-            const html = payouts.map(p => `
-                <tr>
-                    <td><strong>${p.tenant_name}</strong></td>
-                    <td>${p.locker_number}</td>
-                    <td>${p.financial_year}</td>
-                    <td>₹${formatIndianNumber(p.principal)}</td>
-                    <td>${p.interest_rate}%</td>
-                    <td>₹${formatIndianNumber(p.interest_amount)}</td>
-                    <td><span class="badge ${getPayoutStatusBadge(p.payout_status)}">${capitalize(p.payout_status)}</span></td>
-                    <td>
-                        <div class="action-buttons">
-                            <button class="btn btn-secondary" onclick="openEditPayoutModal('${p.id}')">Edit</button>
-                            <button class="btn btn-danger" onclick="deletePayout('${p.id}')">Delete</button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
-
-            if (payouts.length === 0) {
-                html = '<tr><td colspan="8" style="text-align: center; padding: 40px;">No payouts found</td></tr>';
-            }
-
-            document.getElementById('payoutsTable').innerHTML = html;
-        }
-
-        function filterPayouts() {
-            const search = document.getElementById('payoutSearch').value.toLowerCase();
-            document.querySelectorAll('#payoutsTable tr').forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(search) ? '' : 'none';
-            });
-        }
-
-        function openAddPayoutModal() {
-            currentEditingId = null;
-            document.getElementById('payoutModalTitle').textContent = 'Record Interest Payout';
-            document.getElementById('payoutForm').reset();
-            document.getElementById('payoutId').value = '';
-            document.getElementById('payoutPayoutDate').valueAsDate = new Date();
-            document.getElementById('payoutPayoutStatus').value = 'pending';
-
-            loadTenantSelect('payoutTenant');
-            document.getElementById('payoutModal').classList.add('active');
-        }
-
-        async function openEditPayoutModal(id) {
-            currentEditingId = id;
-            try {
-                const payout = await api('GET', `/api/payouts/${id}`);
-                document.getElementById('payoutModalTitle').textContent = 'Edit Interest Payout';
-                document.getElementById('payoutId').value = id;
-                await loadTenantSelect('payoutTenant');
-                document.getElementById('payoutTenant').value = payout.tenant_id;
-                document.getElementById('payoutPeriod').value = payout.financial_year;
-                document.getElementById('payoutPrincipal').value = payout.principal;
-                document.getElementById('payoutRate').value = payout.interest_rate;
-                document.getElementById('payoutInterest').value = payout.interest_amount;
-                document.getElementById('payoutPayoutDate').value = payout.payout_date;
-                document.getElementById('payoutPayoutStatus').value = payout.payout_status;
-                document.getElementById('payoutModal').classList.add('active');
-            } catch (error) {
-                console.error('Failed to load payout:', error);
-            }
-        }
-
-        async function savePayout() {
-            const payoutId = document.getElementById('payoutId').value;
-            const data = {
-                branch_id: currentBranchId,
-                tenant_id: document.getElementById('payoutTenant').value,
-                financial_year: document.getElementById('payoutPeriod').value,
-                principal: parseInt(document.getElementById('payoutPrincipal').value),
-                interest_rate: parseFloat(document.getElementById('payoutRate').value),
-                interest_amount: parseInt(document.getElementById('payoutInterest').value),
-                payout_date: document.getElementById('payoutPayoutDate').value,
-                payout_status: document.getElementById('payoutPayoutStatus').value
-            };
-
-            showLoading('Saving payout...');
-            try {
-                if (payoutId) {
-                    await api('PUT', `/api/payouts/${payoutId}`, data);
-                } else {
-                    await api('POST', '/api/payouts', data);
-                }
-                hideLoading();
-                closeModal('payoutModal');
-                await loadPayouts();
-            } catch (error) {
-                hideLoading();
-                alert('Failed to save payout: ' + error.message);
-                console.error('Failed to save payout:', error);
-            }
-        }
-
-        async function deletePayout(id) {
-            if (confirm('Are you sure?')) {
-                try {
-                    await api('DELETE', `/api/payouts/${id}`);
-                    await loadPayouts();
-                } catch (error) {
-                    console.error('Failed to delete payout:', error);
-                }
-            }
-        }
-
         // ===== Visits =====
         async function loadVisits() {
             try {
@@ -2610,11 +2448,16 @@
         }
 
         function renderVisits(visits) {
+            if (visits.length === 0) {
+                document.getElementById('visitsTable').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#7a6b5e;">No visits logged</td></tr>';
+                return;
+            }
+
             const html = visits.map(v => `
                 <tr>
                     <td><strong>${v.tenant_name}</strong></td>
                     <td>${v.locker_number}</td>
-                    <td>${new Date(v.visit_date).toLocaleDateString('en-IN')}</td>
+                    <td>${new Date(v.datetime).toLocaleDateString('en-IN')}</td>
                     <td>${capitalize(v.purpose)}</td>
                     <td>${v.notes || '-'}</td>
                     <td>
@@ -2624,10 +2467,6 @@
                     </td>
                 </tr>
             `).join('');
-
-            if (visits.length === 0) {
-                html = '<tr><td colspan="6" style="text-align: center; padding: 40px;">No visits logged</td></tr>';
-            }
 
             document.getElementById('visitsTable').innerHTML = html;
         }
@@ -2656,7 +2495,7 @@
             const data = {
                 branch_id: currentBranchId,
                 tenant_id: document.getElementById('visitTenant').value,
-                visit_date: document.getElementById('visitDate').value,
+                datetime: document.getElementById('visitDate').value,
                 purpose: document.getElementById('visitPurpose').value,
                 notes: document.getElementById('visitNotes').value
             };
@@ -2703,14 +2542,17 @@
         }
 
         function renderBGChecks(tenants) {
+            if (tenants.length === 0) {
+                document.getElementById('bgchecksTable').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#7a6b5e;">No tenants found</td></tr>';
+                return;
+            }
+
             const html = tenants.map(t => `
                 <tr>
                     <td><strong>${t.name}</strong></td>
-                    <td>${capitalize(t.bg_id_type) || '-'}</td>
-                    <td>${t.bg_id_number || '-'}</td>
-                    <td><span class="badge ${t.bg_id_verified ? 'badge-success' : 'badge-warning'}">${t.bg_id_verified ? 'Yes' : 'No'}</span></td>
-                    <td><span class="badge ${t.bg_addr_verified ? 'badge-success' : 'badge-warning'}">${t.bg_addr_verified ? 'Yes' : 'No'}</span></td>
-                    <td><span class="badge ${t.bg_ref_checked ? 'badge-success' : 'badge-warning'}">${t.bg_ref_checked ? 'Yes' : 'No'}</span></td>
+                    <td>${t.bg_aadhaar || '-'}</td>
+                    <td>${t.bg_pan || '-'}</td>
+                    <td><span class="badge ${t.bg_photos_collected ? 'badge-success' : 'badge-warning'}">${t.bg_photos_collected ? 'Yes' : 'No'}</span></td>
                     <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status)}</span></td>
                     <td>
                         <div class="action-buttons">
@@ -2719,10 +2561,6 @@
                     </td>
                 </tr>
             `).join('');
-
-            if (tenants.length === 0) {
-                html = '<tr><td colspan="8" style="text-align: center; padding: 40px;">No tenants found</td></tr>';
-            }
 
             document.getElementById('bgchecksTable').innerHTML = html;
         }
@@ -2742,8 +2580,6 @@
                 { name: 'Tenant Directory', id: 'directory' },
                 { name: 'Rent Collection', id: 'rent' },
                 { name: 'Overdue Summary', id: 'overdue' },
-                { name: 'Interest Payouts', id: 'interest' },
-                { name: 'Missed Payouts', id: 'missed' },
                 { name: 'Visit Log', id: 'visits' },
                 { name: 'BG Check Report', id: 'bgcheck' },
                 { name: 'Occupancy Summary', id: 'occupancy' },
@@ -2783,14 +2619,6 @@
                     data = await api('GET', currentBranchId ? `/api/payments?branch_id=${currentBranchId}&overdue=true` : '/api/payments?branch_id=all&overdue=true');
                     fileName = 'Overdue_Summary.xlsx';
                     downloadExcel(formatOverdueReport(data, isHeadOffice), fileName);
-                } else if (reportId === 'interest') {
-                    data = await api('GET', currentBranchId ? `/api/payouts?branch_id=${currentBranchId}` : '/api/payouts?branch_id=all');
-                    fileName = 'Interest_Payouts.xlsx';
-                    downloadExcel(formatInterestReport(data, isHeadOffice), fileName);
-                } else if (reportId === 'missed') {
-                    data = await api('GET', currentBranchId ? `/api/payouts?branch_id=${currentBranchId}&status=pending` : '/api/payouts?branch_id=all&status=pending');
-                    fileName = 'Missed_Payouts.xlsx';
-                    downloadExcel(formatMissedPayoutsReport(data, isHeadOffice), fileName);
                 } else if (reportId === 'visits') {
                     data = await api('GET', currentBranchId ? `/api/visits?branch_id=${currentBranchId}` : '/api/visits?branch_id=all');
                     fileName = 'Visit_Log.xlsx';
@@ -2909,6 +2737,11 @@
         }
 
         function renderUsers(users) {
+            if (users.length === 0) {
+                document.getElementById('usersTable').innerHTML = '<tr><td colspan="5" style="text-align:center;padding:40px;color:#7a6b5e;">No users found</td></tr>';
+                return;
+            }
+
             const html = users.map(u => `
                 <tr>
                     <td><strong>${u.name}</strong></td>
@@ -2920,10 +2753,6 @@
                     </td>
                 </tr>
             `).join('');
-
-            if (users.length === 0) {
-                html = '<tr><td colspan="5" style="text-align: center; padding: 40px;">No users found</td></tr>';
-            }
 
             document.getElementById('usersTable').innerHTML = html;
         }
@@ -2997,20 +2826,23 @@
         }
 
         function renderLockerTypes(types) {
+            if (types.length === 0) {
+                document.getElementById('lockerTypesTable').innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px;">No locker types found</td></tr>';
+                return;
+            }
+
             const html = types.map(t => {
-                const volume = (t.unit_h * t.unit_w * t.unit_d) / 1000000;
-                const autoSize = calculateAutoSize(volume);
+                const vol = (t.locker_height_mm * t.locker_width_mm * t.locker_depth_mm) / 1000000;
                 const badge = t.is_upcoming ? '<span class="badge badge-warning">Upcoming</span>' : '<span class="badge badge-success">Active</span>';
                 return `
                     <tr>
                         <td><strong>${t.name}</strong></td>
                         <td>${t.variant || '-'}</td>
                         <td>${t.lockers_per_unit}</td>
-                        <td>${t.unit_h}×${t.unit_w}×${t.unit_d}</td>
-                        <td>${t.locker_h}×${t.locker_w}×${t.locker_d}</td>
-                        <td>${(volume).toFixed(1)}</td>
-                        <td>${autoSize}</td>
-                        <td>${t.weight}</td>
+                        <td>${t.unit_height_mm}×${t.unit_width_mm}×${t.unit_depth_mm}</td>
+                        <td>${t.locker_height_mm}×${t.locker_width_mm}×${t.locker_depth_mm}</td>
+                        <td>${vol > 0 ? vol.toFixed(1) : '-'}</td>
+                        <td>${t.auto_size || '-'}</td>
                         <td>${badge}</td>
                         <td>
                             <div class="action-buttons">
@@ -3020,10 +2852,6 @@
                     </tr>
                 `;
             }).join('');
-
-            if (types.length === 0) {
-                html = '<tr><td colspan="10" style="text-align: center; padding: 40px;">No locker types found</td></tr>';
-            }
 
             document.getElementById('lockerTypesTable').innerHTML = html;
         }
@@ -3038,13 +2866,13 @@
                 name: document.getElementById('ltName').value,
                 variant: document.getElementById('ltVariant').value || null,
                 lockers_per_unit: parseInt(document.getElementById('ltLockersPerUnit').value),
-                unit_h: parseInt(document.getElementById('ltUnitH').value),
-                unit_w: parseInt(document.getElementById('ltUnitW').value),
-                unit_d: parseInt(document.getElementById('ltUnitD').value),
-                locker_h: parseInt(document.getElementById('ltLockerH').value),
-                locker_w: parseInt(document.getElementById('ltLockerW').value),
-                locker_d: parseInt(document.getElementById('ltLockerD').value),
-                weight: parseFloat(document.getElementById('ltWeight').value),
+                unit_height_mm: parseInt(document.getElementById('ltUnitH').value) || 0,
+                unit_width_mm: parseInt(document.getElementById('ltUnitW').value) || 0,
+                unit_depth_mm: parseInt(document.getElementById('ltUnitD').value) || 0,
+                locker_height_mm: parseInt(document.getElementById('ltLockerH').value) || 0,
+                locker_width_mm: parseInt(document.getElementById('ltLockerW').value) || 0,
+                locker_depth_mm: parseInt(document.getElementById('ltLockerD').value) || 0,
+                weight_kg: 0,
                 description: document.getElementById('ltDescription').value || null,
                 is_upcoming: document.getElementById('ltIsUpcoming').checked
             };
@@ -3288,7 +3116,7 @@
                 'Emergency Contact': t.emergency || '-',
                 'Locker': t.locker_number || '-',
                 'Lease Start': t.lease_start,
-                'Interest Rate (%)': t.interest_rate,
+                'Annual Rent (₹)': t.annual_rent || '-',
                 'BG Status': capitalize(t.bg_status)
             }));
         }
@@ -3316,29 +3144,6 @@
             }));
         }
 
-        function formatInterestReport(payouts, isHeadOffice) {
-            return payouts.map(p => ({
-                ...(isHeadOffice && { Branch: p.branch_name }),
-                Tenant: p.tenant_name,
-                Period: p.financial_year,
-                'Principal (₹)': p.principal,
-                'Interest Rate (%)': p.interest_rate,
-                'Interest (₹)': p.interest_amount,
-                'Total (₹)': p.principal + p.interest_amount
-            }));
-        }
-
-        function formatMissedPayoutsReport(payouts, isHeadOffice) {
-            return payouts.map(p => ({
-                ...(isHeadOffice && { Branch: p.branch_name }),
-                Tenant: p.tenant_name,
-                Period: p.financial_year,
-                'Interest Amount (₹)': p.interest_amount,
-                Status: capitalize(p.payout_status),
-                'Expected Date': p.payout_date
-            }));
-        }
-
         function formatVisitLogReport(visits, isHeadOffice) {
             return visits.map(v => ({
                 ...(isHeadOffice && { Branch: v.branch_name }),
@@ -3354,11 +3159,9 @@
             return tenants.map(t => ({
                 ...(isHeadOffice && { Branch: t.branch_name }),
                 Name: t.name,
-                'ID Type': capitalize(t.bg_id_type) || '-',
-                'ID Number': t.bg_id_number || '-',
-                'ID Verified': t.bg_id_verified ? 'Yes' : 'No',
-                'Address Verified': t.bg_addr_verified ? 'Yes' : 'No',
-                'Reference Checked': t.bg_ref_checked ? 'Yes' : 'No',
+                'Aadhaar': t.bg_aadhaar || '-',
+                'PAN': t.bg_pan || '-',
+                'Photos Collected': t.bg_photos_collected ? 'Yes' : 'No',
                 Status: capitalize(t.bg_status)
             }));
         }
@@ -3397,37 +3200,18 @@
             XLSX.writeFile(wb, fileName);
         }
 
-        // ===== Interest Summary Preview =====
-        function updateInterestSummary() {
-            const box = document.getElementById('interestSummaryBox');
-            const enabled = document.getElementById('tenantInterestEnabled').checked;
-            const rate = parseFloat(document.getElementById('tenantInterestRate').value) || 0;
-            const freq = document.getElementById('tenantInterestFreq').value;
-
-            if (!enabled || rate <= 0) {
-                box.style.display = 'none';
-                return;
-            }
-
-            const freqLabel = freq === 'monthly' ? 'Monthly' : freq === 'quarterly' ? 'Quarterly' : 'Annual';
-            const periods = freq === 'monthly' ? 12 : freq === 'quarterly' ? 4 : 1;
-            const perPeriodRate = (rate / periods).toFixed(2);
-
-            // Assuming principal = annual rent (user hasn't entered it yet, show formula)
-            const note = `For every Rs.10,000 of annual rent paid:`;
-            const totalInterest = (10000 * rate / 100).toFixed(0);
-            const perPeriodAmt = (10000 * rate / 100 / periods).toFixed(0);
-
-            box.style.display = 'block';
-            box.innerHTML = `
-                <strong>Interest Schedule Preview</strong><br>
-                ${note}<br>
-                Rate: <strong>${rate}% p.a.</strong> | Frequency: <strong>${freqLabel}</strong> (${periods} payouts/year)<br>
-                Per payout: <strong>Rs.${formatIndianNumber(parseInt(perPeriodAmt))}</strong> | Total annual interest: <strong>Rs.${formatIndianNumber(parseInt(totalInterest))}</strong>
-            `;
+        // ===== SOA Download (Ledger Style) =====
+        function downloadAllotmentForm(tenantId) {
+            showLoading('Generating Allotment Form...');
+            const a = document.createElement('a');
+            a.href = `/api/allotment-form/${tenantId}`;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => hideLoading(), 2000);
         }
 
-        // ===== SOA Download (Ledger Style) =====
         async function downloadSOA(tenantId) {
             showLoading('Generating Statement of Account...');
             try {
