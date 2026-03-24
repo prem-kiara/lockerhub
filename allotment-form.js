@@ -34,20 +34,43 @@ function tx(doc, text, x, y, opts) {
 }
 
 function drawHeader(doc, y) {
-  if (!y) y = 50;
+  if (!y) y = 55;
+  const logoH = 40;
+  const logoW = HAS_LOGO ? 44 : 0;
+  const gap = HAS_LOGO ? 8 : 0;
+
+  // Measure text widths to center the whole block (logo + text)
+  doc.font('Helvetica-Bold').fontSize(13);
+  const nameW = doc.widthOfString(COMPANY_FULL);
+  const blockW = logoW + gap + nameW;
+  const startX = (W - blockW) / 2;
+
+  // Draw logo
   if (HAS_LOGO) {
-    try { doc.image(LOGO_PATH, M, y - 32, { height: 34 }); } catch (e) { /* skip */ }
+    try { doc.image(LOGO_PATH, startX, y - logoH, { height: logoH }); } catch (e) { /* skip */ }
   }
-  const nameX = HAS_LOGO ? M + 42 : M;
-  doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
-  tx(doc, COMPANY_FULL, nameX, y - 30);
+
+  // Company name — centered
+  const textX = startX + logoW + gap;
+  doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK);
+  tx(doc, COMPANY_FULL, textX, y - 38);
+
+  // CIN / GST / Phone — centered below name
   doc.font('Helvetica').fontSize(6.5).fillColor('#666666');
-  tx(doc, `CIN: ${CIN}  |  GST: ${GST}  |  Ph: ${PHONE}`, nameX, y - 17);
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(GOLD);
-  tx(doc, 'Safe Deposit Lockers', 0, y - 28, { width: W - M, align: 'right' });
-  doc.save().strokeColor(GOLD).lineWidth(2).moveTo(M, y).lineTo(W - M, y).stroke().restore();
+  const subText = `CIN: ${CIN}  |  GST: ${GST}  |  Ph: ${PHONE}`;
+  const subW = doc.widthOfString(subText);
+  tx(doc, subText, (W - subW) / 2, y - 22);
+
+  // "Safe Deposit Lockers" — centered below sub-text
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD);
+  const sdlText = 'Safe Deposit Lockers';
+  const sdlW = doc.widthOfString(sdlText);
+  tx(doc, sdlText, (W - sdlW) / 2, y - 10);
+
+  // Gold accent line
+  doc.save().strokeColor(GOLD).lineWidth(2).moveTo(M, y + 2).lineTo(W - M, y + 2).stroke().restore();
   doc.fillColor('black');
-  return y + 10;
+  return y + 14;
 }
 
 function drawFooter(doc, version) {
@@ -109,7 +132,8 @@ function page1(doc, t, branch) {
   let y = drawHeader(doc);
   y += 8;
   doc.font('Helvetica-Bold').fontSize(13).fillColor(GOLD);
-  tx(doc, 'SPECIMEN SIGNATURE CARD', W / 2 - 110, y);
+  const p1Title = 'SPECIMEN SIGNATURE CARD';
+  tx(doc, p1Title, (W - doc.widthOfString(p1Title)) / 2, y);
   doc.fillColor('black');
   y += 25;
 
@@ -161,7 +185,8 @@ function page2(doc, t, branch) {
   let y = drawHeader(doc);
   y += 8;
   doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK);
-  tx(doc, 'CUSTOMER FEEDBACK FORM - ALLOTMENT', W / 2 - 150, y);
+  const p2Title = 'CUSTOMER FEEDBACK FORM - ALLOTMENT';
+  tx(doc, p2Title, (W - doc.widthOfString(p2Title)) / 2, y);
   doc.fillColor('black');
   y += 25;
 
@@ -253,7 +278,8 @@ function page3(doc, t, branch) {
   let y = drawHeader(doc);
   y += 3;
   doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
-  tx(doc, 'SAFE DEPOSIT LOCKER HIRING AGREEMENT', W / 2 - 150, y);
+  const p3Title = 'SAFE DEPOSIT LOCKER HIRING AGREEMENT';
+  tx(doc, p3Title, (W - doc.widthOfString(p3Title)) / 2, y);
   doc.fillColor('black');
   y += 22;
 
@@ -308,13 +334,19 @@ function page3(doc, t, branch) {
   tx(doc, 'Authorised Signatory', M, y); y += 20;
 
   doc.font('Helvetica-Bold').fontSize(8).fillColor(DARK);
-  tx(doc, COMPANY_FULL.toUpperCase(), W / 2 - 140, y); y += 12;
+  const compUpper = COMPANY_FULL.toUpperCase();
+  tx(doc, compUpper, (W - doc.widthOfString(compUpper)) / 2, y); y += 12;
   doc.font('Helvetica').fontSize(6.5).fillColor('#666666');
-  tx(doc, `CIN: ${CIN}`, W / 2 - 55, y); y += 9;
-  tx(doc, `GST: ${GST}`, W / 2 - 45, y); y += 9;
-  tx(doc, `Regd. Office: ${REGD}`, M + 30, y); y += 9;
-  tx(doc, `Corp. Office: ${CORP}`, M + 20, y); y += 9;
-  tx(doc, `Ph: ${PHONE}`, W / 2 - 35, y);
+  let cinTxt = `CIN: ${CIN}`;
+  tx(doc, cinTxt, (W - doc.widthOfString(cinTxt)) / 2, y); y += 9;
+  let gstTxt = `GST: ${GST}`;
+  tx(doc, gstTxt, (W - doc.widthOfString(gstTxt)) / 2, y); y += 9;
+  let regTxt = `Regd. Office: ${REGD}`;
+  tx(doc, regTxt, (W - doc.widthOfString(regTxt)) / 2, y); y += 9;
+  let corpTxt = `Corp. Office: ${CORP}`;
+  tx(doc, corpTxt, (W - doc.widthOfString(corpTxt)) / 2, y); y += 9;
+  let phTxt = `Ph: ${PHONE}`;
+  tx(doc, phTxt, (W - doc.widthOfString(phTxt)) / 2, y);
   doc.fillColor('black');
 
   drawFooter(doc, 'DFIN/ALT/02/Ver 1.0');
@@ -328,11 +360,13 @@ function pageTerms(doc) {
   let y = drawHeader(doc);
   y += 3;
   doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
-  tx(doc, 'SAFE DEPOSIT LOCKER HIRING AGREEMENT', W / 2 - 150, y);
+  const tcMainTitle = 'SAFE DEPOSIT LOCKER HIRING AGREEMENT';
+  tx(doc, tcMainTitle, (W - doc.widthOfString(tcMainTitle)) / 2, y);
   doc.fillColor('black');
   y += 16;
   doc.font('Helvetica-Bold').fontSize(9);
-  tx(doc, 'Terms and Conditions', W / 2 - 55, y);
+  const tcSubTitle = 'Terms and Conditions';
+  tx(doc, tcSubTitle, (W - doc.widthOfString(tcSubTitle)) / 2, y);
   y += 16;
 
   const terms = [
@@ -375,11 +409,13 @@ function pageTerms(doc) {
       y = drawHeader(doc);
       y += 3;
       doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
-      tx(doc, 'SAFE DEPOSIT LOCKER HIRING AGREEMENT', W / 2 - 150, y);
+      const contMainT = 'SAFE DEPOSIT LOCKER HIRING AGREEMENT';
+      tx(doc, contMainT, (W - doc.widthOfString(contMainT)) / 2, y);
       doc.fillColor('black');
       y += 16;
       doc.font('Helvetica-Bold').fontSize(9);
-      tx(doc, 'Terms and Conditions (Contd.)', W / 2 - 75, y);
+      const contSubT = 'Terms and Conditions (Contd.)';
+      tx(doc, contSubT, (W - doc.widthOfString(contSubT)) / 2, y);
       y += 14;
       doc.font('Helvetica').fontSize(7);
     }
@@ -408,7 +444,8 @@ function pageHirerInfo(doc, t) {
   let y = drawHeader(doc);
   y += 3;
   doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK);
-  tx(doc, 'HIRER INFORMATION', M, y);
+  const hirerTitle = 'HIRER INFORMATION';
+  tx(doc, hirerTitle, (W - doc.widthOfString(hirerTitle)) / 2, y);
   doc.fillColor('black');
   y += 15;
 
@@ -500,7 +537,8 @@ function pageKYC(doc, t) {
   let y = drawHeader(doc);
   y += 3;
   doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK);
-  tx(doc, 'KYC DETAILS & PROOF', M, y);
+  const kycTitle = 'KYC DETAILS & PROOF';
+  tx(doc, kycTitle, (W - doc.widthOfString(kycTitle)) / 2, y);
   doc.fillColor('black');
   y += 18;
 
@@ -753,7 +791,8 @@ function pageAcknowledgement(doc, t, branch, locker) {
   // Company use section
   doc.save().fillColor(GOLD).rect(M, y, W - 2 * M, 20).fill().restore();
   doc.font('Helvetica-Bold').fontSize(11).fillColor('white');
-  tx(doc, "FOR COMPANY'S USE ONLY", W / 2 - 85, y + 4);
+  const compUseTitle = "FOR COMPANY'S USE ONLY";
+  tx(doc, compUseTitle, (W - doc.widthOfString(compUseTitle)) / 2, y + 4);
   doc.fillColor('black');
   y += 26;
 
@@ -764,7 +803,7 @@ function pageAcknowledgement(doc, t, branch, locker) {
   y = field(doc, 'Cabinet No.:', M, y, '', 115, 80);
   y += 2;
   y = field(doc, 'Received Locker Rent: Rs.', M, y, '', 115, 155);
-  field(doc, 'Received Locker Rent Advance: Rs.', W / 2 - 30, y - 16, '', 95, 205);
+  y = field(doc, 'Received Locker Rent Advance: Rs.', M, y, '', 115, 200);
 
   y += 8;
   doc.font('Helvetica').fontSize(8);

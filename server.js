@@ -319,12 +319,13 @@ app.post('/api/units', (req, res) => {
     id, branch_id, locker_type_id, unit_number, location || '', lt.is_upcoming ? 'upcoming' : 'active', notes || ''
   );
 
-  // Auto-create individual lockers inside this unit
+  // Auto-create individual lockers inside this unit (A, B, C, ...)
+  const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const size = lt.auto_size || classifySize(lt.locker_height_mm, lt.locker_width_mm, lt.locker_depth_mm);
   const insertLocker = db.prepare('INSERT INTO lockers (id, branch_id, unit_id, locker_type_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const tx = db.transaction(() => {
-    for (let i = 1; i <= lt.lockers_per_unit; i++) {
-      const lockerNum = `${unit_number}-${String(i).padStart(2, '0')}`;
+    for (let i = 0; i < lt.lockers_per_unit; i++) {
+      const lockerNum = `${unit_number}-${ALPHA[i]}`;
       const status = lt.is_upcoming ? 'upcoming' : 'vacant';
       insertLocker.run(genId(), branch_id, id, locker_type_id, lockerNum, size, location || '', 0, status);
     }
@@ -801,19 +802,20 @@ function autoSeed() {
     genId(), 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', brId
   );
 
-  // 8 L6 units + 4 L10 units
+  // 8 L6 units (01-08, 6 lockers A-F each) + 4 L10 units (01-04, 10 lockers A-J each)
+  const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const insUnit = db.prepare('INSERT INTO units (id, branch_id, locker_type_id, unit_number, location, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const insLock = db.prepare('INSERT INTO lockers (id, branch_id, unit_id, locker_type_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const tx = db.transaction(() => {
     for (let i = 1; i <= 8; i++) {
       const uid = 'unit_l6_' + i, unum = 'L6-' + String(i).padStart(2, '0');
       insUnit.run(uid, brId, 'lt_l6_std', unum, 'RS Puram', 'active', '');
-      for (let j = 1; j <= 6; j++) insLock.run(genId(), brId, uid, 'lt_l6_std', unum + '-' + String(j).padStart(2, '0'), 'Large', 'RS Puram', 0, 'vacant');
+      for (let j = 0; j < 6; j++) insLock.run(genId(), brId, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'RS Puram', 0, 'vacant');
     }
     for (let i = 1; i <= 4; i++) {
       const uid = 'unit_l10_' + i, unum = 'L10-' + String(i).padStart(2, '0');
       insUnit.run(uid, brId, 'lt_l10_std', unum, 'RS Puram', 'active', '');
-      for (let j = 1; j <= 10; j++) insLock.run(genId(), brId, uid, 'lt_l10_std', unum + '-' + String(j).padStart(2, '0'), 'Medium', 'RS Puram', 0, 'vacant');
+      for (let j = 0; j < 10; j++) insLock.run(genId(), brId, uid, 'lt_l10_std', unum + '-' + LETTERS[j], 'Medium', 'RS Puram', 0, 'vacant');
     }
   });
   tx();

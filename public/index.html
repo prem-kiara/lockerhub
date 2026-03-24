@@ -1332,6 +1332,7 @@
                                 <option value="">Select locker</option>
                             </select>
                             <div id="tenantRentDisplay" style="margin-top:6px;font-size:13px;color:#7a6b5e;"></div>
+                            <div id="tenantDepositDisplay" style="margin-top:2px;font-size:13px;color:#7a6b5e;"></div>
                             <input type="hidden" id="tenantAnnualRent" value="0">
                         </div>
                     </div>
@@ -2140,6 +2141,8 @@
             document.getElementById('tenantBranchGroup').style.display = isHO ? 'block' : 'none';
             if (isHO) loadBranchSelectorForTenant();
 
+            document.getElementById('tenantRentDisplay').textContent = '';
+            document.getElementById('tenantDepositDisplay').textContent = '';
             // Load available lockers
             loadLockerSelect();
             document.getElementById('tenantModal').classList.add('active');
@@ -2220,6 +2223,13 @@
 
             document.getElementById('tenantAnnualRent').value = rent;
             document.getElementById('tenantRentDisplay').textContent = rent > 0 ? 'Annual Rent: Rs.' + rent.toLocaleString('en-IN') : '';
+
+            let deposit = 0;
+            if (rent === 25000) deposit = 300000;
+            else if (rent === 20000) deposit = 250000;
+            else if (rent === 30000) deposit = 350000;
+            else if (rent === 15000) deposit = 200000;
+            document.getElementById('tenantDepositDisplay').textContent = deposit > 0 ? 'Deposit: Rs.' + deposit.toLocaleString('en-IN') : '';
         }
 
         async function saveTenant() {
@@ -2940,8 +2950,8 @@
                         </div>
                         ${branchTag}
                         <div class="unit-card-type">
-                            <strong>${u.locker_type_name}</strong>
-                            ${u.locker_type_variant ? ` (${u.locker_type_variant})` : ''}
+                            <strong>${u.type_name}</strong>
+                            ${u.variant ? ` (${u.variant})` : ''}
                         </div>
                         <div class="unit-card-occupancy">
                             <span>${occupied}/${total}</span>
