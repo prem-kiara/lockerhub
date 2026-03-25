@@ -3611,6 +3611,7 @@
                     <td>
                         <div class="action-buttons">
                             ${p.status === 'Pending' || p.status === 'Overdue' ? `<button class="btn btn-primary" onclick="markAsPaid('${p.id}')" style="font-size:12px;padding:5px 10px;">Mark Paid</button>` : ''}
+                            ${p.status === 'Paid' ? `<button class="btn btn-secondary" onclick="downloadReceipt('${p.id}')" style="font-size:12px;padding:5px 10px;">🧾 Receipt</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')" style="font-size:12px;padding:5px 10px;">Edit</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deletePayment('${p.id}')" style="font-size:12px;padding:5px 10px;">Del</button>` : ''}
                         </div>
@@ -4820,6 +4821,17 @@
             setTimeout(() => hideLoading(), 2000);
         }
 
+        function downloadReceipt(paymentId) {
+            showLoading('Generating Receipt...');
+            const a = document.createElement('a');
+            a.href = `/api/receipt/${paymentId}`;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => hideLoading(), 2000);
+        }
+
         async function downloadSOA(tenantId) {
             showLoading('Generating Statement of Account...');
             try {
@@ -5265,7 +5277,7 @@
                         <td>₹${formatIndianNumber(p.amount || 0)}</td>
                         <td><span class="badge ${p.status === 'Paid' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
                         <td>${p.method || '-'}</td>
-                        <td>${p.receipt_no || '-'}</td>
+                        <td>${p.status === 'Paid' ? `<button class="btn btn-secondary" onclick="downloadReceipt('${p.id}')" style="font-size:11px;padding:3px 8px;">🧾 ${p.receipt_no || 'Download'}</button>` : (p.receipt_no || '-')}</td>
                     </tr>`;
                 }).join('');
             } catch (err) {

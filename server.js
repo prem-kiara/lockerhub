@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { generatePdfBuffer } = require('./allotment-form');
+const { generateReceiptBuffer } = require('./receipt-generator');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -861,11 +862,13 @@ app.get('/api/allotment-form/:id', async (req, res) => {
     const depositPayment = payments.find(p => p.type === 'deposit');
     const rentPayment = payments.find(p => p.type === 'rent');
 
-    // Attach computed fields to tenant
+    // Attach computed fields to tenant — only show PAID amounts on the form
     tenant.agreement_no = agreementNo;
     tenant.allotment_date = tenant.lease_start || new Date().toISOString().split('T')[0];
-    tenant.deposit_amount = depositPayment ? depositPayment.amount : (tenant.deposit || 0);
-    tenant.rent_amount = rentPayment ? rentPayment.amount : (tenant.annual_rent || 0);
+    const paidDeposit = payments.find(p => p.type === 'deposit' && p.status === 'Paid');
+    const paidRent = payments.find(p => p.type === 'rent' && p.status === 'Paid');
+    tenant.deposit_amount = paidDeposit ? paidDeposit.amount : 0;
+    tenant.rent_amount = paidRent ? paidRent.amount : 0;
 
     const pdfBuffer = await generatePdfBuffer(tenant, branch || {}, locker || {});
 
@@ -876,6 +879,37 @@ app.get('/api/allotment-form/:id', async (req, res) => {
     res.send(pdfBuffer);
   } catch (err) {
     console.error('Allotment form error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================
+//  PAYMENT RECEIPT PDF
+// ============================
+app.get('/api/receipt/:paymentId', async (req, res) => {
+  try {
+    const payment = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone,
+      l.number as locker_number, l.size as locker_size
+      FROM payments p
+      LEFT JOIN tenants t ON p.tenant_id = t.id
+      LEFT JOIN lockers l ON p.locker_id = l.id
+      WHERE p.id = ?`).get(req.params.paymentId);
+
+    if (!payment) return res.status(404).json({ error: 'Payment not found' });
+
+    const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(payment.branch_id);
+    const tenant = { name: payment.tenant_name, phone: payment.tenant_phone, locker_number: payment.locker_number };
+    const locker = { number: payment.locker_number, size: payment.locker_size };
+
+    const pdfBuffer = await generateReceiptBuffer(payment, tenant, branch || {}, locker || {});
+
+    const safeName = (payment.receipt_no || 'receipt').replace(/[^a-zA-Z0-9-]/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=Receipt_${safeName}.pdf`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('Receipt generation error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
