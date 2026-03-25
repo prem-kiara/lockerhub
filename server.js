@@ -700,6 +700,32 @@ app.post('/api/tenants', (req, res) => {
     );
     // Mark locker as occupied
     if (d.locker_id) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('occupied', d.locker_id);
+
+    // Auto-generate pending deposit payment if deposit > 0
+    if (d.deposit && parseFloat(d.deposit) > 0) {
+      const depId = genId();
+      const depReceipt = getNextReceiptNo();
+      db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        depId, d.branch_id, id, d.locker_id || '', 'deposit', '', parseFloat(d.deposit), d.lease_start || new Date().toISOString().split('T')[0], 'Pending', '', '', '', depReceipt, 'Auto-generated on tenant creation'
+      );
+      logInfo('Auto-created deposit payment', { paymentId: depId, tenantId: id, amount: d.deposit });
+    }
+
+    // Auto-generate pending annual rent payment if annual_rent > 0
+    if (d.annual_rent && parseFloat(d.annual_rent) > 0) {
+      const rentId = genId();
+      const rentReceipt = getNextReceiptNo();
+      const startDate = d.lease_start || new Date().toISOString().split('T')[0];
+      // Calculate period as FY year
+      const startDt = new Date(startDate);
+      const fy = startDt.getMonth() >= 3 ? startDt.getFullYear() : startDt.getFullYear() - 1;
+      const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
+      db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        rentId, d.branch_id, id, d.locker_id || '', 'rent', period, parseFloat(d.annual_rent), startDate, 'Pending', '', '', '', rentReceipt, 'Auto-generated on tenant creation'
+      );
+      logInfo('Auto-created rent payment', { paymentId: rentId, tenantId: id, amount: d.annual_rent, period });
+    }
+
     logInfo('Tenant created', { id, name: d.name, locker: d.locker_id, branch: d.branch_id, deposit: d.deposit, annual_rent: d.annual_rent });
     res.json({ id, lease_end, annual_rent: d.annual_rent || 0, deposit: d.deposit || 0 });
   } catch (err) {
@@ -955,8 +981,24 @@ app.post('/api/renewals/:id/renew', (req, res) => {
     const newEnd = newEndDate.toISOString().split('T')[0];
 
     db.prepare('UPDATE tenants SET lease_start = ?, lease_end = ? WHERE id = ?').run(newStart, newEnd, req.params.id);
+
+    // Auto-create pending rent payment for the new lease period
+    let rentPaymentCreated = false;
+    if (tenant.annual_rent && parseFloat(tenant.annual_rent) > 0) {
+      const rentId = genId();
+      const rentReceipt = getNextReceiptNo();
+      const startDt = new Date(newStart);
+      const fy = startDt.getMonth() >= 3 ? startDt.getFullYear() : startDt.getFullYear() - 1;
+      const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
+      db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        rentId, tenant.branch_id, req.params.id, tenant.locker_id || '', 'rent', period, parseFloat(tenant.annual_rent), newStart, 'Pending', '', '', '', rentReceipt, 'Auto-generated on lease renewal'
+      );
+      logInfo('Auto-created renewal rent payment', { paymentId: rentId, tenantId: req.params.id, amount: tenant.annual_rent, period });
+      rentPaymentCreated = true;
+    }
+
     logInfo('Lease renewed', { tenant: req.params.id, name: tenant.name, new_start: newStart, new_end: newEnd });
-    res.json({ ok: true, new_start: newStart, new_end: newEnd });
+    res.json({ ok: true, new_start: newStart, new_end: newEnd, rent_payment_created: rentPaymentCreated });
   } catch (err) {
     logError('Renewal error', { error: err.message });
     res.status(500).json({ error: err.message });
@@ -1072,7 +1114,7 @@ app.get('/api/stats', (req, res) => {
   const { branch_id } = req.query;
   if (!branch_id) return res.status(400).json({ error: 'branch_id required' });
   const lockers = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) as occupied, SUM(CASE WHEN status='vacant' THEN 1 ELSE 0 END) as vacant FROM lockers WHERE branch_id = ?`).get(branch_id);
-  const revenue = db.prepare(`SELECT COALESCE(SUM(rent), 0) as total FROM lockers WHERE branch_id = ? AND status = 'occupied'`).get(branch_id);
+  const revenue = db.prepare(`SELECT COALESCE(SUM(annual_rent), 0) as total FROM tenants WHERE branch_id = ? AND locker_id != ''`).get(branch_id);
   const tenantCount = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ?`).get(branch_id);
   const overdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(branch_id);
   const missedPayouts = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND status = 'Missed'`).get(branch_id);
@@ -1112,7 +1154,7 @@ app.get('/api/stats/all', (req, res) => {
   const branches = db.prepare('SELECT * FROM branches ORDER BY name').all();
   const stats = branches.map(b => {
     const lockers = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) as occupied, SUM(CASE WHEN status='vacant' THEN 1 ELSE 0 END) as vacant FROM lockers WHERE branch_id = ?`).get(b.id);
-    const revenue = db.prepare(`SELECT COALESCE(SUM(rent), 0) as total FROM lockers WHERE branch_id = ? AND status = 'occupied'`).get(b.id);
+    const revenue = db.prepare(`SELECT COALESCE(SUM(annual_rent), 0) as total FROM tenants WHERE branch_id = ? AND locker_id != ''`).get(b.id);
     const tenants = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ?`).get(b.id);
     const overdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(b.id);
     const missedPayouts = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND status = 'Missed'`).get(b.id);
@@ -1595,4 +1637,20 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log('  ║  the Network URL above.                  ║');
   console.log('  ╚══════════════════════════════════════════╝');
   console.log('');
+
+  // Run overdue check on startup
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const result = db.prepare("UPDATE payments SET status = 'Overdue' WHERE status = 'Pending' AND due_date != '' AND due_date < ?").run(today);
+    if (result.changes > 0) logInfo('Startup overdue check', { marked: result.changes });
+  } catch (e) { logError('Startup overdue check failed', { error: e.message }); }
+
+  // Run overdue check every 6 hours
+  setInterval(() => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const result = db.prepare("UPDATE payments SET status = 'Overdue' WHERE status = 'Pending' AND due_date != '' AND due_date < ?").run(today);
+      if (result.changes > 0) logInfo('Periodic overdue check', { marked: result.changes });
+    } catch (e) { logError('Periodic overdue check failed', { error: e.message }); }
+  }, 6 * 60 * 60 * 1000);
 });

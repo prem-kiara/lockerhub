@@ -2801,38 +2801,18 @@
         }
 
         async function renewLease(tenantId, name) {
-            if (!confirm(`Renew lease for ${name} by 1 year? This will also prompt you to record the next year's rent.`)) return;
+            if (!confirm(`Renew lease for ${name} by 1 year? A pending rent payment will be auto-created.`)) return;
 
             showLoading('Renewing lease...');
             try {
                 const result = await api('POST', `/api/renewals/${tenantId}/renew`);
                 hideLoading();
 
-                // Prompt to record next year's rent
-                const tenant = await api('GET', `/api/tenants/${tenantId}`);
-                if (tenant && tenant.annual_rent) {
-                    if (confirm(`Lease renewed to ${new Date(result.new_end).toLocaleDateString('en-IN')}. Record the annual rent payment of ₹${formatIndianNumber(tenant.annual_rent)} now?`)) {
-                        const today = new Date().toISOString().split('T')[0];
-                        const now = new Date();
-                        const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
-                        const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
-
-                        await api('POST', '/api/payments', {
-                            branch_id: tenant.branch_id,
-                            tenant_id: tenantId,
-                            locker_id: tenant.locker_id,
-                            type: 'rent',
-                            period: period,
-                            amount: tenant.annual_rent,
-                            due_date: today,
-                            paid_on: today,
-                            status: 'Paid',
-                            method: 'cash',
-                            notes: 'Renewal - Year ' + period
-                        });
-                        alert('Rent payment recorded!');
-                    }
+                let msg = `Lease renewed to ${new Date(result.new_end).toLocaleDateString('en-IN')}.`;
+                if (result.rent_payment_created) {
+                    msg += ' A pending rent payment has been auto-created. You can mark it as Paid from the Rent & Payments section.';
                 }
+                alert(msg);
 
                 await loadDashboard();
             } catch (err) {
