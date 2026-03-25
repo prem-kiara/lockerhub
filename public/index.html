@@ -1248,8 +1248,8 @@
             <div id="loginError" class="login-error"></div>
             <form id="loginForm">
                 <div class="form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required>
+                    <label for="username">Username / Phone Number</label>
+                    <input type="text" id="username" name="username" required placeholder="Staff username or customer phone">
                 </div>
                 <div class="form-group">
                     <label for="password">Password</label>
@@ -1280,6 +1280,11 @@
                 <li id="navBackup" style="display: none;"><a onclick="switchSection('backup')" class="nav-link" data-section="backup">Data & Backup</a></li>
                 <li id="branchMgmt" style="display: none;"><a onclick="switchSection('branches')" class="nav-link" data-section="branches">Manage Branches</a></li>
                 <li id="userMgmt" style="display: none;"><a onclick="switchSection('users')" class="nav-link" data-section="users">Manage Users</a></li>
+                <li id="navAppointments" style="display: none;"><a onclick="switchSection('appointments')" class="nav-link" data-section="appointments">Appointments</a></li>
+                <!-- Customer nav items -->
+                <li id="navCustDashboard" style="display: none;"><a onclick="switchSection('custDashboard')" class="nav-link" data-section="custDashboard">My Dashboard</a></li>
+                <li id="navCustAppointments" style="display: none;"><a onclick="switchSection('custAppointments')" class="nav-link" data-section="custAppointments">My Appointments</a></li>
+                <li id="navCustPayments" style="display: none;"><a onclick="switchSection('custPayments')" class="nav-link" data-section="custPayments">My Payments</a></li>
             </ul>
             <div class="sidebar-bottom">
                 <button class="logout-btn" onclick="logout()">Logout</button>
@@ -1560,6 +1565,185 @@
                         <div class="loading"><div class="spinner"></div></div>
                     </div>
                 </div>
+                <!-- Appointments Screen (Admin/Branch) -->
+                <div id="appointmentsScreen" class="screen">
+                    <div class="section-title">Appointments</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openBookAppointmentModal()">+ Book Appointment</button>
+                        <select id="apptStatusFilter" class="search-box" style="max-width:160px;" onchange="loadAppointments()">
+                            <option value="">All Status</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Approved">Approved</option>
+                            <option value="Rejected">Rejected</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
+                        <input type="date" id="apptDateFrom" class="search-box" style="max-width:160px;" onchange="loadAppointments()">
+                        <input type="date" id="apptDateTo" class="search-box" style="max-width:160px;" onchange="loadAppointments()">
+                    </div>
+                    <div id="appointmentCalendar" style="margin-bottom:20px;"></div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 0)">Date</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 1)">Time</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 2)">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 3)">Phone</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 4)">Locker</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 5)">Purpose</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 6)">Booked By</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 7)">Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="appointmentsTable">
+                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Customer Dashboard Screen -->
+                <div id="custDashboardScreen" class="screen">
+                    <div class="section-title">Welcome Back!</div>
+                    <div id="custInfoCards" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:24px;"></div>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
+                        <div>
+                            <h3 style="margin-bottom:12px; color:var(--primary-dark);">Upcoming Appointments</h3>
+                            <div id="custUpcomingAppts" style="min-height:80px;"></div>
+                        </div>
+                        <div>
+                            <h3 style="margin-bottom:12px; color:var(--primary-dark);">Recent Payments</h3>
+                            <div id="custRecentPayments" style="min-height:80px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Customer Appointments Screen -->
+                <div id="custAppointmentsScreen" class="screen">
+                    <div class="section-title">My Appointments</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openCustRequestVisitModal()">+ Request Visit</button>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 0)">Date</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 1)">Time</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 2)">Purpose</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 3)">Status</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="custAppointmentsTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Customer Payments Screen -->
+                <div id="custPaymentsScreen" class="screen">
+                    <div class="section-title">My Payments</div>
+                    <div id="custPaymentSummary" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:24px;"></div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 0)">Receipt</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 1)">Type</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 2)">Period</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 3)">Amount</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 4)">Method</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 5)">Date</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 6)">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="custPaymentsTable"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Book Appointment (Admin/Branch) -->
+    <div id="bookApptModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Book Appointment</h2>
+            <div class="form-group">
+                <label>Customer Phone Number *</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="tel" id="apptPhone" placeholder="Enter phone number" style="flex:1;">
+                    <button class="btn btn-secondary" onclick="lookupApptTenant()">Lookup</button>
+                </div>
+            </div>
+            <div id="apptTenantInfo" style="display:none; padding:12px; background:var(--bg); border-radius:8px; margin-bottom:12px;">
+                <strong id="apptTenantName"></strong> — Locker: <span id="apptTenantLocker"></span>
+            </div>
+            <input type="hidden" id="apptTenantId">
+            <div class="form-row">
+                <div class="form-group"><label>Date *</label><input type="date" id="apptDate"></div>
+                <div class="form-group"><label>Time</label><input type="time" id="apptTime"></div>
+            </div>
+            <div class="form-group">
+                <label>Purpose</label>
+                <select id="apptPurpose">
+                    <option value="Locker Access">Locker Access</option>
+                    <option value="Deposit Items">Deposit Items</option>
+                    <option value="Retrieve Items">Retrieve Items</option>
+                    <option value="Key Duplicate">Key Duplicate</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Notes</label><textarea id="apptNotes" rows="2"></textarea></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('bookApptModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveStaffAppointment()">Book Appointment</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Customer Request Visit -->
+    <div id="custVisitModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Request Visit</h2>
+            <div class="form-row">
+                <div class="form-group"><label>Preferred Date *</label><input type="date" id="custVisitDate"></div>
+                <div class="form-group"><label>Preferred Time</label><input type="time" id="custVisitTime"></div>
+            </div>
+            <div class="form-group">
+                <label>Purpose</label>
+                <select id="custVisitPurpose">
+                    <option value="Locker Access">Locker Access</option>
+                    <option value="Deposit Items">Deposit Items</option>
+                    <option value="Retrieve Items">Retrieve Items</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="form-group"><label>Notes</label><textarea id="custVisitNotes" rows="2"></textarea></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('custVisitModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitCustVisitRequest()">Submit Request</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Set Customer Password -->
+    <div id="custPasswordModal" class="modal-overlay">
+        <div class="modal">
+            <h2>Set Customer Login Password</h2>
+            <input type="hidden" id="custPwdTenantId">
+            <p id="custPwdTenantInfo" style="margin-bottom:12px;"></p>
+            <div class="form-group">
+                <label>New Password (min 4 chars)</label>
+                <input type="text" id="custPwdValue" placeholder="Enter password">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeModal('custPasswordModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCustomerPassword()">Set Password</button>
             </div>
         </div>
     </div>
@@ -2211,7 +2395,14 @@
 
             showLoading('Logging in...');
             try {
-                const result = await api('POST', '/api/login', { username, password }, 45000);
+                let result;
+                // Try admin/branch login first; if username is all digits (phone), try customer login
+                const isPhone = /^\d{10,}$/.test(username);
+                if (isPhone) {
+                    result = await api('POST', '/api/customer-login', { phone: username, password }, 45000);
+                } else {
+                    result = await api('POST', '/api/login', { username, password }, 45000);
+                }
                 hideLoading();
                 currentUser = result;
                 currentBranchId = result.branch_id;
@@ -2220,28 +2411,41 @@
                 document.getElementById('loginScreen').style.display = 'none';
                 document.getElementById('appContainer').style.display = 'flex';
 
-                // Update UI based on role
+                const isCustomer = result.role === 'customer';
                 const isHeadOffice = result.role === 'headoffice';
-                // Head Office only sections
-                document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('navPayments').style.display = 'block'; // Both HO and branch can access payments
-                document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
+                const isStaff = !isCustomer; // headoffice or branch
 
-                // Update user info
-                document.getElementById('userInfo').textContent = `${result.name} (${result.role === 'headoffice' ? 'Head Office' : 'Branch'})`;
+                // Hide all nav items first, then show based on role
+                document.querySelectorAll('.sidebar-nav li').forEach(li => li.style.display = 'none');
 
-                // Load branches for selector
-                if (isHeadOffice) {
-                    loadBranchSelector();
-                    await switchSection('dashboard');
+                if (isCustomer) {
+                    // Customer: show only customer nav items
+                    document.getElementById('navCustDashboard').style.display = 'block';
+                    document.getElementById('navCustAppointments').style.display = 'block';
+                    document.getElementById('navCustPayments').style.display = 'block';
+                    document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
+                    await switchSection('custDashboard');
                 } else {
+                    // Staff: show admin nav items
+                    document.querySelectorAll('.sidebar-nav li:not([id])').forEach(li => li.style.display = 'block'); // Dashboard, Lockers, Tenants, Visit Log
+                    document.getElementById('navPayments').style.display = 'block';
+                    document.getElementById('navAppointments').style.display = 'block';
+                    if (isHeadOffice) {
+                        document.getElementById('branchMgmt').style.display = 'block';
+                        document.getElementById('userMgmt').style.display = 'block';
+                        document.getElementById('lockerTypesMgmt').style.display = 'block';
+                        document.getElementById('branchSelectorContainer').style.display = 'block';
+                        document.getElementById('navUnits').style.display = 'block';
+                        document.getElementById('navBgChecks').style.display = 'block';
+                        document.getElementById('navReports').style.display = 'block';
+                        document.getElementById('navBackup').style.display = 'block';
+                        document.getElementById('lockerAddBtns').style.display = 'inline';
+                    } else {
+                        document.getElementById('branchSelectorContainer').style.display = 'none';
+                        document.getElementById('lockerAddBtns').style.display = 'none';
+                    }
+                    document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
+                    if (isHeadOffice) loadBranchSelector();
                     await switchSection('dashboard');
                 }
             } catch (error) {
@@ -2283,7 +2487,11 @@
                 reports: 'Reports',
                 backup: 'Data & Backup',
                 branches: 'Manage Branches',
-                users: 'Manage Users'
+                users: 'Manage Users',
+                appointments: 'Appointments',
+                custDashboard: 'My Dashboard',
+                custAppointments: 'My Appointments',
+                custPayments: 'My Payments'
             };
             document.getElementById('topbarTitle').textContent = titles[section];
 
@@ -2299,6 +2507,10 @@
             else if (section === 'reports') await loadReports();
             else if (section === 'branches') await loadBranches();
             else if (section === 'users') await loadUsers();
+            else if (section === 'appointments') await loadAppointments();
+            else if (section === 'custDashboard') await loadCustDashboard();
+            else if (section === 'custAppointments') await loadCustAppointments();
+            else if (section === 'custPayments') await loadCustPayments();
         }
 
         // ===== Dashboard =====
@@ -2763,6 +2975,7 @@
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
                             <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
+                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openSetPasswordModal('${t.id}', '${(t.name||'').replace(/'/g, "\\'")}', '${t.phone||''}')" style="font-size:11px;padding:4px 8px;">🔑 Login</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
                         </div>
                     </td>
@@ -4240,6 +4453,330 @@
                 console.error('SOA error:', error);
             }
         }
+        // ============================
+        //  CUSTOMER PORTAL
+        // ============================
+
+        // --- Customer Dashboard ---
+        async function loadCustDashboard() {
+            try {
+                const [appts, payments] = await Promise.all([
+                    api('GET', `/api/appointments?tenant_id=${currentUser.id}`),
+                    api('GET', `/api/customer/${currentUser.id}/payments`)
+                ]);
+
+                // Info cards
+                const totalPaid = payments.filter(p => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
+                const pendingCount = appts.filter(a => a.status === 'Pending').length;
+                const approvedCount = appts.filter(a => a.status === 'Approved').length;
+                document.getElementById('custInfoCards').innerHTML = `
+                    <div class="stat-card"><div class="stat-label">My Locker</div><div class="stat-value">${currentUser.locker_number || 'N/A'}</div></div>
+                    <div class="stat-card"><div class="stat-label">Lease Ends</div><div class="stat-value">${currentUser.lease_end ? new Date(currentUser.lease_end).toLocaleDateString('en-IN') : 'N/A'}</div></div>
+                    <div class="stat-card"><div class="stat-label">Total Paid</div><div class="stat-value" style="color:var(--success);">₹${formatIndianNumber(totalPaid)}</div></div>
+                    <div class="stat-card"><div class="stat-label">Upcoming Visits</div><div class="stat-value">${approvedCount} approved, ${pendingCount} pending</div></div>
+                `;
+
+                // Upcoming appointments
+                const upcoming = appts.filter(a => ['Pending', 'Approved'].includes(a.status)).slice(0, 5);
+                document.getElementById('custUpcomingAppts').innerHTML = upcoming.length === 0 ?
+                    '<p style="color:var(--text-light);">No upcoming appointments</p>' :
+                    upcoming.map(a => `
+                        <div style="padding:10px; background:var(--bg); border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
+                            <div><strong>${new Date(a.requested_date).toLocaleDateString('en-IN')}</strong> ${a.requested_time || ''} — ${a.purpose}
+                            <span class="badge ${a.status === 'Approved' ? 'badge-success' : 'badge-warning'}">${a.status}</span></div>
+                        </div>
+                    `).join('');
+
+                // Recent payments
+                const recent = payments.slice(0, 5);
+                document.getElementById('custRecentPayments').innerHTML = recent.length === 0 ?
+                    '<p style="color:var(--text-light);">No payments recorded yet</p>' :
+                    recent.map(p => `
+                        <div style="padding:10px; background:var(--bg); border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between;">
+                            <div><strong>${p.receipt_no || '-'}</strong> — ${p.type === 'deposit' ? 'Deposit' : 'Rent'} ${p.period || ''}</div>
+                            <div>₹${formatIndianNumber(p.amount)} <span class="badge ${getPaymentStatusBadge(p.status)}">${p.status}</span></div>
+                        </div>
+                    `).join('');
+            } catch (err) {
+                console.error('Failed to load customer dashboard:', err);
+            }
+        }
+
+        // --- Customer Appointments ---
+        async function loadCustAppointments() {
+            try {
+                const appts = await api('GET', `/api/appointments?tenant_id=${currentUser.id}`);
+                const html = appts.map(a => {
+                    const dateDisplay = a.requested_date ? new Date(a.requested_date).toLocaleDateString('en-IN') : '-';
+                    const canCancel = ['Pending', 'Approved'].includes(a.status);
+                    return `
+                    <tr>
+                        <td>${dateDisplay}</td>
+                        <td>${a.requested_time || '-'}</td>
+                        <td>${a.purpose || '-'}</td>
+                        <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td>
+                        <td>${a.admin_notes || '-'}</td>
+                        <td>${canCancel ? `<button class="btn btn-danger" onclick="cancelAppointment('${a.id}')" style="font-size:12px;padding:4px 10px;">Cancel</button>` : ''}</td>
+                    </tr>`;
+                }).join('');
+                document.getElementById('custAppointmentsTable').innerHTML = html || '<tr><td colspan="6" style="text-align:center;color:var(--text-light);">No appointments yet</td></tr>';
+            } catch (err) {
+                console.error('Failed to load customer appointments:', err);
+            }
+        }
+
+        function openCustRequestVisitModal() {
+            document.getElementById('custVisitDate').value = '';
+            document.getElementById('custVisitTime').value = '';
+            document.getElementById('custVisitPurpose').value = 'Locker Access';
+            document.getElementById('custVisitNotes').value = '';
+            // Set min date to today
+            document.getElementById('custVisitDate').min = new Date().toISOString().split('T')[0];
+            document.getElementById('custVisitModal').classList.add('active');
+        }
+
+        async function submitCustVisitRequest() {
+            const date = document.getElementById('custVisitDate').value;
+            if (!date) return alert('Please select a date');
+            try {
+                const result = await api('POST', '/api/appointments', {
+                    tenant_id: currentUser.id,
+                    requested_date: date,
+                    requested_time: document.getElementById('custVisitTime').value,
+                    purpose: document.getElementById('custVisitPurpose').value,
+                    notes: document.getElementById('custVisitNotes').value,
+                    booked_by: 'customer'
+                });
+                closeModal('custVisitModal');
+                alert(result.message || 'Visit request submitted! Awaiting approval.');
+                await loadCustAppointments();
+            } catch (err) {
+                alert('Failed to submit request: ' + err.message);
+            }
+        }
+
+        async function cancelAppointment(id) {
+            if (!confirm('Cancel this appointment?')) return;
+            try {
+                await api('DELETE', `/api/appointments/${id}`);
+                if (currentUser.role === 'customer') await loadCustAppointments();
+                else await loadAppointments();
+            } catch (err) {
+                alert('Failed to cancel: ' + err.message);
+            }
+        }
+
+        // --- Customer Payments ---
+        async function loadCustPayments() {
+            try {
+                const payments = await api('GET', `/api/customer/${currentUser.id}/payments`);
+                const totalPaid = payments.filter(p => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
+                const totalPending = payments.filter(p => p.status === 'Pending').reduce((s, p) => s + (p.amount || 0), 0);
+                const deposits = payments.filter(p => p.type === 'deposit').reduce((s, p) => s + (p.amount || 0), 0);
+
+                document.getElementById('custPaymentSummary').innerHTML = `
+                    <div class="stat-card"><div class="stat-label">Total Paid</div><div class="stat-value" style="color:var(--success);">₹${formatIndianNumber(totalPaid)}</div></div>
+                    <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value" style="color:var(--warning);">₹${formatIndianNumber(totalPending)}</div></div>
+                    <div class="stat-card"><div class="stat-label">Deposit Held</div><div class="stat-value" style="color:var(--primary);">₹${formatIndianNumber(deposits)}</div></div>
+                `;
+
+                const html = payments.map(p => {
+                    const dateStr = p.paid_on || p.due_date;
+                    const dateDisplay = dateStr ? new Date(dateStr).toLocaleDateString('en-IN') : '-';
+                    return `
+                    <tr>
+                        <td style="font-size:12px;">${p.receipt_no || '-'}</td>
+                        <td>${p.type === 'deposit' ? '<span class="badge badge-primary" style="font-size:10px;">Deposit</span>' : '<span class="badge badge-success" style="font-size:10px;">Rent</span>'}</td>
+                        <td>${p.period || '-'}</td>
+                        <td>₹${formatIndianNumber(p.amount)}</td>
+                        <td>${p.method ? capitalize(p.method) : '-'}</td>
+                        <td>${dateDisplay}</td>
+                        <td><span class="badge ${getPaymentStatusBadge(p.status)}">${p.status}</span></td>
+                    </tr>`;
+                }).join('');
+                document.getElementById('custPaymentsTable').innerHTML = html || '<tr><td colspan="7" style="text-align:center;color:var(--text-light);">No payments yet</td></tr>';
+            } catch (err) {
+                console.error('Failed to load customer payments:', err);
+            }
+        }
+
+        // ============================
+        //  APPOINTMENTS (Admin/Branch)
+        // ============================
+        function getApptStatusBadge(status) {
+            if (status === 'Approved') return 'badge-success';
+            if (status === 'Pending') return 'badge-warning';
+            if (status === 'Completed') return 'badge-primary';
+            if (status === 'Rejected' || status === 'Cancelled') return 'badge-danger';
+            return 'badge-primary';
+        }
+
+        async function loadAppointments() {
+            try {
+                const statusFilter = document.getElementById('apptStatusFilter').value;
+                const fromDate = document.getElementById('apptDateFrom').value;
+                const toDate = document.getElementById('apptDateTo').value;
+                let url = '/api/appointments?';
+                if (currentBranchId) url += `branch_id=${currentBranchId}&`;
+                if (statusFilter) url += `status=${statusFilter}&`;
+                if (fromDate) url += `from=${fromDate}&`;
+                if (toDate) url += `to=${toDate}&`;
+
+                const appts = await api('GET', url);
+                renderAppointmentCalendar(appts);
+
+                const html = appts.map(a => {
+                    const dateDisplay = a.requested_date ? new Date(a.requested_date).toLocaleDateString('en-IN') : '-';
+                    const isPending = a.status === 'Pending';
+                    const isApproved = a.status === 'Approved';
+                    return `
+                    <tr>
+                        <td>${dateDisplay}</td>
+                        <td>${a.requested_time || '-'}</td>
+                        <td><strong>${a.tenant_name || '-'}</strong></td>
+                        <td>${a.tenant_phone || '-'}</td>
+                        <td>${a.locker_number || '-'}</td>
+                        <td>${a.purpose || '-'}</td>
+                        <td><span class="badge ${a.booked_by === 'customer' ? 'badge-warning' : 'badge-primary'}" style="font-size:10px;">${capitalize(a.booked_by)}</span></td>
+                        <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td>
+                        <td>
+                            <div class="action-buttons">
+                                ${isPending ? `<button class="btn btn-primary" onclick="updateApptStatus('${a.id}', 'Approved')" style="font-size:11px;padding:4px 8px;">Approve</button>` : ''}
+                                ${isPending ? `<button class="btn btn-danger" onclick="updateApptStatus('${a.id}', 'Rejected')" style="font-size:11px;padding:4px 8px;">Reject</button>` : ''}
+                                ${isApproved ? `<button class="btn btn-primary" onclick="updateApptStatus('${a.id}', 'Completed')" style="font-size:11px;padding:4px 8px;">Complete</button>` : ''}
+                                ${isApproved ? `<button class="btn btn-danger" onclick="updateApptStatus('${a.id}', 'Cancelled')" style="font-size:11px;padding:4px 8px;">Cancel</button>` : ''}
+                            </div>
+                        </td>
+                    </tr>`;
+                }).join('');
+                document.getElementById('appointmentsTable').innerHTML = html || '<tr><td colspan="9" style="text-align:center;color:var(--text-light);">No appointments</td></tr>';
+            } catch (err) {
+                console.error('Failed to load appointments:', err);
+            }
+        }
+
+        function renderAppointmentCalendar(appts) {
+            // Build a simple week view calendar
+            const today = new Date();
+            const days = [];
+            for (let i = 0; i < 14; i++) {
+                const d = new Date(today);
+                d.setDate(d.getDate() + i);
+                days.push(d);
+            }
+
+            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+            let calHtml = '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; margin-bottom:16px;">';
+            days.forEach(d => {
+                const dateStr = d.toISOString().split('T')[0];
+                const dayAppts = appts.filter(a => a.requested_date === dateStr);
+                const isToday = dateStr === today.toISOString().split('T')[0];
+                const pending = dayAppts.filter(a => a.status === 'Pending').length;
+                const approved = dayAppts.filter(a => a.status === 'Approved').length;
+
+                calHtml += `<div style="padding:10px; background:${isToday ? 'var(--primary)' : 'var(--bg)'}; color:${isToday ? '#fff' : 'inherit'}; border-radius:8px; text-align:center; min-height:70px; cursor:pointer;" onclick="document.getElementById('apptDateFrom').value='${dateStr}'; document.getElementById('apptDateTo').value='${dateStr}'; loadAppointments();">
+                    <div style="font-size:11px; opacity:0.7;">${dayNames[d.getDay()]}</div>
+                    <div style="font-size:18px; font-weight:bold;">${d.getDate()}</div>
+                    <div style="font-size:10px;">${monthNames[d.getMonth()]}</div>
+                    ${dayAppts.length > 0 ? `<div style="margin-top:4px;">
+                        ${pending > 0 ? `<span style="background:var(--warning); color:#fff; border-radius:10px; padding:1px 6px; font-size:10px;">${pending}</span>` : ''}
+                        ${approved > 0 ? `<span style="background:var(--success); color:#fff; border-radius:10px; padding:1px 6px; font-size:10px;">${approved}</span>` : ''}
+                    </div>` : ''}
+                </div>`;
+            });
+            calHtml += '</div>';
+            document.getElementById('appointmentCalendar').innerHTML = calHtml;
+        }
+
+        async function updateApptStatus(id, status) {
+            const action = status === 'Approved' ? 'approve' : status === 'Rejected' ? 'reject' : status === 'Completed' ? 'complete' : 'cancel';
+            if (!confirm(`Are you sure you want to ${action} this appointment?`)) return;
+            try {
+                await api('PUT', `/api/appointments/${id}/status`, {
+                    status,
+                    approved_by: currentUser.name
+                });
+                await loadAppointments();
+            } catch (err) {
+                alert('Failed to update: ' + err.message);
+            }
+        }
+
+        // --- Book Appointment by Staff ---
+        function openBookAppointmentModal() {
+            document.getElementById('apptPhone').value = '';
+            document.getElementById('apptTenantId').value = '';
+            document.getElementById('apptTenantInfo').style.display = 'none';
+            document.getElementById('apptDate').value = '';
+            document.getElementById('apptTime').value = '';
+            document.getElementById('apptPurpose').value = 'Locker Access';
+            document.getElementById('apptNotes').value = '';
+            document.getElementById('apptDate').min = new Date().toISOString().split('T')[0];
+            document.getElementById('bookApptModal').classList.add('active');
+        }
+
+        async function lookupApptTenant() {
+            const phone = document.getElementById('apptPhone').value.trim();
+            if (!phone || phone.length < 10) return alert('Enter a valid phone number');
+            try {
+                const tenant = await api('GET', `/api/tenants/by-phone/${phone}`);
+                document.getElementById('apptTenantId').value = tenant.id;
+                document.getElementById('apptTenantName').textContent = tenant.name;
+                document.getElementById('apptTenantLocker').textContent = tenant.locker_number || 'N/A';
+                document.getElementById('apptTenantInfo').style.display = 'block';
+            } catch (err) {
+                alert('No tenant found with this phone number');
+                document.getElementById('apptTenantInfo').style.display = 'none';
+            }
+        }
+
+        async function saveStaffAppointment() {
+            const tenantId = document.getElementById('apptTenantId').value;
+            const date = document.getElementById('apptDate').value;
+            if (!tenantId) return alert('Please lookup a tenant by phone number first');
+            if (!date) return alert('Please select a date');
+            try {
+                const result = await api('POST', '/api/appointments', {
+                    tenant_id: tenantId,
+                    requested_date: date,
+                    requested_time: document.getElementById('apptTime').value,
+                    purpose: document.getElementById('apptPurpose').value,
+                    notes: document.getElementById('apptNotes').value,
+                    booked_by: 'staff'
+                });
+                closeModal('bookApptModal');
+                alert(result.message || 'Appointment booked!');
+                await loadAppointments();
+            } catch (err) {
+                alert('Failed to book: ' + err.message);
+            }
+        }
+
+        // ============================
+        //  CUSTOMER PASSWORD MANAGEMENT
+        // ============================
+        function openSetPasswordModal(tenantId, name, phone) {
+            document.getElementById('custPwdTenantId').value = tenantId;
+            document.getElementById('custPwdTenantInfo').textContent = `${name} (Phone: ${phone})`;
+            document.getElementById('custPwdValue').value = '';
+            document.getElementById('custPasswordModal').classList.add('active');
+        }
+
+        async function saveCustomerPassword() {
+            const tenantId = document.getElementById('custPwdTenantId').value;
+            const password = document.getElementById('custPwdValue').value;
+            if (!password || password.length < 4) return alert('Password must be at least 4 characters');
+            try {
+                const result = await api('POST', `/api/tenants/${tenantId}/set-password`, { password });
+                closeModal('custPasswordModal');
+                alert(result.message || 'Password set successfully');
+            } catch (err) {
+                alert('Failed to set password: ' + err.message);
+            }
+        }
+
     </script>
 </body>
 </html>

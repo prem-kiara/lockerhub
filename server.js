@@ -229,6 +229,24 @@ db.exec(`
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
   );
 
+  CREATE TABLE IF NOT EXISTS appointments (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    locker_id TEXT DEFAULT '',
+    requested_date TEXT NOT NULL,
+    requested_time TEXT DEFAULT '',
+    purpose TEXT DEFAULT 'Locker Access',
+    status TEXT DEFAULT 'Pending',
+    booked_by TEXT DEFAULT 'customer',
+    approved_by TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    admin_notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
+
   CREATE TABLE IF NOT EXISTS activities (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     branch_id TEXT NOT NULL,
@@ -263,6 +281,8 @@ function addColumnIfMissing(table, column, definition) {
 addColumnIfMissing('tenants', 'lease_end', "TEXT DEFAULT ''");
 addColumnIfMissing('tenants', 'annual_rent', 'REAL DEFAULT 0');
 addColumnIfMissing('tenants', 'deposit', 'REAL DEFAULT 0');
+
+addColumnIfMissing('tenants', 'customer_password', "TEXT DEFAULT ''");
 
 // Payments table migrations
 addColumnIfMissing('payments', 'type', "TEXT DEFAULT 'rent'");
@@ -1220,6 +1240,131 @@ app.get('/api/logs/view', (req, res) => {
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// ============================
+//  CUSTOMER LOGIN
+// ============================
+app.post('/api/customer-login', (req, res) => {
+  const { phone, password } = req.body;
+  if (!phone || !password) return res.status(400).json({ error: 'Phone and password required' });
+  const tenant = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
+    FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+    LEFT JOIN branches b ON t.branch_id = b.id
+    WHERE t.phone = ? AND t.customer_password = ?`).get(phone, password);
+  if (!tenant) {
+    logWarn('Customer login failed', { phone, ip: req.ip });
+    return res.status(401).json({ error: 'Invalid phone number or password' });
+  }
+  logInfo('Customer login success', { phone, tenant: tenant.name });
+  res.json({
+    id: tenant.id, name: tenant.name, role: 'customer', phone: tenant.phone,
+    branch_id: tenant.branch_id, branch_name: tenant.branch_name,
+    locker_id: tenant.locker_id, locker_number: tenant.locker_number,
+    lease_start: tenant.lease_start, lease_end: tenant.lease_end,
+    annual_rent: tenant.annual_rent, deposit: tenant.deposit
+  });
+});
+
+// Set/Reset customer password (root only)
+app.post('/api/tenants/:id/set-password', (req, res) => {
+  const { password } = req.body;
+  if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  const tenant = db.prepare('SELECT id, name, phone FROM tenants WHERE id = ?').get(req.params.id);
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+  db.prepare('UPDATE tenants SET customer_password = ? WHERE id = ?').run(password, req.params.id);
+  logInfo('Customer password set', { tenant: tenant.name, phone: tenant.phone });
+  res.json({ success: true, message: `Password set for ${tenant.name}` });
+});
+
+// Get customer's payments
+app.get('/api/customer/:tenantId/payments', (req, res) => {
+  const payments = db.prepare(`SELECT p.*, l.number as locker_number
+    FROM payments p LEFT JOIN lockers l ON p.locker_id = l.id
+    WHERE p.tenant_id = ? ORDER BY p.created_at DESC`).all(req.params.tenantId);
+  res.json(payments);
+});
+
+// ============================
+//  APPOINTMENTS
+// ============================
+// Get appointments (admin/branch: all for branch, customer: own only)
+app.get('/api/appointments', (req, res) => {
+  const { branch_id, tenant_id, status, from, to } = req.query;
+  let sql = `SELECT a.*, t.name as tenant_name, t.phone as tenant_phone,
+    l.number as locker_number, b.name as branch_name
+    FROM appointments a
+    LEFT JOIN tenants t ON a.tenant_id = t.id
+    LEFT JOIN lockers l ON a.locker_id = l.id
+    LEFT JOIN branches b ON a.branch_id = b.id WHERE 1=1`;
+  const params = [];
+  if (branch_id) { sql += ' AND a.branch_id = ?'; params.push(branch_id); }
+  if (tenant_id) { sql += ' AND a.tenant_id = ?'; params.push(tenant_id); }
+  if (status) { sql += ' AND a.status = ?'; params.push(status); }
+  if (from) { sql += ' AND a.requested_date >= ?'; params.push(from); }
+  if (to) { sql += ' AND a.requested_date <= ?'; params.push(to); }
+  sql += ' ORDER BY a.requested_date ASC, a.requested_time ASC';
+  const appointments = db.prepare(sql).all(...params);
+  res.json(appointments);
+});
+
+// Request appointment (customer or staff)
+app.post('/api/appointments', (req, res) => {
+  const d = req.body;
+  if (!d.tenant_id || !d.requested_date) return res.status(400).json({ error: 'Tenant and date required' });
+
+  const tenant = db.prepare('SELECT branch_id, locker_id FROM tenants WHERE id = ?').get(d.tenant_id);
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+  const id = genId();
+  const branch_id = d.branch_id || tenant.branch_id;
+  const locker_id = d.locker_id || tenant.locker_id || '';
+  const booked_by = d.booked_by || 'customer';
+  const status = booked_by === 'customer' ? 'Pending' : 'Approved';
+
+  db.prepare(`INSERT INTO appointments (id, branch_id, tenant_id, locker_id, requested_date, requested_time, purpose, status, booked_by, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    id, branch_id, d.tenant_id, locker_id, d.requested_date, d.requested_time || '',
+    d.purpose || 'Locker Access', status, booked_by, d.notes || ''
+  );
+
+  logInfo('Appointment created', { id, tenant_id: d.tenant_id, date: d.requested_date, booked_by, status });
+  res.json({ id, status, message: status === 'Approved' ? 'Appointment booked' : 'Appointment request submitted' });
+});
+
+// Approve/Reject appointment
+app.put('/api/appointments/:id/status', (req, res) => {
+  const { status, admin_notes } = req.body;
+  if (!['Approved', 'Rejected', 'Completed', 'Cancelled'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const appt = db.prepare('SELECT id FROM appointments WHERE id = ?').get(req.params.id);
+  if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+
+  db.prepare('UPDATE appointments SET status = ?, admin_notes = COALESCE(?, admin_notes), approved_by = ? WHERE id = ?')
+    .run(status, admin_notes || null, req.body.approved_by || '', req.params.id);
+  logInfo('Appointment status updated', { id: req.params.id, status });
+  res.json({ success: true });
+});
+
+// Cancel appointment (customer)
+app.delete('/api/appointments/:id', (req, res) => {
+  const appt = db.prepare('SELECT id, status FROM appointments WHERE id = ?').get(req.params.id);
+  if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+  if (appt.status === 'Completed') return res.status(400).json({ error: 'Cannot cancel completed appointment' });
+  db.prepare("UPDATE appointments SET status = 'Cancelled' WHERE id = ?").run(req.params.id);
+  logInfo('Appointment cancelled', { id: req.params.id });
+  res.json({ success: true });
+});
+
+// Lookup tenant by phone (for staff booking)
+app.get('/api/tenants/by-phone/:phone', (req, res) => {
+  const tenant = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
+    FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+    LEFT JOIN branches b ON t.branch_id = b.id
+    WHERE t.phone = ?`).get(req.params.phone);
+  if (!tenant) return res.status(404).json({ error: 'No tenant found with this phone number' });
+  res.json(tenant);
 });
 
 // ============================
