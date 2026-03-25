@@ -1323,8 +1323,8 @@ function autoSeed() {
 
   // Locker types
   const types = [
-    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, desc: 'L6 Safe Deposit Lockers with Wooden Sleepers' },
-    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, desc: 'L2/10 Safe Deposit Lockers with Wooden Sleepers' },
+    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
     { id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
     { id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
   ];

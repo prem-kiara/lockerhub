@@ -84,29 +84,27 @@ function generateReceiptBuffer(payment, tenant, branch, locker) {
         try { doc.image(LOGO_PATH, M, y - logoH - 2, { height: logoH }); } catch (e) { /* skip */ }
       }
 
-      // Company name — centered in text area
-      const textAreaLeft = M + 64;
-      const textAreaRight = W - M;
-      const textAreaCenter = (textAreaLeft + textAreaRight) / 2;
+      // Company name — centered on full page width
+      const pageCenter = W / 2;
 
       doc.font('Helvetica-Bold').fontSize(14).fillColor(DARK);
       const nameW = doc.widthOfString(COMPANY_FULL);
-      tx(doc, COMPANY_FULL, textAreaCenter - nameW / 2, y - 48);
+      tx(doc, COMPANY_FULL, pageCenter - nameW / 2, y - 48);
 
       doc.font('Helvetica').fontSize(6.5).fillColor('#666666');
       const subText = `CIN: ${CIN}  |  GSTIN: ${GST}  |  Ph: ${PHONE}`;
       const subW = doc.widthOfString(subText);
-      tx(doc, subText, textAreaCenter - subW / 2, y - 32);
+      tx(doc, subText, pageCenter - subW / 2, y - 32);
 
       doc.font('Helvetica').fontSize(5.5).fillColor('#888888');
       const regText = `Regd: ${REGD}`;
       const regW = doc.widthOfString(regText);
-      tx(doc, regText, textAreaCenter - regW / 2, y - 22);
+      tx(doc, regText, pageCenter - regW / 2, y - 22);
 
       doc.font('Helvetica-Bold').fontSize(10).fillColor(GOLD);
-      const sdlText = 'Safe Deposit Lockers';
+      const sdlText = 'Hi-Tech Lockers';
       const sdlW = doc.widthOfString(sdlText);
-      tx(doc, sdlText, textAreaCenter - sdlW / 2, y - 10);
+      tx(doc, sdlText, pageCenter - sdlW / 2, y - 10);
 
       // Gold line
       doc.save().strokeColor(GOLD).lineWidth(2).moveTo(M, y + 4).lineTo(W - M, y + 4).stroke().restore();
@@ -317,7 +315,7 @@ function generateReceiptBuffer(payment, tenant, branch, locker) {
       // Bottom footer
       doc.font('Helvetica').fontSize(5).fillColor('#aaaaaa');
       tx(doc, `© ${COMPANY_FULL}. This is a computer-generated receipt.`, M, H - 20);
-      tx(doc, 'Thank you for choosing Dhanam Finance Safe Deposit Lockers.', 0, H - 20, { width: W - M, align: 'right' });
+      tx(doc, 'Thank you for choosing Dhanam Finance Hi-Tech Lockers.', 0, H - 20, { width: W - M, align: 'right' });
 
       doc.end();
     } catch (err) {

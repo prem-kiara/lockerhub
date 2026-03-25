@@ -1,6 +1,6 @@
 /**
  * Dhanam Investment and Finance Private Limited
- * Safe Deposit Locker Allotment Form (PDFKit)
+ * Hi-Tech Locker Allotment Form (PDFKit)
  * Generates a multi-page allotment form with tenant data pre-filled.
  */
 const PDFDocument = require('pdfkit');
@@ -74,32 +74,30 @@ function drawHeader(doc, y) {
     try { doc.image(LOGO_PATH, M, y - logoH - 2, { height: logoH }); } catch (e) { /* skip */ }
   }
 
-  // Company name — centered on page (independent of logo)
-  const textAreaLeft = M + logoW + 8;
-  const textAreaRight = W - M;
-  const textAreaCenter = (textAreaLeft + textAreaRight) / 2;
+  // Company name — centered on full page width
+  const pageCenter = W / 2;
 
   doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK);
   const nameW = doc.widthOfString(COMPANY_FULL);
-  tx(doc, COMPANY_FULL, textAreaCenter - nameW / 2, y - 48);
+  tx(doc, COMPANY_FULL, pageCenter - nameW / 2, y - 48);
 
   // CIN / GST / Phone — centered in text area
   doc.font('Helvetica').fontSize(6.5).fillColor('#666666');
   const subText = `CIN: ${CIN}  |  GST: ${GST}  |  Ph: ${PHONE}`;
   const subW = doc.widthOfString(subText);
-  tx(doc, subText, textAreaCenter - subW / 2, y - 32);
+  tx(doc, subText, pageCenter - subW / 2, y - 32);
 
   // Registered office — centered in text area
   doc.font('Helvetica').fontSize(5.5).fillColor('#888888');
   const regText = `Regd: ${REGD}`;
   const regW = doc.widthOfString(regText);
-  tx(doc, regText, textAreaCenter - regW / 2, y - 22);
+  tx(doc, regText, pageCenter - regW / 2, y - 22);
 
-  // "Safe Deposit Lockers" — centered in text area
+  // "Hi-Tech Lockers" — centered on full page width
   doc.font('Helvetica-Bold').fontSize(10).fillColor(GOLD);
-  const sdlText = 'Safe Deposit Lockers';
+  const sdlText = 'Hi-Tech Lockers';
   const sdlW = doc.widthOfString(sdlText);
-  tx(doc, sdlText, textAreaCenter - sdlW / 2, y - 10);
+  tx(doc, sdlText, pageCenter - sdlW / 2, y - 10);
 
   // Gold accent line
   doc.save().strokeColor(GOLD).lineWidth(2).moveTo(M, y + 4).lineTo(W - M, y + 4).stroke().restore();
@@ -335,7 +333,7 @@ function page3(doc, t, branch) {
   const branchAddr = branch.location || branch.address || '..............................';
 
   doc.font('Helvetica').fontSize(8.5).fillColor('black');
-  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ${branchAddr} (hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'} (hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Safe Deposit Locker No. ${t.locker_number || '........'}, Key No. ................., Locker type ${t.locker_size || '........'}, Cabinet No. ................., for a period of 12 months from the ${dayStr} day of ${monthStr} 20${yearStr} at a rental of ${rentStr} ${rentWordsStr} for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
+  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ${branchAddr} (hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'} (hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Hi-Tech Locker No. ${t.locker_number || '........'}, Key No. ................., Locker type ${t.locker_size || '........'}, Cabinet No. ................., for a period of 12 months from the ${dayStr} day of ${monthStr} 20${yearStr} at a rental of ${rentStr} ${rentWordsStr} for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
   doc.text(agText, M, y, { width: W - 2 * M - 150, align: 'justify', lineGap: 1.5 });
   y = doc.y + 10;
 
@@ -416,10 +414,10 @@ function pageTerms(doc) {
   const terms = [
     "It is hereby agreed that the relation of the Company and the Hirer(s) is that of a lessor and lessee. The Hirer(s) agree(s) to abide by the rules and regulations of the Company. The Hirer(s) also agree(s) to abide by any amendments to the rules and regulations, that the Company may introduce from time to time. Such amendments shall be notified in the Company's Notice Board / Website.",
     "The Hirer(s) shall have access to safe deposit locker during the branch working hours except Sundays and the public holidays listed in the Company's Notice Board / Website.",
-    "The Company shall be at liberty to change the above timings for access to the Locker and may add such conditions as it may deem fit, and shall give notice to the Hirer(s) on the same and the Hirer(s) shall be bound by the same. For reasons of grave or urgent necessity or during extraordinary contingencies like war, riots, floods, pandemic, etc., the Company reserves the right to closing the Safe Deposit Locker for such period, as it may consider necessary.",
+    "The Company shall be at liberty to change the above timings for access to the Locker and may add such conditions as it may deem fit, and shall give notice to the Hirer(s) on the same and the Hirer(s) shall be bound by the same. For reasons of grave or urgent necessity or during extraordinary contingencies like war, riots, floods, pandemic, etc., the Company reserves the right to closing the Hi-Tech Locker for such period, as it may consider necessary.",
     "The KYC compliance including PAN is mandatory and applicable to all Locker Hirer(s).",
     "The Hirer shall have no right of property on locker but only an exclusive right of use thereof and access thereto during the period of this agreement and in accordance therewith. The Hirer shall not assign or sublet the locker or any part of it, nor permit it to be used for any purpose other than for deposit of documents, jewellery or other valuables, nor shall the Hirer use the locker for the deposit of any property of an explosive or destructive nature, weapons and/or any other items/things prohibited under law.",
-    "The locker can only be operated upon by applying two keys, one of which will remain with the Hirer(s) and other with the Custodian of the Safe Deposit Locker. The mechanism of the locker provides for its automatic double locking, when it is locked by the Hirer(s). It cannot be re-opened unless both the Custodian's and the Hirer(s) keys are applied to it.",
+    "The locker can only be operated upon by applying two keys, one of which will remain with the Hirer(s) and other with the Custodian of the Hi-Tech Locker. The mechanism of the locker provides for its automatic double locking, when it is locked by the Hirer(s). It cannot be re-opened unless both the Custodian's and the Hirer(s) keys are applied to it.",
     "The Hirer(s) is/are permitted to operate the locker with the key provided by the Company and no operation of the locker shall be permitted with a key other than the key provided by the Company at the time of executing the Agreement. If the key of the locker is lost by the Hirer(s) or stolen, Branch should be intimated in writing and request made for break open of the locker.",
     "The Locker is initially rented for a period of one year upon payment of the annual rent and three years rental as advance/as decided by the Company. Thereafter, it will be renewed from year to year by payment of the prevailing annual rent in advance.",
     "All rentals are payable strictly in advance as per the schedule of rates. The Company may enhance/revise the rents of locker, from time to time after giving notice to the Hirer(s). The Company reserves the right of refusing access to the locker, in event of the rental not paid when due whether the same has been demanded or not. If the locker is surrendered during the contract period, no refund will be made.",
@@ -428,7 +426,7 @@ function pageTerms(doc) {
     "If no such notice as aforesaid is received prior to the date of termination and also the Hirer(s) locker key is not returned by the Hirer(s), then the period of hiring of the Locker shall be considered renewed but this condition is without prejudice to the rights of the Company accrued in the meantime.",
     "Any change in the addresses of the Hirer(s) should be intimated to the Company immediately along with a valid address proof.",
     "The Company will give due cognizance to orders received from a competent authority having statutory powers for freezing/unfreezing of locker.",
-    "Force Majeure: During the continuance of this agreement, the Company shall not be responsible, notwithstanding anything to the contrary in Section 152 of the Indian Contract Act, for any loss or deterioration of or damage to the contents in the Safe Deposit Locker whether caused by rain, fire, flood, earthquake, lightning, civil commotion, riot or any other similar cause(s) not in the control of the Company.",
+    "Force Majeure: During the continuance of this agreement, the Company shall not be responsible, notwithstanding anything to the contrary in Section 152 of the Indian Contract Act, for any loss or deterioration of or damage to the contents in the Hi-Tech Locker whether caused by rain, fire, flood, earthquake, lightning, civil commotion, riot or any other similar cause(s) not in the control of the Company.",
     "Hirer(s) are required to make at least one operation in a year as per the extant guidelines. In case of non-operation of the locker for one year, the Company shall notify and call upon the Hirer to either operate the locker or surrender it within a specified period.",
     "In the event of the Hirer(s) not providing the reason for non-operation of the locker or the reason is not found to be genuine, Company shall after giving due notice to the Hirer(s) at his/her last known address, proceed with cancellation of the allotment of the locker to the Hirer(s) and break open the locker.",
     "Delay in payment of locker rent, beyond 30 days from the due date, will attract an interest @ 12% p.a. compounded quarterly. The hirer is advised to pay the rent promptly and avoid liability for interest.",
@@ -725,7 +723,7 @@ function pageDeclaration(doc, t) {
 
   const declarations = [
     `I/We request you to allot me/us a Locker of Type ${t.locker_size || '......'} in your branch as per particulars furnished in this application.`,
-    `I/We agree to abide by the rules and regulations of the Company as mentioned herein and in the Safe Deposit Locker Hiring Agreement.`,
+    `I/We agree to abide by the rules and regulations of the Company as mentioned herein and in the Hi-Tech Locker Hiring Agreement.`,
     'I/We shall not assign or sublet the locker or any part of it, nor permit it to be used for any purpose other than for deposit of documents, jewellery or other valuables.',
     'I/We shall not use the locker for the deposit of any property of an explosive or destructive nature, weapons and/or any other items/things prohibited under law.',
   ];
