@@ -308,11 +308,46 @@ app.get('/api/units', (req, res) => {
   res.json(units);
 });
 
+// Helper: get next unit number for a given branch + locker type
+function getNextUnitNumber(branch_id, locker_type_id) {
+  const lt = db.prepare('SELECT name FROM locker_types WHERE id = ?').get(locker_type_id);
+  if (!lt) return null;
+  const prefix = lt.name; // e.g., "L6" or "L10"
+  // Find the highest existing unit number for this prefix in this branch
+  const existing = db.prepare(
+    `SELECT unit_number FROM units WHERE branch_id = ? AND unit_number LIKE ? ORDER BY unit_number DESC LIMIT 1`
+  ).get(branch_id, `${prefix}-%`);
+  let nextNum = 1;
+  if (existing) {
+    const match = existing.unit_number.match(new RegExp(`^${prefix}-(\\d+)$`));
+    if (match) nextNum = parseInt(match[1]) + 1;
+  }
+  return `${prefix}-${String(nextNum).padStart(2, '0')}`;
+}
+
+// GET next available unit number
+app.get('/api/units/next-number', (req, res) => {
+  const { branch_id, locker_type_id } = req.query;
+  if (!branch_id || !locker_type_id) return res.status(400).json({ error: 'branch_id and locker_type_id required' });
+  const lt = db.prepare('SELECT * FROM locker_types WHERE id = ?').get(locker_type_id);
+  if (!lt) return res.status(400).json({ error: 'Invalid locker type' });
+  const unitNumber = getNextUnitNumber(branch_id, locker_type_id);
+  const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const lockers = [];
+  for (let i = 0; i < lt.lockers_per_unit; i++) {
+    lockers.push(`${unitNumber}-${ALPHA[i]}`);
+  }
+  res.json({ unit_number: unitNumber, lockers_per_unit: lt.lockers_per_unit, locker_names: lockers });
+});
+
 app.post('/api/units', (req, res) => {
-  const { branch_id, locker_type_id, unit_number, location, notes } = req.body;
+  const { branch_id, locker_type_id, unit_number: providedNumber, location, notes } = req.body;
   const id = genId();
   const lt = db.prepare('SELECT * FROM locker_types WHERE id = ?').get(locker_type_id);
   if (!lt) return res.status(400).json({ error: 'Invalid locker type' });
+
+  // Auto-generate unit number if not provided
+  const unit_number = providedNumber || getNextUnitNumber(branch_id, locker_type_id);
 
   // Create the unit
   db.prepare('INSERT INTO units (id, branch_id, locker_type_id, unit_number, location, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
@@ -332,7 +367,7 @@ app.post('/api/units', (req, res) => {
   });
   tx();
 
-  res.json({ id, lockers_created: lt.lockers_per_unit });
+  res.json({ id, unit_number, lockers_created: lt.lockers_per_unit });
 });
 
 app.put('/api/units/:id', (req, res) => {
@@ -822,6 +857,43 @@ function autoSeed() {
   console.log('  ✅ Seeded: root/admin@123 (HO), rspuram/admin@123 (Branch), 88 lockers at RS Puram');
 }
 autoSeed();
+
+// ============================
+//  DATABASE BACKUP & RESTORE
+// ============================
+const BACKUP_DIR = path.join(__dirname, 'data', 'backups');
+if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+app.get('/api/backup', (req, res) => {
+  try {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const backupFile = path.join(BACKUP_DIR, `lockerhub_${timestamp}.db`);
+    db.backup(backupFile).then(() => {
+      const stats = fs.statSync(backupFile);
+      res.json({ success: true, file: `lockerhub_${timestamp}.db`, size: stats.size });
+    }).catch(err => res.status(500).json({ error: err.message }));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/backup/download', (req, res) => {
+  const dbPath = path.join(DATA_DIR, 'lockerhub.db');
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  res.download(dbPath, `lockerhub_backup_${timestamp}.db`);
+});
+
+app.get('/api/backup/list', (req, res) => {
+  try {
+    const files = fs.readdirSync(BACKUP_DIR)
+      .filter(f => f.endsWith('.db'))
+      .sort().reverse()
+      .map(f => ({ name: f, size: fs.statSync(path.join(BACKUP_DIR, f)).size }));
+    res.json(files);
+  } catch (err) {
+    res.json([]);
+  }
+});
 
 // ============================
 //  HEALTH CHECK (keeps Render free tier alive)

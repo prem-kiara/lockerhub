@@ -1119,12 +1119,16 @@
                         <div class="stat-card">
                             <div class="stat-card-label">Database Status</div>
                             <div class="stat-card-value" style="color: var(--success);">Active</div>
-                            <div class="stat-card-subtext">All data synced</div>
+                            <div class="stat-card-subtext">SQLite WAL mode</div>
                         </div>
                     </div>
                     <div class="section-toolbar">
-                        <button class="btn btn-primary" onclick="downloadFullBackup()">Download Full Backup</button>
+                        <button class="btn btn-primary" onclick="downloadDbBackup()">Download Database Backup</button>
+                        <button class="btn btn-secondary" onclick="createServerBackup()">Create Server Backup</button>
+                        <button class="btn btn-secondary" onclick="downloadFullBackup()">Export as Excel</button>
                     </div>
+                    <div id="backupStatus" style="margin-top:12px;padding:10px 14px;background:#f5ede0;border-radius:8px;font-size:13px;color:#7a6b5e;display:none;"></div>
+                    <div id="backupList" style="margin-top:16px;"></div>
                 </div>
 
                 <!-- Branches Screen (Head Office Only) -->
@@ -1655,19 +1659,23 @@
                 <form id="unitForm">
                     <div class="form-group" id="unitBranchGroup" style="display: none;">
                         <label for="unitBranch">Branch</label>
-                        <select id="unitBranch" required>
+                        <select id="unitBranch" required onchange="autoGenerateUnitNumber()">
                             <option value="">Select branch</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label for="unitType">Locker Type</label>
-                        <select id="unitType" required>
+                        <select id="unitType" required onchange="autoGenerateUnitNumber()">
                             <option value="">Select locker type</option>
                         </select>
                     </div>
                     <div class="form-group">
-                        <label for="unitNumber">Unit Number</label>
-                        <input type="text" id="unitNumber" required>
+                        <label for="unitNumber">Unit Number (auto-generated)</label>
+                        <input type="text" id="unitNumber" readonly style="background:#f5ede0;font-weight:bold;color:#b8860b;font-size:16px;">
+                    </div>
+                    <div id="unitLockerPreview" style="margin-top:-8px;margin-bottom:12px;padding:10px 14px;background:#f5ede0;border-radius:8px;font-size:13px;color:#7a6b5e;display:none;">
+                        <strong style="color:#2c1810;">Lockers that will be created:</strong><br>
+                        <span id="unitLockerNames" style="font-family:monospace;color:#b8860b;font-weight:600;"></span>
                     </div>
                     <div class="form-group">
                         <label for="unitLocation">Location</label>
@@ -2655,15 +2663,54 @@
         }
 
         // ===== Backup =====
+        function downloadDbBackup() {
+            // Direct download of the SQLite database file
+            const a = document.createElement('a');
+            a.href = '/api/backup/download';
+            a.download = 'lockerhub_backup.db';
+            a.click();
+        }
+
+        async function createServerBackup() {
+            const status = document.getElementById('backupStatus');
+            status.style.display = 'block';
+            status.innerHTML = 'Creating backup on server...';
+            try {
+                const result = await api('GET', '/api/backup');
+                status.innerHTML = `Server backup created: <strong>${result.file}</strong> (${(result.size / 1024).toFixed(0)} KB)`;
+                loadBackupList();
+            } catch (error) {
+                status.innerHTML = '<span style="color:red;">Backup failed: ' + error.message + '</span>';
+            }
+        }
+
+        async function loadBackupList() {
+            try {
+                const files = await api('GET', '/api/backup/list');
+                const container = document.getElementById('backupList');
+                if (!files.length) { container.innerHTML = ''; return; }
+                container.innerHTML = '<strong style="color:#2c1810;">Server Backups:</strong><br>' +
+                    files.map(f => `<span style="font-family:monospace;font-size:13px;color:#7a6b5e;">${f.name} (${(f.size/1024).toFixed(0)} KB)</span>`).join('<br>');
+            } catch (e) { /* ignore */ }
+        }
+
         async function downloadFullBackup() {
             try {
-                const data = await api('GET', '/api/backup');
-                const ws = XLSX.utils.json_to_sheet(data || []);
+                const [tenants, lockers, payments, visits] = await Promise.all([
+                    api('GET', '/api/tenants?branch_id=all'),
+                    api('GET', '/api/lockers?branch_id=all'),
+                    api('GET', '/api/payments?branch_id=all'),
+                    api('GET', '/api/visits?branch_id=all'),
+                ]);
                 const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, 'Backup');
-                XLSX.writeFile(wb, 'Complete_Backup.xlsx');
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tenants || []), 'Tenants');
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lockers || []), 'Lockers');
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(payments || []), 'Payments');
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(visits || []), 'Visits');
+                XLSX.writeFile(wb, 'LockerHub_Export.xlsx');
             } catch (error) {
-                console.error('Failed to download backup:', error);
+                console.error('Failed to export:', error);
+                alert('Failed to export data');
             }
         }
 
@@ -3002,25 +3049,52 @@
             }
         }
 
-        async function saveUnit() {
+        async function autoGenerateUnitNumber() {
+            const typeId = document.getElementById('unitType').value;
             const isHeadOffice = currentUser.role === 'headoffice';
-            const data = {
-                branch_id: isHeadOffice ? document.getElementById('unitBranch').value : currentBranchId,
-                locker_type_id: document.getElementById('unitType').value,
-                unit_number: document.getElementById('unitNumber').value,
-                location: document.getElementById('unitLocation').value || null,
-                notes: document.getElementById('unitNotes').value || null
-            };
+            const branchId = isHeadOffice ? document.getElementById('unitBranch').value : currentBranchId;
+            const preview = document.getElementById('unitLockerPreview');
+            const nameSpan = document.getElementById('unitLockerNames');
 
-            if (isHeadOffice && !data.branch_id) {
-                alert('Please select a branch');
+            if (!typeId || !branchId) {
+                document.getElementById('unitNumber').value = '';
+                preview.style.display = 'none';
                 return;
             }
 
             try {
-                await api('POST', '/api/units', data);
+                const result = await api('GET', `/api/units/next-number?branch_id=${branchId}&locker_type_id=${typeId}`);
+                document.getElementById('unitNumber').value = result.unit_number;
+                nameSpan.textContent = result.locker_names.join(', ');
+                preview.style.display = 'block';
+            } catch (e) {
+                console.error('Failed to generate unit number:', e);
+            }
+        }
+
+        async function saveUnit() {
+            const isHeadOffice = currentUser.role === 'headoffice';
+            const branchId = isHeadOffice ? document.getElementById('unitBranch').value : currentBranchId;
+            const typeId = document.getElementById('unitType').value;
+            const unitNumber = document.getElementById('unitNumber').value;
+
+            if (isHeadOffice && !branchId) { alert('Please select a branch'); return; }
+            if (!typeId) { alert('Please select a locker type'); return; }
+            if (!unitNumber) { alert('Unit number not generated. Please select a locker type first.'); return; }
+
+            const data = {
+                branch_id: branchId,
+                locker_type_id: typeId,
+                unit_number: unitNumber,
+                location: document.getElementById('unitLocation').value || null,
+                notes: document.getElementById('unitNotes').value || null
+            };
+
+            try {
+                const result = await api('POST', '/api/units', data);
                 closeModal('unitModal');
                 await loadUnits();
+                await loadLockers();
             } catch (error) {
                 console.error('Failed to save unit:', error);
                 alert('Failed to save unit');
