@@ -215,20 +215,6 @@ db.exec(`
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
   );
 
-  CREATE TABLE IF NOT EXISTS visits (
-    id TEXT PRIMARY KEY,
-    branch_id TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    locker_id TEXT DEFAULT '',
-    datetime TEXT DEFAULT '',
-    purpose TEXT DEFAULT '',
-    duration TEXT DEFAULT '',
-    notes TEXT DEFAULT '',
-    created_at TEXT DEFAULT (datetime('now')),
-    FOREIGN KEY (branch_id) REFERENCES branches(id),
-    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
-  );
-
   CREATE TABLE IF NOT EXISTS appointments (
     id TEXT PRIMARY KEY,
     branch_id TEXT NOT NULL,
@@ -242,6 +228,20 @@ db.exec(`
     approved_by TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     admin_notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS visits (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    locker_id TEXT DEFAULT '',
+    datetime TEXT DEFAULT '',
+    purpose TEXT DEFAULT '',
+    duration TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (branch_id) REFERENCES branches(id),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
@@ -282,12 +282,17 @@ addColumnIfMissing('tenants', 'lease_end', "TEXT DEFAULT ''");
 addColumnIfMissing('tenants', 'annual_rent', 'REAL DEFAULT 0');
 addColumnIfMissing('tenants', 'deposit', 'REAL DEFAULT 0');
 
-addColumnIfMissing('tenants', 'customer_password', "TEXT DEFAULT ''");
-
 // Payments table migrations
 addColumnIfMissing('payments', 'type', "TEXT DEFAULT 'rent'");
 addColumnIfMissing('payments', 'period', "TEXT DEFAULT ''");
 addColumnIfMissing('payments', 'receipt_no', "TEXT DEFAULT ''");
+
+// Customer portal migrations
+addColumnIfMissing('tenants', 'customer_password', "TEXT DEFAULT ''");
+
+// Branches table migrations
+addColumnIfMissing('branches', 'location', "TEXT DEFAULT ''");
+addColumnIfMissing('branches', 'manager_name', "TEXT DEFAULT ''");
 
 logInfo('Database migrations complete');
 
@@ -321,11 +326,37 @@ app.get('/api/branches', (req, res) => {
 });
 
 app.post('/api/branches', (req, res) => {
-  const { name, address, phone } = req.body;
+  const { name, address, phone, location, manager_name } = req.body;
   const id = genId();
-  db.prepare('INSERT INTO branches (id, name, address, phone) VALUES (?, ?, ?, ?)').run(id, name, address || '', phone || '');
+  db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, address || '', phone || '', location || '', manager_name || '');
   db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(id);
+  logInfo('Branch created', { id, name, location });
   res.json({ id, name });
+});
+
+app.put('/api/branches/:id', (req, res) => {
+  const { name, address, phone, location, manager_name } = req.body;
+  const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id);
+  if (!branch) return res.status(404).json({ error: 'Branch not found' });
+  db.prepare('UPDATE branches SET name = ?, address = ?, phone = ?, location = ?, manager_name = ? WHERE id = ?')
+    .run(name || branch.name, address || '', phone || '', location || '', manager_name || '', req.params.id);
+  logInfo('Branch updated', { id: req.params.id, name });
+  res.json({ success: true });
+});
+
+app.delete('/api/branches/:id', (req, res) => {
+  const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id);
+  if (!branch) return res.status(404).json({ error: 'Branch not found' });
+  // Check for linked data
+  const tenantCount = db.prepare('SELECT COUNT(*) as count FROM tenants WHERE branch_id = ?').get(req.params.id).count;
+  const lockerCount = db.prepare('SELECT COUNT(*) as count FROM lockers WHERE branch_id = ?').get(req.params.id).count;
+  if (tenantCount > 0 || lockerCount > 0) {
+    return res.status(400).json({ error: `Cannot delete: branch has ${tenantCount} tenant(s) and ${lockerCount} locker(s)` });
+  }
+  db.prepare('DELETE FROM config WHERE branch_id = ?').run(req.params.id);
+  db.prepare('DELETE FROM branches WHERE id = ?').run(req.params.id);
+  logInfo('Branch deleted', { id: req.params.id, name: branch.name });
+  res.json({ success: true });
 });
 
 // ============================
@@ -598,6 +629,16 @@ app.post('/api/tenants', (req, res) => {
     logError('Error creating tenant', { error: err.message, name: req.body.name });
     res.status(500).json({ error: err.message });
   }
+});
+
+// Lookup tenant by phone (for staff booking) — MUST be before /:id route
+app.get('/api/tenants/by-phone/:phone', (req, res) => {
+  const tenant = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
+    FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+    LEFT JOIN branches b ON t.branch_id = b.id
+    WHERE t.phone = ?`).get(req.params.phone);
+  if (!tenant) return res.status(404).json({ error: 'No tenant found with this phone number' });
+  res.json(tenant);
 });
 
 app.get('/api/tenants/:id', (req, res) => {
@@ -1122,7 +1163,7 @@ autoSeed();
 const BACKUP_DIR = path.join(__dirname, 'data', 'backups');
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
-app.get('/api/backup', (req, res) => {
+app.get('/api/backup/create', (req, res) => {
   try {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const backupFile = path.join(BACKUP_DIR, `lockerhub_${timestamp}.db`);
@@ -1243,44 +1284,66 @@ app.get('/api/logs/view', (req, res) => {
 });
 
 // ============================
-//  CUSTOMER LOGIN
+//  CUSTOMER LOGIN & PORTAL
 // ============================
 app.post('/api/customer-login', (req, res) => {
   const { phone, password } = req.body;
   if (!phone || !password) return res.status(400).json({ error: 'Phone and password required' });
-  const tenant = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
+  // Check password against any tenant record with this phone
+  const firstMatch = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
     FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
     LEFT JOIN branches b ON t.branch_id = b.id
     WHERE t.phone = ? AND t.customer_password = ?`).get(phone, password);
-  if (!tenant) {
+  if (!firstMatch) {
     logWarn('Customer login failed', { phone, ip: req.ip });
     return res.status(401).json({ error: 'Invalid phone number or password' });
   }
-  logInfo('Customer login success', { phone, tenant: tenant.name });
+  // Fetch ALL tenant records for this phone (multi-branch / multi-locker)
+  const allTenants = db.prepare(`SELECT t.id, t.name, t.phone, t.branch_id, t.locker_id, t.lease_start, t.lease_end, t.annual_rent, t.deposit,
+    l.number as locker_number, b.name as branch_name
+    FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+    LEFT JOIN branches b ON t.branch_id = b.id
+    WHERE t.phone = ? ORDER BY b.name`).all(phone);
+  logInfo('Customer login success', { phone, tenant: firstMatch.name, totalLockers: allTenants.length });
   res.json({
-    id: tenant.id, name: tenant.name, role: 'customer', phone: tenant.phone,
-    branch_id: tenant.branch_id, branch_name: tenant.branch_name,
-    locker_id: tenant.locker_id, locker_number: tenant.locker_number,
-    lease_start: tenant.lease_start, lease_end: tenant.lease_end,
-    annual_rent: tenant.annual_rent, deposit: tenant.deposit
+    id: firstMatch.id, name: firstMatch.name, role: 'customer', phone: firstMatch.phone,
+    branch_id: firstMatch.branch_id, branch_name: firstMatch.branch_name,
+    locker_id: firstMatch.locker_id, locker_number: firstMatch.locker_number,
+    lease_start: firstMatch.lease_start, lease_end: firstMatch.lease_end,
+    annual_rent: firstMatch.annual_rent, deposit: firstMatch.deposit,
+    tenants: allTenants
   });
 });
 
-// Set/Reset customer password (root only)
+// Set/Reset customer password (HO only) — sets for ALL tenant records with same phone
 app.post('/api/tenants/:id/set-password', (req, res) => {
   const { password } = req.body;
   if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
   const tenant = db.prepare('SELECT id, name, phone FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
-  db.prepare('UPDATE tenants SET customer_password = ? WHERE id = ?').run(password, req.params.id);
-  logInfo('Customer password set', { tenant: tenant.name, phone: tenant.phone });
-  res.json({ success: true, message: `Password set for ${tenant.name}` });
+  // Set password for ALL tenant records with same phone number (multi-branch support)
+  const result = db.prepare('UPDATE tenants SET customer_password = ? WHERE phone = ?').run(password, tenant.phone);
+  logInfo('Customer password set', { tenant: tenant.name, phone: tenant.phone, recordsUpdated: result.changes });
+  res.json({ success: true, message: `Password set for ${tenant.name} (${result.changes} locker record${result.changes > 1 ? 's' : ''})` });
 });
 
-// Get customer's payments
+// Customer payments (supports single tenant or all tenants by phone)
 app.get('/api/customer/:tenantId/payments', (req, res) => {
-  const payments = db.prepare(`SELECT p.*, l.number as locker_number
+  const { phone } = req.query;
+  if (phone) {
+    // Multi-tenant: get all tenant IDs for this phone, then fetch all payments
+    const tenantIds = db.prepare('SELECT id FROM tenants WHERE phone = ?').all(phone).map(t => t.id);
+    if (tenantIds.length === 0) return res.json([]);
+    const placeholders = tenantIds.map(() => '?').join(',');
+    const payments = db.prepare(`SELECT p.*, l.number as locker_number, b.name as branch_name
+      FROM payments p LEFT JOIN lockers l ON p.locker_id = l.id
+      LEFT JOIN branches b ON p.branch_id = b.id
+      WHERE p.tenant_id IN (${placeholders}) ORDER BY p.created_at DESC`).all(...tenantIds);
+    return res.json(payments);
+  }
+  const payments = db.prepare(`SELECT p.*, l.number as locker_number, b.name as branch_name
     FROM payments p LEFT JOIN lockers l ON p.locker_id = l.id
+    LEFT JOIN branches b ON p.branch_id = b.id
     WHERE p.tenant_id = ? ORDER BY p.created_at DESC`).all(req.params.tenantId);
   res.json(payments);
 });
@@ -1288,11 +1351,9 @@ app.get('/api/customer/:tenantId/payments', (req, res) => {
 // ============================
 //  APPOINTMENTS
 // ============================
-// Get appointments (admin/branch: all for branch, customer: own only)
 app.get('/api/appointments', (req, res) => {
-  const { branch_id, tenant_id, status, from, to } = req.query;
-  let sql = `SELECT a.*, t.name as tenant_name, t.phone as tenant_phone,
-    l.number as locker_number, b.name as branch_name
+  const { branch_id, tenant_id, phone, status, from, to } = req.query;
+  let sql = `SELECT a.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number, b.name as branch_name
     FROM appointments a
     LEFT JOIN tenants t ON a.tenant_id = t.id
     LEFT JOIN lockers l ON a.locker_id = l.id
@@ -1300,71 +1361,57 @@ app.get('/api/appointments', (req, res) => {
   const params = [];
   if (branch_id) { sql += ' AND a.branch_id = ?'; params.push(branch_id); }
   if (tenant_id) { sql += ' AND a.tenant_id = ?'; params.push(tenant_id); }
+  if (phone) {
+    // Multi-tenant: get all tenant IDs for this phone
+    const tenantIds = db.prepare('SELECT id FROM tenants WHERE phone = ?').all(phone).map(t => t.id);
+    if (tenantIds.length > 0) {
+      const placeholders = tenantIds.map(() => '?').join(',');
+      sql += ` AND a.tenant_id IN (${placeholders})`;
+      params.push(...tenantIds);
+    } else {
+      return res.json([]);
+    }
+  }
   if (status) { sql += ' AND a.status = ?'; params.push(status); }
   if (from) { sql += ' AND a.requested_date >= ?'; params.push(from); }
   if (to) { sql += ' AND a.requested_date <= ?'; params.push(to); }
-  sql += ' ORDER BY a.requested_date ASC, a.requested_time ASC';
-  const appointments = db.prepare(sql).all(...params);
-  res.json(appointments);
+  sql += ' ORDER BY a.requested_date DESC, a.requested_time DESC';
+  res.json(db.prepare(sql).all(...params));
 });
 
-// Request appointment (customer or staff)
 app.post('/api/appointments', (req, res) => {
   const d = req.body;
-  if (!d.tenant_id || !d.requested_date) return res.status(400).json({ error: 'Tenant and date required' });
-
-  const tenant = db.prepare('SELECT branch_id, locker_id FROM tenants WHERE id = ?').get(d.tenant_id);
-  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
-
+  if (!d.branch_id || !d.tenant_id || !d.requested_date) {
+    return res.status(400).json({ error: 'Branch, tenant, and date are required' });
+  }
   const id = genId();
-  const branch_id = d.branch_id || tenant.branch_id;
-  const locker_id = d.locker_id || tenant.locker_id || '';
-  const booked_by = d.booked_by || 'customer';
-  const status = booked_by === 'customer' ? 'Pending' : 'Approved';
-
+  const locker_id = d.locker_id || '';
+  const status = d.booked_by === 'customer' ? 'Pending' : 'Approved';
   db.prepare(`INSERT INTO appointments (id, branch_id, tenant_id, locker_id, requested_date, requested_time, purpose, status, booked_by, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-    id, branch_id, d.tenant_id, locker_id, d.requested_date, d.requested_time || '',
-    d.purpose || 'Locker Access', status, booked_by, d.notes || ''
-  );
-
-  logInfo('Appointment created', { id, tenant_id: d.tenant_id, date: d.requested_date, booked_by, status });
-  res.json({ id, status, message: status === 'Approved' ? 'Appointment booked' : 'Appointment request submitted' });
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, d.branch_id, d.tenant_id, locker_id, d.requested_date, d.requested_time || '', d.purpose || 'Locker Access', status, d.booked_by || 'customer', d.notes || '');
+  logInfo('Appointment created', { id, tenant: d.tenant_id, date: d.requested_date, booked_by: d.booked_by || 'customer', status });
+  res.json({ success: true, id, status });
 });
 
-// Approve/Reject appointment
 app.put('/api/appointments/:id/status', (req, res) => {
   const { status, admin_notes } = req.body;
   if (!['Approved', 'Rejected', 'Completed', 'Cancelled'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
   }
-  const appt = db.prepare('SELECT id FROM appointments WHERE id = ?').get(req.params.id);
+  const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
-
   db.prepare('UPDATE appointments SET status = ?, admin_notes = COALESCE(?, admin_notes), approved_by = ? WHERE id = ?')
     .run(status, admin_notes || null, req.body.approved_by || '', req.params.id);
   logInfo('Appointment status updated', { id: req.params.id, status });
   res.json({ success: true });
 });
 
-// Cancel appointment (customer)
 app.delete('/api/appointments/:id', (req, res) => {
-  const appt = db.prepare('SELECT id, status FROM appointments WHERE id = ?').get(req.params.id);
+  const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
-  if (appt.status === 'Completed') return res.status(400).json({ error: 'Cannot cancel completed appointment' });
-  db.prepare("UPDATE appointments SET status = 'Cancelled' WHERE id = ?").run(req.params.id);
+  db.prepare('UPDATE appointments SET status = ? WHERE id = ?').run('Cancelled', req.params.id);
   logInfo('Appointment cancelled', { id: req.params.id });
   res.json({ success: true });
-});
-
-// Lookup tenant by phone (for staff booking)
-app.get('/api/tenants/by-phone/:phone', (req, res) => {
-  const tenant = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
-    FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
-    LEFT JOIN branches b ON t.branch_id = b.id
-    WHERE t.phone = ?`).get(req.params.phone);
-  if (!tenant) return res.status(404).json({ error: 'No tenant found with this phone number' });
-  res.json(tenant);
 });
 
 // ============================

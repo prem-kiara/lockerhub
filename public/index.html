@@ -398,6 +398,63 @@
             color: var(--primary);
         }
 
+        .badge-info {
+            background: rgba(6, 182, 212, 0.1);
+            color: #0891b2;
+        }
+
+        .badge-secondary {
+            background: rgba(107, 114, 128, 0.1);
+            color: #6b7280;
+        }
+
+        /* Appointment status badges - larger and more visible */
+        .appt-status-pending {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #f59e0b;
+            font-weight: 600;
+            padding: 4px 12px !important;
+            font-size: 12px !important;
+            letter-spacing: 0.3px;
+        }
+        .appt-status-approved {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #10b981;
+            font-weight: 600;
+            padding: 4px 12px !important;
+            font-size: 12px !important;
+            letter-spacing: 0.3px;
+        }
+        .appt-status-rejected {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #ef4444;
+            font-weight: 600;
+            padding: 4px 12px !important;
+            font-size: 12px !important;
+            letter-spacing: 0.3px;
+        }
+        .appt-status-completed {
+            background: #cffafe;
+            color: #155e75;
+            border: 1px solid #06b6d4;
+            font-weight: 600;
+            padding: 4px 12px !important;
+            font-size: 12px !important;
+            letter-spacing: 0.3px;
+        }
+        .appt-status-cancelled {
+            background: #f3f4f6;
+            color: #6b7280;
+            border: 1px solid #9ca3af;
+            font-weight: 600;
+            padding: 4px 12px !important;
+            font-size: 12px !important;
+            text-decoration: line-through;
+        }
+
         /* Sortable table headers */
         th.sortable {
             cursor: pointer;
@@ -1249,7 +1306,7 @@
             <form id="loginForm">
                 <div class="form-group">
                     <label for="username">Username / Phone Number</label>
-                    <input type="text" id="username" name="username" required placeholder="Staff username or customer phone">
+                    <input type="text" id="username" name="username" placeholder="Enter username or phone number" required>
                 </div>
                 <div class="form-group">
                     <label for="password">Password</label>
@@ -1281,7 +1338,6 @@
                 <li id="branchMgmt" style="display: none;"><a onclick="switchSection('branches')" class="nav-link" data-section="branches">Manage Branches</a></li>
                 <li id="userMgmt" style="display: none;"><a onclick="switchSection('users')" class="nav-link" data-section="users">Manage Users</a></li>
                 <li id="navAppointments" style="display: none;"><a onclick="switchSection('appointments')" class="nav-link" data-section="appointments">Appointments</a></li>
-                <!-- Customer nav items -->
                 <li id="navCustDashboard" style="display: none;"><a onclick="switchSection('custDashboard')" class="nav-link" data-section="custDashboard">My Dashboard</a></li>
                 <li id="navCustAppointments" style="display: none;"><a onclick="switchSection('custAppointments')" class="nav-link" data-section="custAppointments">My Appointments</a></li>
                 <li id="navCustPayments" style="display: none;"><a onclick="switchSection('custPayments')" class="nav-link" data-section="custPayments">My Payments</a></li>
@@ -1500,7 +1556,23 @@
                     <div class="section-toolbar">
                         <button class="btn btn-primary" onclick="openAddBranchModal()">+ Add Branch</button>
                     </div>
-                    <div id="branchesContainer"></div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th class="sortable" onclick="sortTable(this, 'branchesTable', 0)">Name</th>
+                                    <th class="sortable" onclick="sortTable(this, 'branchesTable', 1)">Location</th>
+                                    <th class="sortable" onclick="sortTable(this, 'branchesTable', 2)">Phone</th>
+                                    <th class="sortable" onclick="sortTable(this, 'branchesTable', 3)">Manager</th>
+                                    <th class="sortable" onclick="sortTable(this, 'branchesTable', 4)">Created</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="branchesTable">
+                                <tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <!-- Users Screen (Head Office Only) -->
@@ -1565,12 +1637,12 @@
                         <div class="loading"><div class="spinner"></div></div>
                     </div>
                 </div>
+
                 <!-- Appointments Screen (Admin/Branch) -->
                 <div id="appointmentsScreen" class="screen">
                     <div class="section-title">Appointments</div>
-                    <div class="section-toolbar">
-                        <button class="btn btn-primary" onclick="openBookAppointmentModal()">+ Book Appointment</button>
-                        <select id="apptStatusFilter" class="search-box" style="max-width:160px;" onchange="loadAppointments()">
+                    <div class="section-toolbar" style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                        <select id="apptStatusFilter" onchange="loadAppointments()" style="padding:8px 12px; border:1px solid #ddd; border-radius:6px;">
                             <option value="">All Status</option>
                             <option value="Pending">Pending</option>
                             <option value="Approved">Approved</option>
@@ -1578,8 +1650,9 @@
                             <option value="Completed">Completed</option>
                             <option value="Cancelled">Cancelled</option>
                         </select>
-                        <input type="date" id="apptDateFrom" class="search-box" style="max-width:160px;" onchange="loadAppointments()">
-                        <input type="date" id="apptDateTo" class="search-box" style="max-width:160px;" onchange="loadAppointments()">
+                        <input type="date" id="apptDateFrom" onchange="loadAppointments()" style="padding:8px 12px; border:1px solid #ddd; border-radius:6px;">
+                        <input type="date" id="apptDateTo" onchange="loadAppointments()" style="padding:8px 12px; border:1px solid #ddd; border-radius:6px;">
+                        <button class="btn btn-primary" onclick="openBookAppointmentModal()">+ Book Appointment</button>
                     </div>
                     <div id="appointmentCalendar" style="margin-bottom:20px;"></div>
                     <div class="table-container">
@@ -1588,39 +1661,32 @@
                                 <tr>
                                     <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 0)">Date</th>
                                     <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 1)">Time</th>
-                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 2)">Tenant</th>
-                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 3)">Phone</th>
-                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 4)">Locker</th>
-                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 5)">Purpose</th>
-                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 6)">Booked By</th>
-                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 7)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 2)">Branch</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 3)">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 4)">Phone</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 5)">Locker</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 6)">Purpose</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 7)">Booked By</th>
+                                    <th class="sortable" onclick="sortTable(this, 'appointmentsTable', 8)">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="appointmentsTable">
-                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="10" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
 
-                <!-- Customer Dashboard Screen -->
+                <!-- Customer Dashboard -->
                 <div id="custDashboardScreen" class="screen">
-                    <div class="section-title">Welcome Back!</div>
-                    <div id="custInfoCards" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:16px; margin-bottom:24px;"></div>
-                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:24px;">
-                        <div>
-                            <h3 style="margin-bottom:12px; color:var(--primary-dark);">Upcoming Appointments</h3>
-                            <div id="custUpcomingAppts" style="min-height:80px;"></div>
-                        </div>
-                        <div>
-                            <h3 style="margin-bottom:12px; color:var(--primary-dark);">Recent Payments</h3>
-                            <div id="custRecentPayments" style="min-height:80px;"></div>
-                        </div>
+                    <div class="section-title">My Dashboard</div>
+                    <div id="custDashboardContent">
+                        <div class="loading"><div class="spinner"></div></div>
                     </div>
                 </div>
 
-                <!-- Customer Appointments Screen -->
+                <!-- Customer Appointments -->
                 <div id="custAppointmentsScreen" class="screen">
                     <div class="section-title">My Appointments</div>
                     <div class="section-toolbar">
@@ -1632,118 +1698,46 @@
                                 <tr>
                                     <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 0)">Date</th>
                                     <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 1)">Time</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 2)">Purpose</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 3)">Status</th>
-                                    <th>Notes</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 2)">Branch</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 3)">Locker</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 4)">Purpose</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 5)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custAppointmentsTable', 6)">Notes</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
-                            <tbody id="custAppointmentsTable"></tbody>
+                            <tbody id="custAppointmentsTable">
+                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
                         </table>
                     </div>
                 </div>
 
-                <!-- Customer Payments Screen -->
+                <!-- Customer Payments -->
                 <div id="custPaymentsScreen" class="screen">
                     <div class="section-title">My Payments</div>
-                    <div id="custPaymentSummary" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:24px;"></div>
+                    <div id="custPaymentsSummary" style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px;"></div>
                     <div class="table-container">
                         <table>
                             <thead>
                                 <tr>
-                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 0)">Receipt</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 1)">Type</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 2)">Period</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 3)">Amount</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 4)">Method</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 5)">Date</th>
-                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 6)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 0)">Date</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 1)">Branch</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 2)">Type</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 3)">Period</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 4)">Amount</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 5)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 6)">Method</th>
+                                    <th class="sortable" onclick="sortTable(this, 'custPaymentsTable', 7)">Receipt</th>
                                 </tr>
                             </thead>
-                            <tbody id="custPaymentsTable"></tbody>
+                            <tbody id="custPaymentsTable">
+                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
                         </table>
                     </div>
                 </div>
 
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal for Book Appointment (Admin/Branch) -->
-    <div id="bookApptModal" class="modal-overlay">
-        <div class="modal">
-            <h2>Book Appointment</h2>
-            <div class="form-group">
-                <label>Customer Phone Number *</label>
-                <div style="display:flex; gap:8px;">
-                    <input type="tel" id="apptPhone" placeholder="Enter phone number" style="flex:1;">
-                    <button class="btn btn-secondary" onclick="lookupApptTenant()">Lookup</button>
-                </div>
-            </div>
-            <div id="apptTenantInfo" style="display:none; padding:12px; background:var(--bg); border-radius:8px; margin-bottom:12px;">
-                <strong id="apptTenantName"></strong> — Locker: <span id="apptTenantLocker"></span>
-            </div>
-            <input type="hidden" id="apptTenantId">
-            <div class="form-row">
-                <div class="form-group"><label>Date *</label><input type="date" id="apptDate"></div>
-                <div class="form-group"><label>Time</label><input type="time" id="apptTime"></div>
-            </div>
-            <div class="form-group">
-                <label>Purpose</label>
-                <select id="apptPurpose">
-                    <option value="Locker Access">Locker Access</option>
-                    <option value="Deposit Items">Deposit Items</option>
-                    <option value="Retrieve Items">Retrieve Items</option>
-                    <option value="Key Duplicate">Key Duplicate</option>
-                    <option value="Other">Other</option>
-                </select>
-            </div>
-            <div class="form-group"><label>Notes</label><textarea id="apptNotes" rows="2"></textarea></div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="closeModal('bookApptModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveStaffAppointment()">Book Appointment</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal for Customer Request Visit -->
-    <div id="custVisitModal" class="modal-overlay">
-        <div class="modal">
-            <h2>Request Visit</h2>
-            <div class="form-row">
-                <div class="form-group"><label>Preferred Date *</label><input type="date" id="custVisitDate"></div>
-                <div class="form-group"><label>Preferred Time</label><input type="time" id="custVisitTime"></div>
-            </div>
-            <div class="form-group">
-                <label>Purpose</label>
-                <select id="custVisitPurpose">
-                    <option value="Locker Access">Locker Access</option>
-                    <option value="Deposit Items">Deposit Items</option>
-                    <option value="Retrieve Items">Retrieve Items</option>
-                    <option value="Other">Other</option>
-                </select>
-            </div>
-            <div class="form-group"><label>Notes</label><textarea id="custVisitNotes" rows="2"></textarea></div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="closeModal('custVisitModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="submitCustVisitRequest()">Submit Request</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Modal for Set Customer Password -->
-    <div id="custPasswordModal" class="modal-overlay">
-        <div class="modal">
-            <h2>Set Customer Login Password</h2>
-            <input type="hidden" id="custPwdTenantId">
-            <p id="custPwdTenantInfo" style="margin-bottom:12px;"></p>
-            <div class="form-group">
-                <label>New Password (min 4 chars)</label>
-                <input type="text" id="custPwdValue" placeholder="Enter password">
-            </div>
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="closeModal('custPasswordModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveCustomerPassword()">Set Password</button>
             </div>
         </div>
     </div>
@@ -1853,7 +1847,7 @@
                     <input type="hidden" id="tenantId">
                     <div class="form-group" id="tenantBranchGroup" style="display:none;">
                         <label for="tenantBranch">Branch</label>
-                        <select id="tenantBranch" required>
+                        <select id="tenantBranch" required onchange="onTenantBranchChange()">
                             <option value="">Select branch</option>
                         </select>
                     </div>
@@ -2128,32 +2122,39 @@
         </div>
     </div>
 
-    <!-- Modal for Add Branch (Head Office Only) -->
+    <!-- Modal for Add/Edit Branch (Head Office Only) -->
     <div id="branchModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h2>Add Branch</h2>
+                <h2 id="branchModalTitle">Add Branch</h2>
                 <button class="modal-close" onclick="closeModal('branchModal')">×</button>
             </div>
             <div class="modal-body">
                 <form id="branchForm">
+                    <input type="hidden" id="branchEditId">
                     <div class="form-group">
                         <label for="branchName">Branch Name</label>
-                        <input type="text" id="branchName" required>
+                        <input type="text" id="branchName" required placeholder="e.g., RS Puram">
                     </div>
                     <div class="form-group">
-                        <label for="branchLocation">Location</label>
-                        <input type="text" id="branchLocation" required>
+                        <label for="branchLocation">Location / Address</label>
+                        <input type="text" id="branchLocation" required placeholder="e.g., 123, West Boulevard, RS Puram, Coimbatore">
                     </div>
-                    <div class="form-group">
-                        <label for="branchManager">Manager Name</label>
-                        <input type="text" id="branchManager">
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="branchPhone">Phone</label>
+                            <input type="tel" id="branchPhone" placeholder="Branch phone number">
+                        </div>
+                        <div class="form-group">
+                            <label for="branchManager">Manager Name</label>
+                            <input type="text" id="branchManager" placeholder="Branch manager">
+                        </div>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('branchModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveBranch()">Add Branch</button>
+                <button class="btn btn-primary" id="branchSaveBtn" onclick="saveBranch()">Add Branch</button>
             </div>
         </div>
     </div>
@@ -2310,6 +2311,129 @@
         </div>
     </div>
 
+    <!-- Modal: Book Appointment (Staff) -->
+    <div id="bookApptModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Book Appointment</h2>
+                <button class="modal-close" onclick="closeModal('bookApptModal')">×</button>
+            </div>
+            <div class="modal-body" style="padding:24px;">
+                <div class="form-group">
+                    <label>Tenant Phone Number</label>
+                    <div style="display:flex; gap:8px;">
+                        <input type="text" id="apptPhoneLookup" placeholder="Enter 10-digit phone number" style="flex:1;">
+                        <button class="btn btn-primary" onclick="lookupApptTenant()">Lookup</button>
+                    </div>
+                </div>
+                <div id="apptTenantInfo" style="display:none; background:#f8f5e6; border-left:4px solid #b8860b; padding:12px; border-radius:6px; margin-bottom:16px;">
+                    <strong id="apptTenantName"></strong><br>
+                    <small id="apptTenantDetails" style="color:#666;"></small>
+                </div>
+                <input type="hidden" id="apptTenantId">
+                <input type="hidden" id="apptLockerId">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Date</label>
+                        <input type="date" id="apptDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Time</label>
+                        <input type="time" id="apptTime">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Purpose</label>
+                    <select id="apptPurpose">
+                        <option value="Locker Access">Locker Access</option>
+                        <option value="Document Deposit">Document Deposit</option>
+                        <option value="Document Retrieval">Document Retrieval</option>
+                        <option value="Key Replacement">Key Replacement</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea id="apptNotes" rows="2" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #eee; padding:16px 24px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn btn-secondary" onclick="closeModal('bookApptModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveStaffAppointment()">Book Appointment</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Customer Request Visit -->
+    <div id="custVisitModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Request a Visit</h2>
+                <button class="modal-close" onclick="closeModal('custVisitModal')">×</button>
+            </div>
+            <div class="modal-body" style="padding:24px;">
+                <div class="form-group">
+                    <label>Select Branch & Locker</label>
+                    <select id="custVisitLocker" style="width:100%; padding:10px 12px; border:1px solid #ddd; border-radius:6px; font-size:14px;">
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Preferred Date</label>
+                        <input type="date" id="custVisitDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Preferred Time</label>
+                        <input type="time" id="custVisitTime">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Purpose</label>
+                    <select id="custVisitPurpose">
+                        <option value="Locker Access">Locker Access</option>
+                        <option value="Document Deposit">Document Deposit</option>
+                        <option value="Document Retrieval">Document Retrieval</option>
+                        <option value="Key Replacement">Key Replacement</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <textarea id="custVisitNotes" rows="2" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:6px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #eee; padding:16px 24px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn btn-secondary" onclick="closeModal('custVisitModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitCustVisitRequest()">Submit Request</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Set Customer Password -->
+    <div id="custPasswordModal" class="modal-overlay">
+        <div class="modal" style="max-width:400px;">
+            <div class="modal-header">
+                <h2>Set Customer Login</h2>
+                <button class="modal-close" onclick="closeModal('custPasswordModal')">×</button>
+            </div>
+            <div class="modal-body" style="padding:24px;">
+                <div style="background:#f8f5e6; border-left:4px solid #b8860b; padding:12px; border-radius:6px; margin-bottom:16px;">
+                    <strong id="custPwdName"></strong><br>
+                    <small id="custPwdPhone" style="color:#666;"></small>
+                </div>
+                <input type="hidden" id="custPwdTenantId">
+                <div class="form-group">
+                    <label>Password (min 4 characters)</label>
+                    <input type="text" id="custPwdValue" placeholder="Enter password for customer login" required>
+                </div>
+            </div>
+            <div class="modal-footer" style="border-top:1px solid #eee; padding:16px 24px; display:flex; justify-content:flex-end; gap:10px;">
+                <button class="btn btn-secondary" onclick="closeModal('custPasswordModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveCustomerPassword()">Save Password</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ===== Mobile Sidebar Toggle =====
         function toggleSidebar() {
@@ -2390,14 +2514,13 @@
         // ===== Login =====
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            const username = document.getElementById('username').value;
+            const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
+            const isPhone = /^\d{10,}$/.test(username);
 
             showLoading('Logging in...');
             try {
                 let result;
-                // Try admin/branch login first; if username is all digits (phone), try customer login
-                const isPhone = /^\d{10,}$/.test(username);
                 if (isPhone) {
                     result = await api('POST', '/api/customer-login', { phone: username, password }, 45000);
                 } else {
@@ -2406,46 +2529,47 @@
                 hideLoading();
                 currentUser = result;
                 currentBranchId = result.branch_id;
+                const isCustomer = result.role === 'customer';
 
                 // Show app
                 document.getElementById('loginScreen').style.display = 'none';
                 document.getElementById('appContainer').style.display = 'flex';
 
-                const isCustomer = result.role === 'customer';
-                const isHeadOffice = result.role === 'headoffice';
-                const isStaff = !isCustomer; // headoffice or branch
-
-                // Hide all nav items first, then show based on role
+                // Hide all nav items first
                 document.querySelectorAll('.sidebar-nav li').forEach(li => li.style.display = 'none');
 
                 if (isCustomer) {
-                    // Customer: show only customer nav items
+                    // Customer nav
                     document.getElementById('navCustDashboard').style.display = 'block';
                     document.getElementById('navCustAppointments').style.display = 'block';
                     document.getElementById('navCustPayments').style.display = 'block';
+                    document.getElementById('lockerAddBtns').style.display = 'none';
+                    document.getElementById('branchSelectorContainer').style.display = 'none';
                     document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
                     await switchSection('custDashboard');
                 } else {
-                    // Staff: show admin nav items
-                    document.querySelectorAll('.sidebar-nav li:not([id])').forEach(li => li.style.display = 'block'); // Dashboard, Lockers, Tenants, Visit Log
+                    const isHeadOffice = result.role === 'headoffice';
+                    // Show all staff nav items
+                    document.querySelectorAll('.sidebar-nav li').forEach(li => {
+                        if (!li.id || (!li.id.startsWith('navCust'))) li.style.display = 'block';
+                    });
+                    // Head Office only sections
+                    document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                    document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                    document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                    document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
+                    document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
                     document.getElementById('navPayments').style.display = 'block';
+                    document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
+                    document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
+                    document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
                     document.getElementById('navAppointments').style.display = 'block';
-                    if (isHeadOffice) {
-                        document.getElementById('branchMgmt').style.display = 'block';
-                        document.getElementById('userMgmt').style.display = 'block';
-                        document.getElementById('lockerTypesMgmt').style.display = 'block';
-                        document.getElementById('branchSelectorContainer').style.display = 'block';
-                        document.getElementById('navUnits').style.display = 'block';
-                        document.getElementById('navBgChecks').style.display = 'block';
-                        document.getElementById('navReports').style.display = 'block';
-                        document.getElementById('navBackup').style.display = 'block';
-                        document.getElementById('lockerAddBtns').style.display = 'inline';
-                    } else {
-                        document.getElementById('branchSelectorContainer').style.display = 'none';
-                        document.getElementById('lockerAddBtns').style.display = 'none';
-                    }
+                    document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
                     document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
-                    if (isHeadOffice) loadBranchSelector();
+
+                    if (isHeadOffice) {
+                        loadBranchSelector();
+                    }
                     await switchSection('dashboard');
                 }
             } catch (error) {
@@ -2491,7 +2615,7 @@
                 appointments: 'Appointments',
                 custDashboard: 'My Dashboard',
                 custAppointments: 'My Appointments',
-                custPayments: 'My Payments'
+                custPayments: 'My Payments',
             };
             document.getElementById('topbarTitle').textContent = titles[section];
 
@@ -2507,6 +2631,7 @@
             else if (section === 'reports') await loadReports();
             else if (section === 'branches') await loadBranches();
             else if (section === 'users') await loadUsers();
+            else if (section === 'backup') await loadBackupList();
             else if (section === 'appointments') await loadAppointments();
             else if (section === 'custDashboard') await loadCustDashboard();
             else if (section === 'custAppointments') await loadCustAppointments();
@@ -3003,12 +3128,16 @@
             // Show branch selector for head office
             const isHO = currentUser.role === 'headoffice';
             document.getElementById('tenantBranchGroup').style.display = isHO ? 'block' : 'none';
-            if (isHO) loadBranchSelectorForTenant();
+            if (isHO) {
+                loadBranchSelectorForTenant();
+                // Don't load lockers yet — user must pick branch first
+                document.getElementById('tenantLocker').innerHTML = '<option value="">— Select branch first —</option>';
+            } else {
+                loadLockerSelect(null);
+            }
 
             document.getElementById('tenantRentDisplay').textContent = '';
             document.getElementById('tenantDepositDisplay').textContent = '';
-            // Load available lockers (no current locker for new tenant)
-            loadLockerSelect(null);
             document.getElementById('tenantModal').classList.add('active');
         }
 
@@ -3019,6 +3148,17 @@
                 sel.innerHTML = '<option value="">Select branch</option>' +
                     branches.map(b => `<option value="${b.id}">${b.name}</option>`).join('');
             } catch (e) { console.error(e); }
+        }
+
+        function onTenantBranchChange() {
+            const branchId = document.getElementById('tenantBranch').value;
+            if (branchId) {
+                loadLockerSelect(null, branchId);
+            } else {
+                document.getElementById('tenantLocker').innerHTML = '<option value="">— Select branch first —</option>';
+                document.getElementById('tenantRentDisplay').textContent = '';
+                document.getElementById('tenantDepositDisplay').textContent = '';
+            }
         }
 
         async function openEditTenantModal(id) {
@@ -3744,7 +3884,7 @@
             status.style.display = 'block';
             status.innerHTML = 'Creating backup on server...';
             try {
-                const result = await api('GET', '/api/backup');
+                const result = await api('GET', '/api/backup/create');
                 status.innerHTML = `Server backup created: <strong>${result.file}</strong> (${(result.size / 1024).toFixed(0)} KB)`;
                 loadBackupList();
             } catch (error) {
@@ -3786,43 +3926,88 @@
         async function loadBranches() {
             try {
                 const branches = await api('GET', '/api/branches');
-                renderBranches(branches);
+                if (branches.length === 0) {
+                    document.getElementById('branchesTable').innerHTML = '<tr><td colspan="6" style="text-align:center; padding:40px; color:#888;">No branches yet. Click "+ Add Branch" to create one.</td></tr>';
+                    return;
+                }
+                document.getElementById('branchesTable').innerHTML = branches.map(b => `<tr>
+                    <td><strong>${b.name}</strong></td>
+                    <td>${b.location || b.address || '-'}</td>
+                    <td>${b.phone || '-'}</td>
+                    <td>${b.manager_name || '-'}</td>
+                    <td>${b.created_at ? b.created_at.split('T')[0] : '-'}</td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" onclick="openEditBranchModal('${b.id}')">Edit</button>
+                            <button class="btn btn-danger" onclick="deleteBranch('${b.id}', '${(b.name||'').replace(/'/g, "\\'")}')">Delete</button>
+                        </div>
+                    </td>
+                </tr>`).join('');
             } catch (error) {
                 console.error('Failed to load branches:', error);
             }
         }
 
-        function renderBranches(branches) {
-            const html = branches.map(b => `
-                <div class="stat-card">
-                    <h3>${b.name}</h3>
-                    <p>Location: ${b.location}</p>
-                    <p>Manager: ${b.manager_name || '-'}</p>
-                </div>
-            `).join('');
-
-            document.getElementById('branchesContainer').innerHTML = html;
-        }
-
         function openAddBranchModal() {
             document.getElementById('branchForm').reset();
-            document.getElementById('branchModal').classList.add('active');
+            document.getElementById('branchEditId').value = '';
+            document.getElementById('branchModalTitle').textContent = 'Add Branch';
+            document.getElementById('branchSaveBtn').textContent = 'Add Branch';
+            openModal('branchModal');
+        }
+
+        async function openEditBranchModal(id) {
+            try {
+                const branches = await api('GET', '/api/branches');
+                const b = branches.find(br => br.id === id);
+                if (!b) return alert('Branch not found');
+                document.getElementById('branchEditId').value = id;
+                document.getElementById('branchModalTitle').textContent = 'Edit Branch';
+                document.getElementById('branchSaveBtn').textContent = 'Save Changes';
+                document.getElementById('branchName').value = b.name;
+                document.getElementById('branchLocation').value = b.location || b.address || '';
+                document.getElementById('branchPhone').value = b.phone || '';
+                document.getElementById('branchManager').value = b.manager_name || '';
+                openModal('branchModal');
+            } catch (err) {
+                alert('Error loading branch: ' + err.message);
+            }
         }
 
         async function saveBranch() {
+            const name = document.getElementById('branchName').value.trim();
+            if (!name) return alert('Please enter branch name');
             const data = {
-                name: document.getElementById('branchName').value,
+                name: name,
                 location: document.getElementById('branchLocation').value,
+                address: document.getElementById('branchLocation').value,
+                phone: document.getElementById('branchPhone').value,
                 manager_name: document.getElementById('branchManager').value
             };
+            const editId = document.getElementById('branchEditId').value;
 
             try {
-                await api('POST', '/api/branches', data);
+                if (editId) {
+                    await api('PUT', `/api/branches/${editId}`, data);
+                } else {
+                    await api('POST', '/api/branches', data);
+                }
                 closeModal('branchModal');
                 await loadBranches();
                 await loadBranchSelector();
             } catch (error) {
-                console.error('Failed to save branch:', error);
+                alert('Failed to save branch: ' + error.message);
+            }
+        }
+
+        async function deleteBranch(id, name) {
+            if (!confirm(`Delete branch "${name}"? This cannot be undone.`)) return;
+            try {
+                await api('DELETE', `/api/branches/${id}`);
+                await loadBranches();
+                await loadBranchSelector();
+            } catch (error) {
+                alert('Cannot delete: ' + error.message);
             }
         }
 
@@ -4194,6 +4379,9 @@
         }
 
         // ===== Modals =====
+        function openModal(modalId) {
+            document.getElementById(modalId).classList.add('active');
+        }
         function closeModal(modalId) {
             document.getElementById(modalId).classList.remove('active');
         }
@@ -4453,105 +4641,104 @@
                 console.error('SOA error:', error);
             }
         }
-        // ============================
-        //  CUSTOMER PORTAL
-        // ============================
+        // ===== APPOINTMENT & CUSTOMER PORTAL FUNCTIONS =====
 
-        // --- Customer Dashboard ---
-        async function loadCustDashboard() {
+        function getApptStatusBadge(status) {
+            const map = {
+                Pending: 'appt-status-pending',
+                Approved: 'appt-status-approved',
+                Rejected: 'appt-status-rejected',
+                Completed: 'appt-status-completed',
+                Cancelled: 'appt-status-cancelled'
+            };
+            return map[status] || 'badge-secondary';
+        }
+
+        // ===== Admin/Branch Appointments =====
+        async function loadAppointments() {
             try {
-                const [appts, payments] = await Promise.all([
-                    api('GET', `/api/appointments?tenant_id=${currentUser.id}`),
-                    api('GET', `/api/customer/${currentUser.id}/payments`)
-                ]);
+                // HO sees all (no branch filter), branch sees only their branch
+                const isHO = currentUser.role === 'headoffice';
+                const branchId = isHO ? '' : (currentBranchId || '');
+                const status = document.getElementById('apptStatusFilter').value;
+                const from = document.getElementById('apptDateFrom').value;
+                const to = document.getElementById('apptDateTo').value;
+                let url = '/api/appointments?';
+                if (branchId) url += `branch_id=${branchId}&`;
+                if (status) url += `status=${status}&`;
+                if (from) url += `from=${from}&`;
+                if (to) url += `to=${to}&`;
+                const appts = await api('GET', url);
 
-                // Info cards
-                const totalPaid = payments.filter(p => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
-                const pendingCount = appts.filter(a => a.status === 'Pending').length;
-                const approvedCount = appts.filter(a => a.status === 'Approved').length;
-                document.getElementById('custInfoCards').innerHTML = `
-                    <div class="stat-card"><div class="stat-label">My Locker</div><div class="stat-value">${currentUser.locker_number || 'N/A'}</div></div>
-                    <div class="stat-card"><div class="stat-label">Lease Ends</div><div class="stat-value">${currentUser.lease_end ? new Date(currentUser.lease_end).toLocaleDateString('en-IN') : 'N/A'}</div></div>
-                    <div class="stat-card"><div class="stat-label">Total Paid</div><div class="stat-value" style="color:var(--success);">₹${formatIndianNumber(totalPaid)}</div></div>
-                    <div class="stat-card"><div class="stat-label">Upcoming Visits</div><div class="stat-value">${approvedCount} approved, ${pendingCount} pending</div></div>
-                `;
+                // Render calendar
+                renderAppointmentCalendar(appts);
 
-                // Upcoming appointments
-                const upcoming = appts.filter(a => ['Pending', 'Approved'].includes(a.status)).slice(0, 5);
-                document.getElementById('custUpcomingAppts').innerHTML = upcoming.length === 0 ?
-                    '<p style="color:var(--text-light);">No upcoming appointments</p>' :
-                    upcoming.map(a => `
-                        <div style="padding:10px; background:var(--bg); border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center;">
-                            <div><strong>${new Date(a.requested_date).toLocaleDateString('en-IN')}</strong> ${a.requested_time || ''} — ${a.purpose}
-                            <span class="badge ${a.status === 'Approved' ? 'badge-success' : 'badge-warning'}">${a.status}</span></div>
+                if (appts.length === 0) {
+                    document.getElementById('appointmentsTable').innerHTML = '<tr><td colspan="10" style="text-align:center; padding:40px; color:#888;">No appointments found</td></tr>';
+                    return;
+                }
+                document.getElementById('appointmentsTable').innerHTML = appts.map(a => `<tr>
+                    <td><strong>${a.requested_date}</strong></td>
+                    <td>${a.requested_time || '-'}</td>
+                    <td>${a.branch_name || '-'}</td>
+                    <td><strong>${a.tenant_name || '-'}</strong></td>
+                    <td>${a.tenant_phone || '-'}</td>
+                    <td>${a.locker_number || '-'}</td>
+                    <td>${a.purpose}</td>
+                    <td><span style="font-size:11px; padding:2px 8px; border-radius:10px; background:${a.booked_by === 'customer' ? '#f0e6ff' : '#e6f0ff'}; color:${a.booked_by === 'customer' ? '#7c3aed' : '#2563eb'};">${a.booked_by === 'customer' ? 'Customer' : 'Staff'}</span></td>
+                    <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            ${a.status === 'Pending' ? `<button class="btn btn-primary" onclick="updateApptStatus('${a.id}', 'Approved')" style="font-size:11px;padding:4px 10px;">Approve</button>
+                            <button class="btn btn-danger" onclick="updateApptStatus('${a.id}', 'Rejected')" style="font-size:11px;padding:4px 10px;">Reject</button>` : ''}
+                            ${a.status === 'Approved' ? `<button class="btn btn-primary" onclick="updateApptStatus('${a.id}', 'Completed')" style="font-size:11px;padding:4px 10px;background:#0891b2;">Complete</button>` : ''}
+                            ${['Pending','Approved'].includes(a.status) ? `<button class="btn btn-secondary" onclick="cancelAppointment('${a.id}')" style="font-size:11px;padding:4px 10px;">Cancel</button>` : ''}
                         </div>
-                    `).join('');
-
-                // Recent payments
-                const recent = payments.slice(0, 5);
-                document.getElementById('custRecentPayments').innerHTML = recent.length === 0 ?
-                    '<p style="color:var(--text-light);">No payments recorded yet</p>' :
-                    recent.map(p => `
-                        <div style="padding:10px; background:var(--bg); border-radius:8px; margin-bottom:8px; display:flex; justify-content:space-between;">
-                            <div><strong>${p.receipt_no || '-'}</strong> — ${p.type === 'deposit' ? 'Deposit' : 'Rent'} ${p.period || ''}</div>
-                            <div>₹${formatIndianNumber(p.amount)} <span class="badge ${getPaymentStatusBadge(p.status)}">${p.status}</span></div>
-                        </div>
-                    `).join('');
+                    </td>
+                </tr>`).join('');
             } catch (err) {
-                console.error('Failed to load customer dashboard:', err);
+                console.error('Failed to load appointments:', err);
             }
         }
 
-        // --- Customer Appointments ---
-        async function loadCustAppointments() {
-            try {
-                const appts = await api('GET', `/api/appointments?tenant_id=${currentUser.id}`);
-                const html = appts.map(a => {
-                    const dateDisplay = a.requested_date ? new Date(a.requested_date).toLocaleDateString('en-IN') : '-';
-                    const canCancel = ['Pending', 'Approved'].includes(a.status);
-                    return `
-                    <tr>
-                        <td>${dateDisplay}</td>
-                        <td>${a.requested_time || '-'}</td>
-                        <td>${a.purpose || '-'}</td>
-                        <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td>
-                        <td>${a.admin_notes || '-'}</td>
-                        <td>${canCancel ? `<button class="btn btn-danger" onclick="cancelAppointment('${a.id}')" style="font-size:12px;padding:4px 10px;">Cancel</button>` : ''}</td>
-                    </tr>`;
-                }).join('');
-                document.getElementById('custAppointmentsTable').innerHTML = html || '<tr><td colspan="6" style="text-align:center;color:var(--text-light);">No appointments yet</td></tr>';
-            } catch (err) {
-                console.error('Failed to load customer appointments:', err);
+        function renderAppointmentCalendar(appts) {
+            const cal = document.getElementById('appointmentCalendar');
+            const today = new Date();
+            let html = '<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:8px;">';
+
+            ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
+                html += `<div style="text-align:center; font-weight:600; font-size:12px; color:#888; padding:4px;">${d}</div>`;
+            });
+
+            for (let i = 0; i < 14; i++) {
+                const d = new Date(today);
+                d.setDate(today.getDate() + i);
+                const dateStr = d.toISOString().split('T')[0];
+                const dayAppts = appts.filter(a => a.requested_date === dateStr);
+                const pending = dayAppts.filter(a => a.status === 'Pending').length;
+                const approved = dayAppts.filter(a => a.status === 'Approved').length;
+                const completed = dayAppts.filter(a => a.status === 'Completed').length;
+                const isToday = i === 0;
+                const total = dayAppts.length;
+
+                html += `<div style="border:2px solid ${isToday ? '#b8860b' : total > 0 ? '#d4a' : '#e8e8e8'}; border-radius:10px; padding:8px; min-height:70px; background:${isToday ? '#fdf8e8' : '#fff'}; cursor:pointer; transition:box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
+                    <div style="font-size:13px; font-weight:700; ${isToday ? 'color:#b8860b;' : 'color:#333;'}">${d.getDate()} ${d.toLocaleDateString('en', {month:'short'})}</div>
+                    ${pending ? `<div style="font-size:11px; margin-top:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:4px;"></span>${pending} pending</div>` : ''}
+                    ${approved ? `<div style="font-size:11px; margin-top:2px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-right:4px;"></span>${approved} approved</div>` : ''}
+                    ${completed ? `<div style="font-size:11px; margin-top:2px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#0891b2;margin-right:4px;"></span>${completed} done</div>` : ''}
+                    ${total === 0 ? '<div style="font-size:11px; color:#ccc; margin-top:4px;">—</div>' : ''}
+                </div>`;
             }
+            html += '</div>';
+            cal.innerHTML = html;
         }
 
-        function openCustRequestVisitModal() {
-            document.getElementById('custVisitDate').value = '';
-            document.getElementById('custVisitTime').value = '';
-            document.getElementById('custVisitPurpose').value = 'Locker Access';
-            document.getElementById('custVisitNotes').value = '';
-            // Set min date to today
-            document.getElementById('custVisitDate').min = new Date().toISOString().split('T')[0];
-            document.getElementById('custVisitModal').classList.add('active');
-        }
-
-        async function submitCustVisitRequest() {
-            const date = document.getElementById('custVisitDate').value;
-            if (!date) return alert('Please select a date');
+        async function updateApptStatus(id, status) {
             try {
-                const result = await api('POST', '/api/appointments', {
-                    tenant_id: currentUser.id,
-                    requested_date: date,
-                    requested_time: document.getElementById('custVisitTime').value,
-                    purpose: document.getElementById('custVisitPurpose').value,
-                    notes: document.getElementById('custVisitNotes').value,
-                    booked_by: 'customer'
-                });
-                closeModal('custVisitModal');
-                alert(result.message || 'Visit request submitted! Awaiting approval.');
-                await loadCustAppointments();
+                await api('PUT', `/api/appointments/${id}/status`, { status, approved_by: currentUser.name });
+                await loadAppointments();
             } catch (err) {
-                alert('Failed to submit request: ' + err.message);
+                alert('Error: ' + err.message);
             }
         }
 
@@ -4559,187 +4746,56 @@
             if (!confirm('Cancel this appointment?')) return;
             try {
                 await api('DELETE', `/api/appointments/${id}`);
-                if (currentUser.role === 'customer') await loadCustAppointments();
-                else await loadAppointments();
+                // Reload whichever screen is active
+                if (currentUser.role === 'customer') {
+                    await loadCustAppointments();
+                } else {
+                    await loadAppointments();
+                }
             } catch (err) {
-                alert('Failed to cancel: ' + err.message);
+                alert('Error: ' + err.message);
             }
         }
 
-        // --- Customer Payments ---
-        async function loadCustPayments() {
-            try {
-                const payments = await api('GET', `/api/customer/${currentUser.id}/payments`);
-                const totalPaid = payments.filter(p => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
-                const totalPending = payments.filter(p => p.status === 'Pending').reduce((s, p) => s + (p.amount || 0), 0);
-                const deposits = payments.filter(p => p.type === 'deposit').reduce((s, p) => s + (p.amount || 0), 0);
-
-                document.getElementById('custPaymentSummary').innerHTML = `
-                    <div class="stat-card"><div class="stat-label">Total Paid</div><div class="stat-value" style="color:var(--success);">₹${formatIndianNumber(totalPaid)}</div></div>
-                    <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value" style="color:var(--warning);">₹${formatIndianNumber(totalPending)}</div></div>
-                    <div class="stat-card"><div class="stat-label">Deposit Held</div><div class="stat-value" style="color:var(--primary);">₹${formatIndianNumber(deposits)}</div></div>
-                `;
-
-                const html = payments.map(p => {
-                    const dateStr = p.paid_on || p.due_date;
-                    const dateDisplay = dateStr ? new Date(dateStr).toLocaleDateString('en-IN') : '-';
-                    return `
-                    <tr>
-                        <td style="font-size:12px;">${p.receipt_no || '-'}</td>
-                        <td>${p.type === 'deposit' ? '<span class="badge badge-primary" style="font-size:10px;">Deposit</span>' : '<span class="badge badge-success" style="font-size:10px;">Rent</span>'}</td>
-                        <td>${p.period || '-'}</td>
-                        <td>₹${formatIndianNumber(p.amount)}</td>
-                        <td>${p.method ? capitalize(p.method) : '-'}</td>
-                        <td>${dateDisplay}</td>
-                        <td><span class="badge ${getPaymentStatusBadge(p.status)}">${p.status}</span></td>
-                    </tr>`;
-                }).join('');
-                document.getElementById('custPaymentsTable').innerHTML = html || '<tr><td colspan="7" style="text-align:center;color:var(--text-light);">No payments yet</td></tr>';
-            } catch (err) {
-                console.error('Failed to load customer payments:', err);
-            }
-        }
-
-        // ============================
-        //  APPOINTMENTS (Admin/Branch)
-        // ============================
-        function getApptStatusBadge(status) {
-            if (status === 'Approved') return 'badge-success';
-            if (status === 'Pending') return 'badge-warning';
-            if (status === 'Completed') return 'badge-primary';
-            if (status === 'Rejected' || status === 'Cancelled') return 'badge-danger';
-            return 'badge-primary';
-        }
-
-        async function loadAppointments() {
-            try {
-                const statusFilter = document.getElementById('apptStatusFilter').value;
-                const fromDate = document.getElementById('apptDateFrom').value;
-                const toDate = document.getElementById('apptDateTo').value;
-                let url = '/api/appointments?';
-                if (currentBranchId) url += `branch_id=${currentBranchId}&`;
-                if (statusFilter) url += `status=${statusFilter}&`;
-                if (fromDate) url += `from=${fromDate}&`;
-                if (toDate) url += `to=${toDate}&`;
-
-                const appts = await api('GET', url);
-                renderAppointmentCalendar(appts);
-
-                const html = appts.map(a => {
-                    const dateDisplay = a.requested_date ? new Date(a.requested_date).toLocaleDateString('en-IN') : '-';
-                    const isPending = a.status === 'Pending';
-                    const isApproved = a.status === 'Approved';
-                    return `
-                    <tr>
-                        <td>${dateDisplay}</td>
-                        <td>${a.requested_time || '-'}</td>
-                        <td><strong>${a.tenant_name || '-'}</strong></td>
-                        <td>${a.tenant_phone || '-'}</td>
-                        <td>${a.locker_number || '-'}</td>
-                        <td>${a.purpose || '-'}</td>
-                        <td><span class="badge ${a.booked_by === 'customer' ? 'badge-warning' : 'badge-primary'}" style="font-size:10px;">${capitalize(a.booked_by)}</span></td>
-                        <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td>
-                        <td>
-                            <div class="action-buttons">
-                                ${isPending ? `<button class="btn btn-primary" onclick="updateApptStatus('${a.id}', 'Approved')" style="font-size:11px;padding:4px 8px;">Approve</button>` : ''}
-                                ${isPending ? `<button class="btn btn-danger" onclick="updateApptStatus('${a.id}', 'Rejected')" style="font-size:11px;padding:4px 8px;">Reject</button>` : ''}
-                                ${isApproved ? `<button class="btn btn-primary" onclick="updateApptStatus('${a.id}', 'Completed')" style="font-size:11px;padding:4px 8px;">Complete</button>` : ''}
-                                ${isApproved ? `<button class="btn btn-danger" onclick="updateApptStatus('${a.id}', 'Cancelled')" style="font-size:11px;padding:4px 8px;">Cancel</button>` : ''}
-                            </div>
-                        </td>
-                    </tr>`;
-                }).join('');
-                document.getElementById('appointmentsTable').innerHTML = html || '<tr><td colspan="9" style="text-align:center;color:var(--text-light);">No appointments</td></tr>';
-            } catch (err) {
-                console.error('Failed to load appointments:', err);
-            }
-        }
-
-        function renderAppointmentCalendar(appts) {
-            // Build a simple week view calendar
-            const today = new Date();
-            const days = [];
-            for (let i = 0; i < 14; i++) {
-                const d = new Date(today);
-                d.setDate(d.getDate() + i);
-                days.push(d);
-            }
-
-            const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-            const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-            let calHtml = '<div style="display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; margin-bottom:16px;">';
-            days.forEach(d => {
-                const dateStr = d.toISOString().split('T')[0];
-                const dayAppts = appts.filter(a => a.requested_date === dateStr);
-                const isToday = dateStr === today.toISOString().split('T')[0];
-                const pending = dayAppts.filter(a => a.status === 'Pending').length;
-                const approved = dayAppts.filter(a => a.status === 'Approved').length;
-
-                calHtml += `<div style="padding:10px; background:${isToday ? 'var(--primary)' : 'var(--bg)'}; color:${isToday ? '#fff' : 'inherit'}; border-radius:8px; text-align:center; min-height:70px; cursor:pointer;" onclick="document.getElementById('apptDateFrom').value='${dateStr}'; document.getElementById('apptDateTo').value='${dateStr}'; loadAppointments();">
-                    <div style="font-size:11px; opacity:0.7;">${dayNames[d.getDay()]}</div>
-                    <div style="font-size:18px; font-weight:bold;">${d.getDate()}</div>
-                    <div style="font-size:10px;">${monthNames[d.getMonth()]}</div>
-                    ${dayAppts.length > 0 ? `<div style="margin-top:4px;">
-                        ${pending > 0 ? `<span style="background:var(--warning); color:#fff; border-radius:10px; padding:1px 6px; font-size:10px;">${pending}</span>` : ''}
-                        ${approved > 0 ? `<span style="background:var(--success); color:#fff; border-radius:10px; padding:1px 6px; font-size:10px;">${approved}</span>` : ''}
-                    </div>` : ''}
-                </div>`;
-            });
-            calHtml += '</div>';
-            document.getElementById('appointmentCalendar').innerHTML = calHtml;
-        }
-
-        async function updateApptStatus(id, status) {
-            const action = status === 'Approved' ? 'approve' : status === 'Rejected' ? 'reject' : status === 'Completed' ? 'complete' : 'cancel';
-            if (!confirm(`Are you sure you want to ${action} this appointment?`)) return;
-            try {
-                await api('PUT', `/api/appointments/${id}/status`, {
-                    status,
-                    approved_by: currentUser.name
-                });
-                await loadAppointments();
-            } catch (err) {
-                alert('Failed to update: ' + err.message);
-            }
-        }
-
-        // --- Book Appointment by Staff ---
+        // ===== Book Appointment Modal (Staff) =====
         function openBookAppointmentModal() {
-            document.getElementById('apptPhone').value = '';
-            document.getElementById('apptTenantId').value = '';
+            document.getElementById('apptPhoneLookup').value = '';
             document.getElementById('apptTenantInfo').style.display = 'none';
-            document.getElementById('apptDate').value = '';
+            document.getElementById('apptTenantId').value = '';
+            document.getElementById('apptLockerId').value = '';
+            document.getElementById('apptDate').value = new Date().toISOString().split('T')[0];
             document.getElementById('apptTime').value = '';
             document.getElementById('apptPurpose').value = 'Locker Access';
             document.getElementById('apptNotes').value = '';
-            document.getElementById('apptDate').min = new Date().toISOString().split('T')[0];
-            document.getElementById('bookApptModal').classList.add('active');
+            openModal('bookApptModal');
         }
 
         async function lookupApptTenant() {
-            const phone = document.getElementById('apptPhone').value.trim();
-            if (!phone || phone.length < 10) return alert('Enter a valid phone number');
+            const phone = document.getElementById('apptPhoneLookup').value.trim();
+            if (!phone || phone.length < 10) return alert('Enter a valid 10-digit phone number');
             try {
-                const tenant = await api('GET', `/api/tenants/by-phone/${phone}`);
-                document.getElementById('apptTenantId').value = tenant.id;
-                document.getElementById('apptTenantName').textContent = tenant.name;
-                document.getElementById('apptTenantLocker').textContent = tenant.locker_number || 'N/A';
+                const t = await api('GET', `/api/tenants/by-phone/${phone}`);
+                document.getElementById('apptTenantId').value = t.id;
+                document.getElementById('apptLockerId').value = t.locker_id || '';
+                document.getElementById('apptTenantName').textContent = t.name;
+                document.getElementById('apptTenantDetails').textContent = `Locker: ${t.locker_number || 'N/A'} | Branch: ${t.branch_name || 'N/A'} | Phone: ${t.phone}`;
                 document.getElementById('apptTenantInfo').style.display = 'block';
             } catch (err) {
-                alert('No tenant found with this phone number');
+                alert('Tenant not found with this phone number');
                 document.getElementById('apptTenantInfo').style.display = 'none';
             }
         }
 
         async function saveStaffAppointment() {
             const tenantId = document.getElementById('apptTenantId').value;
+            if (!tenantId) return alert('Please lookup a tenant first');
             const date = document.getElementById('apptDate').value;
-            if (!tenantId) return alert('Please lookup a tenant by phone number first');
             if (!date) return alert('Please select a date');
             try {
-                const result = await api('POST', '/api/appointments', {
+                await api('POST', '/api/appointments', {
+                    branch_id: currentBranchId,
                     tenant_id: tenantId,
+                    locker_id: document.getElementById('apptLockerId').value,
                     requested_date: date,
                     requested_time: document.getElementById('apptTime').value,
                     purpose: document.getElementById('apptPurpose').value,
@@ -4747,21 +4803,20 @@
                     booked_by: 'staff'
                 });
                 closeModal('bookApptModal');
-                alert(result.message || 'Appointment booked!');
                 await loadAppointments();
+                alert('Appointment booked successfully (auto-approved)');
             } catch (err) {
-                alert('Failed to book: ' + err.message);
+                alert('Error: ' + err.message);
             }
         }
 
-        // ============================
-        //  CUSTOMER PASSWORD MANAGEMENT
-        // ============================
+        // ===== Set Customer Password Modal =====
         function openSetPasswordModal(tenantId, name, phone) {
             document.getElementById('custPwdTenantId').value = tenantId;
-            document.getElementById('custPwdTenantInfo').textContent = `${name} (Phone: ${phone})`;
+            document.getElementById('custPwdName').textContent = name;
+            document.getElementById('custPwdPhone').textContent = 'Phone: ' + phone;
             document.getElementById('custPwdValue').value = '';
-            document.getElementById('custPasswordModal').classList.add('active');
+            openModal('custPasswordModal');
         }
 
         async function saveCustomerPassword() {
@@ -4773,7 +4828,176 @@
                 closeModal('custPasswordModal');
                 alert(result.message || 'Password set successfully');
             } catch (err) {
-                alert('Failed to set password: ' + err.message);
+                alert('Error: ' + err.message);
+            }
+        }
+
+        // ===== Customer Dashboard =====
+        async function loadCustDashboard() {
+            try {
+                const tenants = currentUser.tenants || [currentUser];
+                const phone = currentUser.phone;
+                const [payments, appts] = await Promise.all([
+                    api('GET', `/api/customer/${currentUser.id}/payments?phone=${phone}`),
+                    api('GET', `/api/appointments?phone=${phone}`)
+                ]);
+                const totalPaid = payments.filter(p => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
+                const upcoming = appts.filter(a => ['Pending','Approved'].includes(a.status));
+                const recentPayments = payments.slice(0, 5);
+
+                // Locker info cards for each branch
+                let lockerCards = tenants.map(t => `
+                    <div class="stat-card" style="border-left:4px solid #b8860b;">
+                        <div class="stat-label">${t.branch_name || 'Branch'}</div>
+                        <div class="stat-value">${t.locker_number || 'N/A'}</div>
+                        <div style="font-size:12px; color:#888; margin-top:4px;">Lease: ${t.lease_end || 'N/A'}</div>
+                    </div>`).join('');
+
+                let html = `
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:24px;">
+                    ${lockerCards}
+                    <div class="stat-card">
+                        <div class="stat-label">Total Paid</div>
+                        <div class="stat-value">₹${formatIndianNumber(totalPaid)}</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Upcoming Visits</div>
+                        <div class="stat-value">${upcoming.length}</div>
+                    </div>
+                </div>`;
+
+                if (upcoming.length > 0) {
+                    html += `<div class="section-title" style="font-size:16px; margin-bottom:10px;">Upcoming Appointments</div>
+                    <div class="table-container" style="margin-bottom:24px;"><table><thead><tr>
+                        <th>Date</th><th>Time</th><th>Branch</th><th>Locker</th><th>Purpose</th><th>Status</th>
+                    </tr></thead><tbody>`;
+                    upcoming.forEach(a => {
+                        html += `<tr><td><strong>${a.requested_date}</strong></td><td>${a.requested_time || '-'}</td>
+                        <td>${a.branch_name || '-'}</td><td>${a.locker_number || '-'}</td><td>${a.purpose}</td>
+                        <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td></tr>`;
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                if (recentPayments.length > 0) {
+                    html += `<div class="section-title" style="font-size:16px; margin-bottom:10px;">Recent Payments</div>
+                    <div class="table-container"><table><thead><tr>
+                        <th>Date</th><th>Branch</th><th>Type</th><th>Amount</th><th>Status</th>
+                    </tr></thead><tbody>`;
+                    recentPayments.forEach(p => {
+                        const typeBadge = (p.type || 'rent') === 'deposit' ? '<span class="badge badge-info">Deposit</span>' : '<span class="badge badge-success">Rent</span>';
+                        html += `<tr><td>${p.created_at ? p.created_at.split('T')[0] : '-'}</td>
+                        <td>${p.branch_name || '-'}</td><td>${typeBadge}</td>
+                        <td>₹${formatIndianNumber(p.amount || 0)}</td>
+                        <td><span class="badge ${p.status === 'Paid' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td></tr>`;
+                    });
+                    html += '</tbody></table></div>';
+                }
+
+                document.getElementById('custDashboardContent').innerHTML = html;
+            } catch (err) {
+                console.error('Failed to load customer dashboard:', err);
+                document.getElementById('custDashboardContent').innerHTML = '<p style="color:red;">Failed to load dashboard</p>';
+            }
+        }
+
+        // ===== Customer Appointments =====
+        async function loadCustAppointments() {
+            try {
+                const appts = await api('GET', `/api/appointments?phone=${currentUser.phone}`);
+                if (appts.length === 0) {
+                    document.getElementById('custAppointmentsTable').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#888;">No appointments yet. Click "+ Request Visit" to book one.</td></tr>';
+                    return;
+                }
+                document.getElementById('custAppointmentsTable').innerHTML = appts.map(a => `<tr>
+                    <td><strong>${a.requested_date}</strong></td>
+                    <td>${a.requested_time || '-'}</td>
+                    <td>${a.branch_name || '-'}</td>
+                    <td>${a.locker_number || '-'}</td>
+                    <td>${a.purpose}</td>
+                    <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td>
+                    <td>${a.admin_notes || '-'}</td>
+                    <td>${a.status === 'Pending' ? `<button class="btn btn-danger" onclick="cancelAppointment('${a.id}')" style="font-size:11px;padding:4px 8px;">Cancel</button>` : ''}</td>
+                </tr>`).join('');
+            } catch (err) {
+                console.error('Failed to load customer appointments:', err);
+            }
+        }
+
+        function openCustRequestVisitModal() {
+            const tenants = currentUser.tenants || [currentUser];
+            const sel = document.getElementById('custVisitLocker');
+            sel.innerHTML = tenants.map(t =>
+                `<option value="${t.id}" data-branch-id="${t.branch_id}" data-locker-id="${t.locker_id || ''}">${t.branch_name || 'Branch'} — Locker ${t.locker_number || 'N/A'}</option>`
+            ).join('');
+            document.getElementById('custVisitDate').value = '';
+            document.getElementById('custVisitTime').value = '';
+            document.getElementById('custVisitPurpose').value = 'Locker Access';
+            document.getElementById('custVisitNotes').value = '';
+            openModal('custVisitModal');
+        }
+
+        async function submitCustVisitRequest() {
+            const date = document.getElementById('custVisitDate').value;
+            if (!date) return alert('Please select a date');
+            const sel = document.getElementById('custVisitLocker');
+            const selectedOption = sel.options[sel.selectedIndex];
+            const tenantId = sel.value;
+            const branchId = selectedOption.dataset.branchId;
+            const lockerId = selectedOption.dataset.lockerId || '';
+            try {
+                await api('POST', '/api/appointments', {
+                    branch_id: branchId,
+                    tenant_id: tenantId,
+                    locker_id: lockerId,
+                    requested_date: date,
+                    requested_time: document.getElementById('custVisitTime').value,
+                    purpose: document.getElementById('custVisitPurpose').value,
+                    notes: document.getElementById('custVisitNotes').value,
+                    booked_by: 'customer'
+                });
+                closeModal('custVisitModal');
+                await loadCustAppointments();
+                alert('Visit request submitted! Waiting for branch approval.');
+            } catch (err) {
+                alert('Error: ' + err.message);
+            }
+        }
+
+        // ===== Customer Payments =====
+        async function loadCustPayments() {
+            try {
+                const payments = await api('GET', `/api/customer/${currentUser.id}/payments?phone=${currentUser.phone}`);
+                const totalPaid = payments.filter(p => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
+                const totalPending = payments.filter(p => p.status !== 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
+                const rentPaid = payments.filter(p => p.status === 'Paid' && (p.type || 'rent') === 'rent').reduce((s, p) => s + (p.amount || 0), 0);
+                const depositPaid = payments.filter(p => p.status === 'Paid' && p.type === 'deposit').reduce((s, p) => s + (p.amount || 0), 0);
+
+                document.getElementById('custPaymentsSummary').innerHTML = `
+                    <div class="stat-card"><div class="stat-label">Total Paid</div><div class="stat-value">₹${formatIndianNumber(totalPaid)}</div></div>
+                    <div class="stat-card"><div class="stat-label">Pending</div><div class="stat-value">₹${formatIndianNumber(totalPending)}</div></div>
+                    <div class="stat-card"><div class="stat-label">Rent Paid</div><div class="stat-value">₹${formatIndianNumber(rentPaid)}</div></div>
+                    <div class="stat-card"><div class="stat-label">Deposit Paid</div><div class="stat-value">₹${formatIndianNumber(depositPaid)}</div></div>`;
+
+                if (payments.length === 0) {
+                    document.getElementById('custPaymentsTable').innerHTML = '<tr><td colspan="8" style="text-align:center; padding:40px; color:#888;">No payments found</td></tr>';
+                    return;
+                }
+                document.getElementById('custPaymentsTable').innerHTML = payments.map(p => {
+                    const typeBadge = (p.type || 'rent') === 'deposit' ? '<span class="badge badge-info">Deposit</span>' : '<span class="badge badge-success">Rent</span>';
+                    return `<tr>
+                        <td>${p.created_at ? p.created_at.split('T')[0] : '-'}</td>
+                        <td>${p.branch_name || '-'}</td>
+                        <td>${typeBadge}</td>
+                        <td>${p.period || '-'}</td>
+                        <td>₹${formatIndianNumber(p.amount || 0)}</td>
+                        <td><span class="badge ${p.status === 'Paid' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
+                        <td>${p.method || '-'}</td>
+                        <td>${p.receipt_no || '-'}</td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                console.error('Failed to load customer payments:', err);
             }
         }
 
