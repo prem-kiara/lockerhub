@@ -197,7 +197,7 @@ function generateReceiptBuffer(payment, tenant, branch, locker) {
       tx(doc, 'Amount Received:', M + 15, y + 10);
 
       doc.font('Helvetica-Bold').fontSize(22).fillColor(GOLD);
-      const amountStr = `₹${formatRupees(payment.amount || 0)}`;
+      const amountStr = `Rs.${formatRupees(payment.amount || 0)}`;
       const amountW = doc.widthOfString(amountStr);
       tx(doc, amountStr, W - M - 15 - amountW, y + 6);
 
@@ -298,7 +298,7 @@ function generateReceiptBuffer(payment, tenant, branch, locker) {
       doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK);
       tx(doc, 'Amount:', M + 10, y2 + 5);
       doc.font('Helvetica-Bold').fontSize(16).fillColor(GOLD);
-      const amt2 = `₹${formatRupees(payment.amount || 0)}`;
+      const amt2 = `Rs.${formatRupees(payment.amount || 0)}`;
       tx(doc, amt2, M + 75, y2 + 3);
       doc.font('Helvetica').fontSize(7.5).fillColor('#666666');
       tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 10, y2 + 22);
