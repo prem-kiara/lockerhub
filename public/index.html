@@ -730,34 +730,347 @@
             border: 1px solid rgba(220, 38, 38, 0.2);
         }
 
+        /* ===== HAMBURGER MENU BUTTON ===== */
+        .hamburger-btn {
+            display: none;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 8px;
+            z-index: 1100;
+            flex-shrink: 0;
+        }
+
+        .hamburger-btn span {
+            display: block;
+            width: 22px;
+            height: 2px;
+            background: var(--text);
+            margin: 5px 0;
+            border-radius: 2px;
+            transition: all 0.3s ease;
+        }
+
+        .hamburger-btn.active span:nth-child(1) {
+            transform: rotate(45deg) translate(5px, 5px);
+        }
+
+        .hamburger-btn.active span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .hamburger-btn.active span:nth-child(3) {
+            transform: rotate(-45deg) translate(5px, -5px);
+        }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 999;
+        }
+
+        .sidebar-overlay.active {
+            display: block;
+        }
+
+        /* ===== RESPONSIVE: TABLET (768px) ===== */
         @media (max-width: 768px) {
             .sidebar {
-                width: 200px;
+                width: 250px;
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+
+            .sidebar.open {
+                transform: translateX(0);
+            }
+
+            .hamburger-btn {
+                display: block;
             }
 
             .main-content {
-                margin-left: 200px;
+                margin-left: 0;
             }
 
-            .stat-cards {
-                grid-template-columns: 1fr;
+            .topbar {
+                padding: 12px 16px;
             }
 
-            .form-row {
-                grid-template-columns: 1fr;
+            .topbar-title {
+                font-size: 16px;
             }
 
             .content-area {
                 padding: 16px;
             }
 
+            .stat-cards {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
+            }
+
+            .stat-card {
+                padding: 14px;
+            }
+
+            .stat-card-value {
+                font-size: 22px;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
             .modal {
                 width: 95%;
                 max-width: 100%;
+                margin: 16px;
             }
 
             .branch-stats {
+                grid-template-columns: repeat(3, 1fr);
+            }
+
+            .section-toolbar {
+                flex-wrap: wrap;
+            }
+
+            .search-box {
+                width: 100%;
+            }
+
+            .action-buttons {
+                flex-wrap: wrap;
+            }
+        }
+
+        /* ===== RESPONSIVE: MOBILE (480px) ===== */
+        @media (max-width: 480px) {
+            .topbar {
+                padding: 10px 12px;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .topbar-left {
+                gap: 8px;
+                flex: 1;
+                min-width: 0;
+            }
+
+            .topbar-title {
+                font-size: 15px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
+            .topbar-right {
+                font-size: 12px;
+                display: none;
+            }
+
+            .content-area {
+                padding: 12px;
+            }
+
+            .stat-cards {
+                grid-template-columns: 1fr 1fr;
+                gap: 8px;
+            }
+
+            .stat-card {
+                padding: 12px;
+            }
+
+            .stat-card-label {
+                font-size: 11px;
+            }
+
+            .stat-card-value {
+                font-size: 20px;
+            }
+
+            .stat-card-subtext {
+                font-size: 11px;
+            }
+
+            .section-title {
+                font-size: 18px;
+                margin-bottom: 16px;
+            }
+
+            .section-toolbar {
+                gap: 8px;
+            }
+
+            .btn {
+                padding: 8px 12px;
+                font-size: 13px;
+            }
+
+            .search-box {
+                width: 100%;
+                font-size: 14px;
+            }
+
+            /* Tables: make scrollable */
+            .table-container {
+                border-radius: 6px;
+                font-size: 13px;
+            }
+
+            table {
+                font-size: 12px;
+                min-width: 600px;
+            }
+
+            th, td {
+                padding: 8px 10px;
+                white-space: nowrap;
+            }
+
+            /* Modals: full-screen on mobile */
+            .modal-overlay {
+                align-items: flex-end;
+            }
+
+            .modal {
+                width: 100%;
+                max-width: 100%;
+                max-height: 95vh;
+                border-radius: 16px 16px 0 0;
+                margin: 0;
+            }
+
+            .modal-header {
+                padding: 16px;
+                position: sticky;
+                top: 0;
+                background: var(--card-bg);
+                z-index: 10;
+            }
+
+            .modal-header h2 {
+                font-size: 16px;
+            }
+
+            .modal-body {
+                padding: 16px;
+            }
+
+            .modal-footer {
+                padding: 12px 16px;
+                position: sticky;
+                bottom: 0;
+                background: var(--card-bg);
+                z-index: 10;
+            }
+
+            .form-group input,
+            .form-group select,
+            .form-group textarea {
+                font-size: 16px; /* Prevents iOS zoom on focus */
+                padding: 12px;
+            }
+
+            .form-group label {
+                font-size: 13px;
+            }
+
+            /* Units grid */
+            .units-grid {
                 grid-template-columns: 1fr;
+                gap: 12px;
+                padding: 12px 0;
+            }
+
+            /* Branch cards */
+            .branch-card {
+                padding: 14px;
+            }
+
+            .branch-stats {
+                grid-template-columns: repeat(3, 1fr);
+                gap: 8px;
+            }
+
+            .branch-stat-value {
+                font-size: 15px;
+            }
+
+            /* Tabs */
+            .tabs {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                flex-wrap: nowrap;
+                gap: 0;
+            }
+
+            .tab {
+                padding: 10px 14px;
+                font-size: 13px;
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+
+            /* Login page */
+            .login-container {
+                padding: 20px;
+            }
+
+            .login-box {
+                padding: 24px 20px;
+            }
+
+            .login-box h1 {
+                font-size: 20px;
+            }
+
+            /* Action buttons in tables */
+            .action-buttons {
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .action-buttons button {
+                width: 100%;
+                text-align: center;
+            }
+
+            /* Backup buttons */
+            .btn-primary, .btn-secondary, .btn-danger {
+                width: 100%;
+                justify-content: center;
+            }
+
+            /* Branch selector */
+            .branch-selector {
+                width: 100%;
+                font-size: 14px;
+            }
+
+            .back-to-all-btn {
+                font-size: 12px;
+                padding: 6px 10px;
+            }
+
+            /* Checkbox groups */
+            .checkbox-group {
+                flex-direction: column;
+                gap: 10px;
+            }
+
+            /* Interest summary */
+            .interest-summary {
+                font-size: 12px;
+                padding: 10px 12px;
             }
         }
 
@@ -894,7 +1207,8 @@
 
         @media (max-width: 768px) {
             .units-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: repeat(2, 1fr);
+                gap: 12px;
             }
         }
     </style>
@@ -920,7 +1234,8 @@
     </div>
 
     <div id="appContainer" class="app-container" style="display: none;">
-        <div class="sidebar">
+        <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+        <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <div id="sidebarLogo" style="max-height:32px;"><img src="/logo.png" alt="Logo" style="max-height:32px; max-width:80px; object-fit:contain; border-radius:4px;" onerror="this.style.display='none'"></div>
                 <h1>LockerHub</h1>
@@ -947,6 +1262,11 @@
         <div class="main-content">
             <div class="topbar">
                 <div class="topbar-left">
+                    <button class="hamburger-btn" id="hamburgerBtn" onclick="toggleSidebar()">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </button>
                     <div class="topbar-title" id="topbarTitle">Dashboard</div>
                     <div id="branchSelectorContainer" style="display: none;">
                         <select id="branchSelector" class="branch-selector" onchange="switchBranch()">
@@ -1695,6 +2015,25 @@
     </div>
 
     <script>
+        // ===== Mobile Sidebar Toggle =====
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            const hamburger = document.getElementById('hamburgerBtn');
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('active');
+            hamburger.classList.toggle('active');
+        }
+
+        function closeSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            const hamburger = document.getElementById('hamburgerBtn');
+            if (sidebar) sidebar.classList.remove('open');
+            if (overlay) overlay.classList.remove('active');
+            if (hamburger) hamburger.classList.remove('active');
+        }
+
         // ===== Global State =====
         let currentUser = null;
         let currentBranchId = null;
@@ -1805,6 +2144,7 @@
 
         // ===== Navigation =====
         async function switchSection(section) {
+            closeSidebar(); // Close mobile sidebar on navigation
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(section + 'Screen').classList.add('active');
 
