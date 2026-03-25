@@ -849,6 +849,24 @@ app.get('/api/allotment-form/:id', async (req, res) => {
     const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(tenant.branch_id);
     const locker = tenant.locker_id ? db.prepare('SELECT * FROM lockers WHERE id = ?').get(tenant.locker_id) : {};
 
+    // Auto-generate agreement number: DFIN/branch-short/YYYY/seq
+    const branchShort = (branch && branch.name ? branch.name.replace(/\s+/g, '').substring(0, 4).toUpperCase() : 'HQ');
+    const year = new Date(tenant.lease_start || tenant.created_at || Date.now()).getFullYear();
+    const tenantSeq = db.prepare('SELECT COUNT(*) as cnt FROM tenants WHERE branch_id = ? AND created_at <= ?').get(tenant.branch_id, tenant.created_at || new Date().toISOString());
+    const seqNum = String((tenantSeq ? tenantSeq.cnt : 1)).padStart(4, '0');
+    const agreementNo = `DFIN/${branchShort}/${year}/${seqNum}`;
+
+    // Get payment records for this tenant
+    const payments = db.prepare('SELECT * FROM payments WHERE tenant_id = ? ORDER BY created_at ASC').all(req.params.id);
+    const depositPayment = payments.find(p => p.type === 'deposit');
+    const rentPayment = payments.find(p => p.type === 'rent');
+
+    // Attach computed fields to tenant
+    tenant.agreement_no = agreementNo;
+    tenant.allotment_date = tenant.lease_start || new Date().toISOString().split('T')[0];
+    tenant.deposit_amount = depositPayment ? depositPayment.amount : (tenant.deposit || 0);
+    tenant.rent_amount = rentPayment ? rentPayment.amount : (tenant.annual_rent || 0);
+
     const pdfBuffer = await generatePdfBuffer(tenant, branch || {}, locker || {});
 
     const safeName = (tenant.name || 'tenant').replace(/[^a-zA-Z0-9]/g, '_');

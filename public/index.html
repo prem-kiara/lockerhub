@@ -3634,15 +3634,26 @@
         }
 
         async function markAsPaid(id) {
-            const today = new Date().toISOString().split('T')[0];
-            showLoading('Marking as paid...');
+            // Open the payment edit modal pre-filled so staff can enter method, ref no, date etc.
             try {
-                await api('PUT', `/api/payments/${id}`, { status: 'Paid', paid_on: today });
-                hideLoading();
-                await loadPayments();
+                const payment = await api('GET', `/api/payments/${id}`);
+                document.getElementById('paymentModalTitle').textContent = 'Record Payment — ' + (payment.receipt_no || '');
+                document.getElementById('paymentId').value = id;
+                await loadTenantSelect('paymentTenant');
+                document.getElementById('paymentTenant').value = payment.tenant_id;
+                document.getElementById('paymentType').value = payment.type || 'rent';
+                populatePeriodOptions();
+                document.getElementById('paymentPeriod').value = payment.period || '';
+                document.getElementById('paymentAmount').value = payment.amount;
+                document.getElementById('paymentMethod').value = payment.method || '';
+                document.getElementById('paymentRefNo').value = payment.ref_no || '';
+                document.getElementById('paymentDate').valueAsDate = new Date();
+                document.getElementById('paymentStatus').value = 'Paid';
+                document.getElementById('paymentNotes').value = payment.notes || '';
+                document.getElementById('paymentTenantInfo').style.display = 'none';
+                document.getElementById('paymentModal').classList.add('active');
             } catch (err) {
-                hideLoading();
-                alert('Failed: ' + err.message);
+                alert('Failed to load payment: ' + err.message);
             }
         }
 

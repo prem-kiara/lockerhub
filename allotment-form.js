@@ -28,49 +28,83 @@ const PHONE = '1800 202 5180';
 const LOGO_PATH = path.join(__dirname, 'public', 'logo.png');
 const HAS_LOGO = fs.existsSync(LOGO_PATH);
 
+// Helper: format date to DD/MM/YYYY
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d)) return dateStr;
+    return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  } catch (e) { return dateStr; }
+}
+
+// Helper: format currency
+function formatRupees(num) {
+  if (!num) return '0';
+  return Number(num).toLocaleString('en-IN');
+}
+
+// Helper: number to words (Indian style)
+function numberToWords(num) {
+  if (!num || num === 0) return 'Zero';
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+    'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+  const n = Math.floor(num);
+  if (n < 20) return ones[n];
+  if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
+  if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' and ' + numberToWords(n % 100) : '');
+  if (n < 100000) return numberToWords(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + numberToWords(n % 1000) : '');
+  if (n < 10000000) return numberToWords(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + numberToWords(n % 100000) : '');
+  return numberToWords(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + numberToWords(n % 10000000) : '');
+}
+
 // Helper: positioned text with NO line break (prevents auto-pagination)
 function tx(doc, text, x, y, opts) {
   doc.text(String(text || ''), x, y, Object.assign({ lineBreak: false }, opts || {}));
 }
 
 function drawHeader(doc, y) {
-  if (!y) y = 55;
-  const logoH = 40;
-  const logoW = HAS_LOGO ? 44 : 0;
-  const gap = HAS_LOGO ? 8 : 0;
+  if (!y) y = 62;
+  const logoH = 52;
+  const logoW = HAS_LOGO ? 56 : 0;
 
-  // Measure text widths to center the whole block (logo + text)
-  doc.font('Helvetica-Bold').fontSize(13);
-  const nameW = doc.widthOfString(COMPANY_FULL);
-  const blockW = logoW + gap + nameW;
-  const startX = (W - blockW) / 2;
-
-  // Draw logo
+  // Logo — left aligned at margin
   if (HAS_LOGO) {
-    try { doc.image(LOGO_PATH, startX, y - logoH, { height: logoH }); } catch (e) { /* skip */ }
+    try { doc.image(LOGO_PATH, M, y - logoH - 2, { height: logoH }); } catch (e) { /* skip */ }
   }
 
-  // Company name — centered
-  const textX = startX + logoW + gap;
-  doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK);
-  tx(doc, COMPANY_FULL, textX, y - 38);
+  // Company name — centered on page (independent of logo)
+  const textAreaLeft = M + logoW + 8;
+  const textAreaRight = W - M;
+  const textAreaCenter = (textAreaLeft + textAreaRight) / 2;
 
-  // CIN / GST / Phone — centered below name
+  doc.font('Helvetica-Bold').fontSize(13).fillColor(DARK);
+  const nameW = doc.widthOfString(COMPANY_FULL);
+  tx(doc, COMPANY_FULL, textAreaCenter - nameW / 2, y - 48);
+
+  // CIN / GST / Phone — centered in text area
   doc.font('Helvetica').fontSize(6.5).fillColor('#666666');
   const subText = `CIN: ${CIN}  |  GST: ${GST}  |  Ph: ${PHONE}`;
   const subW = doc.widthOfString(subText);
-  tx(doc, subText, (W - subW) / 2, y - 22);
+  tx(doc, subText, textAreaCenter - subW / 2, y - 32);
 
-  // "Safe Deposit Lockers" — centered below sub-text
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(GOLD);
+  // Registered office — centered in text area
+  doc.font('Helvetica').fontSize(5.5).fillColor('#888888');
+  const regText = `Regd: ${REGD}`;
+  const regW = doc.widthOfString(regText);
+  tx(doc, regText, textAreaCenter - regW / 2, y - 22);
+
+  // "Safe Deposit Lockers" — centered in text area
+  doc.font('Helvetica-Bold').fontSize(10).fillColor(GOLD);
   const sdlText = 'Safe Deposit Lockers';
   const sdlW = doc.widthOfString(sdlText);
-  tx(doc, sdlText, (W - sdlW) / 2, y - 10);
+  tx(doc, sdlText, textAreaCenter - sdlW / 2, y - 10);
 
   // Gold accent line
-  doc.save().strokeColor(GOLD).lineWidth(2).moveTo(M, y + 2).lineTo(W - M, y + 2).stroke().restore();
+  doc.save().strokeColor(GOLD).lineWidth(2).moveTo(M, y + 4).lineTo(W - M, y + 4).stroke().restore();
   doc.fillColor('black');
-  return y + 14;
+  return y + 16;
 }
 
 function drawFooter(doc, version) {
@@ -138,7 +172,7 @@ function page1(doc, t, branch) {
   y += 25;
 
   y = field(doc, 'Branch Name:', M, y, branch.name || '', 150, 80);
-  field(doc, 'Agreement No.:', W / 2 + 20, y - 16, t.agreement_no || '', 140, 90);
+  field(doc, 'Agreement No.:', W / 2 + 20, y - 16, t.agreement_no || 'Auto-generated', 140, 90);
   y += 3;
 
   y = sectionTitle(doc, 'Hirer Details', y);
@@ -191,9 +225,9 @@ function page2(doc, t, branch) {
   y += 25;
 
   y = field(doc, 'Branch Name:', M, y, branch.name || '', 120, 90);
-  field(doc, 'Agreement No:', W / 2 + 10, y - 16, '', 120, 90);
+  field(doc, 'Agreement No:', W / 2 + 10, y - 16, t.agreement_no || '', 120, 90);
   y = field(doc, 'Customer Name:', M, y, t.name || '', 120, 100);
-  field(doc, 'Allotment Date:', W / 2 + 10, y - 16, '', 120, 95);
+  field(doc, 'Allotment Date:', W / 2 + 10, y - 16, formatDate(t.allotment_date), 120, 95);
   y += 6;
 
   const descriptions = [
@@ -286,12 +320,22 @@ function page3(doc, t, branch) {
   labeledBox(doc, 'Revenue Stamp', W - M - 65, y, 60, 55);
   labeledBox(doc, 'Revenue Stamp', W - M - 135, y, 60, 55);
 
-  y = field(doc, 'Branch:', M, y, branch.name || '', 200, 50);
-  y = field(doc, 'Agreement No.:', M, y, '', 200, 95);
+  y = field(doc, 'Branch:', M, y, (branch.name || '') + (branch.location ? ', ' + branch.location : ''), 200, 50);
+  y = field(doc, 'Agreement No.:', M, y, t.agreement_no || '', 200, 95);
   y += 3;
 
+  // Auto-fill date parts from lease_start
+  const leaseStart = t.allotment_date ? new Date(t.allotment_date) : null;
+  const dayStr = leaseStart ? String(leaseStart.getDate()) : '...............';
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthStr = leaseStart ? monthNames[leaseStart.getMonth()] : '..........................';
+  const yearStr = leaseStart ? String(leaseStart.getFullYear()).slice(2) : '.........';
+  const rentStr = t.rent_amount ? `Rs. ${formatRupees(t.rent_amount)}` : 'Rs. ..........................';
+  const rentWordsStr = t.rent_amount ? `(Rupees ${numberToWords(t.rent_amount)} only)` : '(Rupees ........................................ only)';
+  const branchAddr = branch.location || branch.address || '..............................';
+
   doc.font('Helvetica').fontSize(8.5).fillColor('black');
-  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ...............................(hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'}(hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Safe Deposit Locker No. ${t.locker_number || '........'}, Key No. ................., Locker type ${t.locker_size || '........'}, Cabinet No. ................., for a period of 12 months from the ............... day of .......................... 20......... at a rental of Rs. .......................... (Rupees ........................................ only) for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
+  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ${branchAddr} (hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'} (hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Safe Deposit Locker No. ${t.locker_number || '........'}, Key No. ................., Locker type ${t.locker_size || '........'}, Cabinet No. ................., for a period of 12 months from the ${dayStr} day of ${monthStr} 20${yearStr} at a rental of ${rentStr} ${rentWordsStr} for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
   doc.text(agText, M, y, { width: W - 2 * M - 150, align: 'justify', lineGap: 1.5 });
   y = doc.y + 10;
 
@@ -796,14 +840,15 @@ function pageAcknowledgement(doc, t, branch, locker) {
   doc.fillColor('black');
   y += 26;
 
-  y = field(doc, 'Agreement No.:', M, y, '', 150, 95);
-  field(doc, 'Allotment Date:', W / 2 + 10, y - 16, '', 115, 95);
-  y = field(doc, 'Scheme:', M, y, '', 115, 55);
+  y = field(doc, 'Agreement No.:', M, y, t.agreement_no || '', 150, 95);
+  field(doc, 'Allotment Date:', W / 2 + 10, y - 16, formatDate(t.allotment_date), 115, 95);
+  y = field(doc, 'Scheme:', M, y, 'Annual', 115, 55);
   field(doc, 'Locker Type:', W / 2 + 10, y - 16, locker.size || t.locker_size || '', 115, 80);
-  y = field(doc, 'Cabinet No.:', M, y, '', 115, 80);
+  y = field(doc, 'Locker No.:', M, y, t.locker_number || '', 115, 70);
+  field(doc, 'Cabinet No.:', W / 2 + 10, y - 16, '', 115, 80);
   y += 2;
-  y = field(doc, 'Received Locker Rent: Rs.', M, y, '', 115, 155);
-  y = field(doc, 'Received Locker Rent Advance: Rs.', M, y, '', 115, 200);
+  y = field(doc, 'Received Locker Rent: Rs.', M, y, t.rent_amount ? formatRupees(t.rent_amount) : '', 115, 155);
+  y = field(doc, 'Received Deposit: Rs.', M, y, t.deposit_amount ? formatRupees(t.deposit_amount) : '', 115, 135);
 
   y += 8;
   doc.font('Helvetica').fontSize(8);
