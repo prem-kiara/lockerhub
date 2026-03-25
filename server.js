@@ -247,6 +247,31 @@ db.exec(`
 `);
 
 // ============================
+//  DATABASE MIGRATIONS
+// ============================
+// Add missing columns to existing tables (safe to run multiple times)
+function addColumnIfMissing(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  const exists = cols.some(c => c.name === column);
+  if (!exists) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    logInfo(`Migration: added column ${column} to ${table}`);
+  }
+}
+
+// Tenants table migrations
+addColumnIfMissing('tenants', 'lease_end', "TEXT DEFAULT ''");
+addColumnIfMissing('tenants', 'annual_rent', 'REAL DEFAULT 0');
+addColumnIfMissing('tenants', 'deposit', 'REAL DEFAULT 0');
+
+// Payments table migrations
+addColumnIfMissing('payments', 'type', "TEXT DEFAULT 'rent'");
+addColumnIfMissing('payments', 'period', "TEXT DEFAULT ''");
+addColumnIfMissing('payments', 'receipt_no', "TEXT DEFAULT ''");
+
+logInfo('Database migrations complete');
+
+// ============================
 //  HELPER: Generate ID
 // ============================
 function genId() {
