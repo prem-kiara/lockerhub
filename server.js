@@ -1119,8 +1119,8 @@ function autoSeed() {
   const types = [
     { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, desc: 'L6 Safe Deposit Lockers with Wooden Sleepers' },
     { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, desc: 'L2/10 Safe Deposit Lockers with Wooden Sleepers' },
-    { id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 1, desc: 'L6 Secunex Ultra (Silver/Gold facia) — UPCOMING' },
-    { id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 1, desc: 'L2/10 Secunex Ultra (Silver/Gold facia) — UPCOMING' }
+    { id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
+    { id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
   ];
   const insType = db.prepare(`INSERT INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   types.forEach(t => {
@@ -1128,32 +1128,78 @@ function autoSeed() {
     insType.run(t.id, t.name, t.variant, t.lpu, t.uh, t.uw, t.ud, t.lh, t.lw, t.ld, t.w, sz, t.desc, t.up);
   });
 
-  // RS Puram branch
-  const brId = 'br_rspuram';
-  db.prepare('INSERT INTO branches (id, name, address, phone) VALUES (?, ?, ?, ?)').run(brId, 'RS Puram', 'RS Puram, Coimbatore', '');
-  db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(brId);
-  db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-    genId(), 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', brId
-  );
-
-  // 8 L6 units (01-08, 6 lockers A-F each) + 4 L10 units (01-04, 10 lockers A-J each)
   const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   const insUnit = db.prepare('INSERT INTO units (id, branch_id, locker_type_id, unit_number, location, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const insLock = db.prepare('INSERT INTO lockers (id, branch_id, unit_id, locker_type_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-  const tx = db.transaction(() => {
+
+  // ========== RS Puram branch ==========
+  const brRS = 'br_rspuram';
+  db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(brRS, 'RS Puram', 'RS Puram, Coimbatore', '', 'RS Puram, Coimbatore', '');
+  db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(brRS);
+  db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+    genId(), 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', brRS
+  );
+
+  // RS Puram: 8 L6 units (01-08, 6 lockers each) + 4 L10 units (01-04, 10 lockers each) = 88 lockers
+  const txRS = db.transaction(() => {
     for (let i = 1; i <= 8; i++) {
-      const uid = 'unit_l6_' + i, unum = 'L6-' + String(i).padStart(2, '0');
-      insUnit.run(uid, brId, 'lt_l6_std', unum, 'RS Puram', 'active', '');
-      for (let j = 0; j < 6; j++) insLock.run(genId(), brId, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'RS Puram', 0, 'vacant');
+      const uid = 'unit_rs_l6_' + i, unum = 'L6-' + String(i).padStart(2, '0');
+      insUnit.run(uid, brRS, 'lt_l6_std', unum, 'RS Puram', 'active', '');
+      for (let j = 0; j < 6; j++) insLock.run(genId(), brRS, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'RS Puram', 0, 'vacant');
     }
     for (let i = 1; i <= 4; i++) {
-      const uid = 'unit_l10_' + i, unum = 'L10-' + String(i).padStart(2, '0');
-      insUnit.run(uid, brId, 'lt_l10_std', unum, 'RS Puram', 'active', '');
-      for (let j = 0; j < 10; j++) insLock.run(genId(), brId, uid, 'lt_l10_std', unum + '-' + LETTERS[j], 'Medium', 'RS Puram', 0, 'vacant');
+      const uid = 'unit_rs_l10_' + i, unum = 'L10-' + String(i).padStart(2, '0');
+      insUnit.run(uid, brRS, 'lt_l10_std', unum, 'RS Puram', 'active', '');
+      for (let j = 0; j < 10; j++) insLock.run(genId(), brRS, uid, 'lt_l10_std', unum + '-' + LETTERS[j], 'Medium', 'RS Puram', 0, 'vacant');
     }
   });
-  tx();
-  console.log('  ✅ Seeded: root/admin@123 (HO), rspuram/admin@123 (Branch), 88 lockers at RS Puram');
+  txRS();
+
+  // ========== Hosur branch ==========
+  const brHR = 'br_hosur';
+  db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(brHR, 'Hosur', 'Hosur, Tamil Nadu', '', 'Hosur, Tamil Nadu', '');
+  db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(brHR);
+  db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+    genId(), 'hosur', 'admin@123', 'Hosur Staff', 'branch', brHR
+  );
+
+  // Hosur: 50 lockers assorted across L6, L10, L6 Ultra, L10 Ultra
+  // 2 x L6 Std units (12 lockers) + 1 x L10 Std unit (10 lockers) + 2 x L6 Ultra units (12 lockers) + 1 x L10 Ultra unit (10 lockers) + 1 x L6 Std unit (6 lockers) = 50 lockers
+  const txHR = db.transaction(() => {
+    // 2 x L6 Standard = 12 lockers
+    for (let i = 1; i <= 2; i++) {
+      const uid = 'unit_hr_l6s_' + i, unum = 'L6-' + String(i).padStart(2, '0');
+      insUnit.run(uid, brHR, 'lt_l6_std', unum, 'Hosur', 'active', '');
+      for (let j = 0; j < 6; j++) insLock.run(genId(), brHR, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'Hosur', 0, 'vacant');
+    }
+    // 1 x L10 Standard = 10 lockers
+    {
+      const uid = 'unit_hr_l10s_1', unum = 'L10-01';
+      insUnit.run(uid, brHR, 'lt_l10_std', unum, 'Hosur', 'active', '');
+      for (let j = 0; j < 10; j++) insLock.run(genId(), brHR, uid, 'lt_l10_std', unum + '-' + LETTERS[j], 'Medium', 'Hosur', 0, 'vacant');
+    }
+    // 2 x L6 Ultra = 12 lockers
+    for (let i = 1; i <= 2; i++) {
+      const uid = 'unit_hr_l6u_' + i, unum = 'L6U-' + String(i).padStart(2, '0');
+      insUnit.run(uid, brHR, 'lt_l6_ultra', unum, 'Hosur', 'active', '');
+      for (let j = 0; j < 6; j++) insLock.run(genId(), brHR, uid, 'lt_l6_ultra', unum + '-' + LETTERS[j], 'Large', 'Hosur', 0, 'vacant');
+    }
+    // 1 x L10 Ultra = 10 lockers
+    {
+      const uid = 'unit_hr_l10u_1', unum = 'L10U-01';
+      insUnit.run(uid, brHR, 'lt_l10_ultra', unum, 'Hosur', 'active', '');
+      for (let j = 0; j < 10; j++) insLock.run(genId(), brHR, uid, 'lt_l10_ultra', unum + '-' + LETTERS[j], 'Medium', 'Hosur', 0, 'vacant');
+    }
+    // 1 x L6 Standard = 6 lockers (to reach 50 total)
+    {
+      const uid = 'unit_hr_l6s_3', unum = 'L6-03';
+      insUnit.run(uid, brHR, 'lt_l6_std', unum, 'Hosur', 'active', '');
+      for (let j = 0; j < 6; j++) insLock.run(genId(), brHR, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'Hosur', 0, 'vacant');
+    }
+  });
+  txHR();
+
+  console.log('  ✅ Seeded: root/admin@123 (HO), rspuram/admin@123 (RS Puram, 88 lockers), hosur/admin@123 (Hosur, 50 lockers)');
 }
 autoSeed();
 
