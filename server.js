@@ -294,6 +294,10 @@ addColumnIfMissing('tenants', 'customer_password', "TEXT DEFAULT ''");
 addColumnIfMissing('branches', 'location', "TEXT DEFAULT ''");
 addColumnIfMissing('branches', 'manager_name', "TEXT DEFAULT ''");
 
+// Locker types table migrations (CHANGE 2)
+addColumnIfMissing('locker_types', 'annual_rent', 'REAL DEFAULT 0');
+addColumnIfMissing('locker_types', 'deposit', 'REAL DEFAULT 0');
+
 logInfo('Database migrations complete');
 
 // ============================
@@ -332,6 +336,79 @@ app.post('/api/branches', (req, res) => {
   db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(id);
   logInfo('Branch created', { id, name, location });
   res.json({ id, name });
+});
+
+// CHANGE 1: Branch Setup Wizard - Create branch + config + user + units + lockers
+app.post('/api/branches/setup', (req, res) => {
+  const { name, address, phone, location, manager_name, l6_standard, l10_standard, l6_ultra, l10_ultra } = req.body;
+
+  try {
+    const branchId = genId();
+    const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    // 1. Create branch
+    db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(
+      branchId, name, address || '', phone || '', location || '', manager_name || ''
+    );
+
+    // 2. Create config entry
+    db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(branchId);
+
+    // 3. Create branch staff user
+    const staffUserId = genId();
+    const staffUsername = name.toLowerCase().replace(/\s+/g, '');
+    const staffPassword = 'admin@123';
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+      staffUserId, staffUsername, staffPassword, name + ' Manager', 'branch', branchId
+    );
+
+    // Get locker type IDs (assuming standard types exist)
+    const l6StdType = db.prepare("SELECT id FROM locker_types WHERE name = 'L6' AND variant = 'Standard' LIMIT 1").get();
+    const l10StdType = db.prepare("SELECT id FROM locker_types WHERE name = 'L10' AND variant = 'Standard' LIMIT 1").get();
+    const l6UltraType = db.prepare("SELECT id FROM locker_types WHERE name = 'L6' AND variant LIKE '%Ultra%' LIMIT 1").get();
+    const l10UltraType = db.prepare("SELECT id FROM locker_types WHERE name = 'L10' AND variant LIKE '%Ultra%' LIMIT 1").get();
+
+    let totalLockers = 0;
+
+    // 4. For each locker type, create units and lockers
+    const configs = [
+      { count: l6_standard, typeId: l6StdType ? l6StdType.id : null, prefix: 'L6', size: 'Large' },
+      { count: l10_standard, typeId: l10StdType ? l10StdType.id : null, prefix: 'L10', size: 'Medium' },
+      { count: l6_ultra, typeId: l6UltraType ? l6UltraType.id : null, prefix: 'L6U', size: 'Large' },
+      { count: l10_ultra, typeId: l10UltraType ? l10UltraType.id : null, prefix: 'L10U', size: 'Medium' }
+    ];
+
+    for (const cfg of configs) {
+      if (!cfg.typeId || !cfg.count) continue;
+
+      const typeInfo = db.prepare('SELECT lockers_per_unit FROM locker_types WHERE id = ?').get(cfg.typeId);
+      const lockersPerUnit = typeInfo ? typeInfo.lockers_per_unit : 6;
+
+      for (let u = 1; u <= cfg.count; u++) {
+        const unitId = genId();
+        const unitNumber = `${cfg.prefix}-${u.toString().padStart(2, '0')}`;
+
+        // Create unit
+        db.prepare('INSERT INTO units (id, branch_id, locker_type_id, unit_number, location, status) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(unitId, branchId, cfg.typeId, unitNumber, '', 'active');
+
+        // Create lockers for this unit
+        for (let l = 0; l < lockersPerUnit; l++) {
+          const lockerId = genId();
+          const lockerNumber = unitNumber + LETTERS[l];
+          db.prepare('INSERT INTO lockers (id, branch_id, unit_id, locker_type_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(lockerId, branchId, unitId, cfg.typeId, lockerNumber, cfg.size, '', 0, 'vacant');
+          totalLockers++;
+        }
+      }
+    }
+
+    logInfo('Branch setup complete', { id: branchId, name, totalLockers, staffUser: staffUsername });
+    res.json({ id: branchId, name, totalLockers, staffUserId, staffUsername, staffPassword });
+  } catch (error) {
+    logError('Branch setup failed', { error: error.message });
+    res.status(400).json({ error: error.message });
+  }
 });
 
 app.put('/api/branches/:id', (req, res) => {
@@ -1101,6 +1178,17 @@ app.delete('/api/users/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// CHANGE 3: Change Password for Branch Staff
+app.put('/api/users/:id/password', (req, res) => {
+  const { password } = req.body;
+  if (!password) return res.status(400).json({ error: 'Password required' });
+  if (req.params.id === 'admin001') return res.status(403).json({ error: 'Cannot change root user password' });
+
+  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, req.params.id);
+  logInfo('User password changed', { userId: req.params.id });
+  res.json({ ok: true });
+});
+
 // ============================
 //  AUTO-SEED ON FIRST RUN
 // ============================
@@ -1448,6 +1536,16 @@ app.put('/api/appointments/:id/status', (req, res) => {
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
   db.prepare('UPDATE appointments SET status = ?, admin_notes = COALESCE(?, admin_notes), approved_by = ? WHERE id = ?')
     .run(status, admin_notes || null, req.body.approved_by || '', req.params.id);
+
+  // CHANGE 6: Auto-log visit on appointment completion
+  if (status === 'Completed') {
+    const visitId = genId();
+    db.prepare(`INSERT INTO visits (id, branch_id, tenant_id, locker_id, datetime, purpose, duration, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(visitId, appt.branch_id, appt.tenant_id, appt.locker_id, new Date().toISOString(), appt.purpose, '', 'Auto-logged from appointment');
+    logInfo('Visit auto-logged from appointment', { visitId, appointmentId: req.params.id });
+  }
+
   logInfo('Appointment status updated', { id: req.params.id, status });
   res.json({ success: true });
 });

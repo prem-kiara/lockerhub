@@ -1616,12 +1616,15 @@
                                     <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 4)">Locker Dimensions (HxWxD mm)</th>
                                     <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 5)">Volume (L)</th>
                                     <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 6)">Auto-Size</th>
-                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 7)">Status</th>
+                                    <!-- CHANGE 2: Add rent and deposit columns -->
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 7)">Annual Rent</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 8)">Deposit</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 9)">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="lockerTypesTable">
-                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="11" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1858,7 +1861,12 @@
                         </div>
                         <div class="form-group">
                             <label for="tenantPhone">Phone (+91)</label>
-                            <input type="tel" id="tenantPhone" placeholder="9876543210" required>
+                            <div style="display: flex; gap: 8px; align-items: center;">
+                                <!-- CHANGE 4: Add onblur handler for phone auto-populate -->
+                                <input type="tel" id="tenantPhone" placeholder="9876543210" required onblur="autoPopulateTenantByPhone()">
+                                <button type="button" id="tenantPhoneClearBtn" onclick="clearTenantPhoneAndForm()" style="display:none; padding: 8px 12px; background: #b52a1c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>
+                            </div>
+                            <div id="tenantPhoneInfo" style="margin-top: 8px; padding: 10px; background: #fff8e1; border-left: 3px solid #ffc107; border-radius: 4px; display: none; color: #856404; font-size: 13px;"></div>
                         </div>
                     </div>
                     <div class="form-row">
@@ -2150,6 +2158,33 @@
                             <input type="text" id="branchManager" placeholder="Branch manager">
                         </div>
                     </div>
+                    <!-- CHANGE 1: Locker Configuration Section -->
+                    <div id="lockerConfigSection" style="display: none; border-top: 2px solid #e3d5c3; padding-top: 20px; margin-top: 20px;">
+                        <h3 style="margin-bottom: 15px; color: #2c1810;">Locker Configuration</h3>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="l6StandardCount">L6 Standard Units</label>
+                                <input type="number" id="l6StandardCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
+                            </div>
+                            <div class="form-group">
+                                <label for="l10StandardCount">L10 Standard Units</label>
+                                <input type="number" id="l10StandardCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="l6UltraCount">L6 Ultra Units</label>
+                                <input type="number" id="l6UltraCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
+                            </div>
+                            <div class="form-group">
+                                <label for="l10UltraCount">L10 Ultra Units</label>
+                                <input type="number" id="l10UltraCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Total Lockers Count: <span id="totalLockersDisplay" style="color: #b8860b; font-weight: bold;">0</span></label>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -2201,6 +2236,30 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('userModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveUser()">Add User</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CHANGE 3: Modal for Changing User Password -->
+    <div id="changeUserPwdModal" class="modal-overlay">
+        <div class="modal" style="max-width: 450px;">
+            <div class="modal-header">
+                <h2>Change Password</h2>
+                <button class="modal-close" onclick="closeModal('changeUserPwdModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; color: #7a6b5e;">User: <strong id="changeUserPwdName"></strong></p>
+                <form id="changeUserPwdForm">
+                    <input type="hidden" id="changeUserPwdId">
+                    <div class="form-group">
+                        <label for="changeUserPwdPassword">New Password</label>
+                        <input type="password" id="changeUserPwdPassword" required placeholder="Enter new password" minlength="4">
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('changeUserPwdModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveChangePassword()">Change Password</button>
             </div>
         </div>
     </div>
@@ -2261,6 +2320,34 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('lockerTypeModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveLockerType()">Add Type</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- CHANGE 2: Modal for Setting Rent & Deposit -->
+    <div id="rentDepositModal" class="modal-overlay">
+        <div class="modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2>Set Rent & Deposit</h2>
+                <button class="modal-close" onclick="closeModal('rentDepositModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 20px; color: #7a6b5e;"><strong id="rentDepositTypeLabel"></strong></p>
+                <form id="rentDepositForm">
+                    <input type="hidden" id="rentDepositTypeId">
+                    <div class="form-group">
+                        <label for="rentDepositRent">Annual Rent (₹)</label>
+                        <input type="number" id="rentDepositRent" min="0" step="100" placeholder="e.g., 25000" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="rentDepositDeposit">Deposit (₹)</label>
+                        <input type="number" id="rentDepositDeposit" min="0" step="100" placeholder="e.g., 300000" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('rentDepositModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveRentDeposit()">Save</button>
             </div>
         </div>
     </div>
@@ -2459,6 +2546,7 @@
         let currentBranchId = null;
         let allBranches = [];
         let currentEditingId = null;
+        let cachedLockerTypes = []; // CHANGE 2: Cache for locker types
 
         // ===== API Helper =====
         // Loading overlay
@@ -3217,24 +3305,90 @@
             }
         }
 
+        // CHANGE 4: Auto-populate tenant data by phone
+        async function autoPopulateTenantByPhone() {
+            const phone = document.getElementById('tenantPhone').value.trim();
+            const infoDiv = document.getElementById('tenantPhoneInfo');
+            const clearBtn = document.getElementById('tenantPhoneClearBtn');
+
+            if (!phone || phone.length < 10) {
+                infoDiv.style.display = 'none';
+                clearBtn.style.display = 'none';
+                return;
+            }
+
+            try {
+                const tenant = await api('GET', `/api/tenants/by-phone/${phone}`);
+
+                // Auto-fill fields
+                document.getElementById('tenantName').value = tenant.name || '';
+                document.getElementById('tenantEmail').value = tenant.email || '';
+                document.getElementById('tenantAddress').value = tenant.address || '';
+                document.getElementById('tenantEmergency').value = tenant.emergency || '';
+                document.getElementById('tenantBankName').value = tenant.bank_name || '';
+                document.getElementById('tenantBankAccount').value = tenant.bank_account || '';
+                document.getElementById('tenantBankIfsc').value = tenant.bank_ifsc || '';
+                document.getElementById('tenantBankBranch').value = tenant.bank_branch || '';
+                document.getElementById('tenantBgAadhaar').value = tenant.bg_aadhaar || '';
+                document.getElementById('tenantBgPan').value = tenant.bg_pan || '';
+
+                // DO NOT auto-fill: locker, lease_start, branch
+                // These stay as user selection
+
+                // Show info and make phone readonly
+                infoDiv.textContent = 'Customer already exists: ' + tenant.name;
+                infoDiv.style.display = 'block';
+                document.getElementById('tenantPhone').readOnly = true;
+                clearBtn.style.display = 'inline-block';
+            } catch (err) {
+                // No existing customer, clear the info
+                infoDiv.style.display = 'none';
+                clearBtn.style.display = 'none';
+            }
+        }
+
+        // CHANGE 4: Clear phone field and re-enable for edits
+        function clearTenantPhoneAndForm() {
+            document.getElementById('tenantPhone').value = '';
+            document.getElementById('tenantPhone').readOnly = false;
+            document.getElementById('tenantPhoneInfo').style.display = 'none';
+            document.getElementById('tenantPhoneClearBtn').style.display = 'none';
+            document.getElementById('tenantPhone').focus();
+        }
+
         function autoFillRent() {
             const select = document.getElementById('tenantLocker');
             const opt = select.options[select.selectedIndex];
-            const size = opt ? opt.getAttribute('data-size') : '';
+            const lockerTypeId = opt ? opt.getAttribute('data-type-id') : '';
+
             let rent = 0;
-            if (size === 'Large' || size === 'large') rent = 25000;
-            else if (size === 'Medium' || size === 'medium') rent = 20000;
-            else if (size === 'XL' || size === 'xl') rent = 30000;
-            else if (size === 'Small' || size === 'small') rent = 15000;
+            let deposit = 0;
+
+            // CHANGE 2: Look up rent/deposit from cached locker types
+            if (lockerTypeId && cachedLockerTypes.length > 0) {
+                const lockerType = cachedLockerTypes.find(lt => lt.id === lockerTypeId);
+                if (lockerType) {
+                    rent = lockerType.annual_rent || 0;
+                    deposit = lockerType.deposit || 0;
+                }
+            }
+
+            // Fallback to size-based defaults if not found
+            if (rent === 0) {
+                const size = opt ? opt.getAttribute('data-size') : '';
+                if (size === 'Large' || size === 'large') rent = 25000;
+                else if (size === 'Medium' || size === 'medium') rent = 20000;
+                else if (size === 'XL' || size === 'xl') rent = 30000;
+                else if (size === 'Small' || size === 'small') rent = 15000;
+
+                if (rent === 25000) deposit = 300000;
+                else if (rent === 20000) deposit = 250000;
+                else if (rent === 30000) deposit = 350000;
+                else if (rent === 15000) deposit = 200000;
+            }
 
             document.getElementById('tenantAnnualRent').value = rent;
             document.getElementById('tenantRentDisplay').textContent = rent > 0 ? 'Annual Rent: Rs.' + rent.toLocaleString('en-IN') : '';
-
-            let deposit = 0;
-            if (rent === 25000) deposit = 300000;
-            else if (rent === 20000) deposit = 250000;
-            else if (rent === 30000) deposit = 350000;
-            else if (rent === 15000) deposit = 200000;
             document.getElementById('tenantDepositDisplay').textContent = deposit > 0 ? 'Deposit: Rs.' + deposit.toLocaleString('en-IN') : '';
         }
 
@@ -3953,6 +4107,13 @@
             document.getElementById('branchEditId').value = '';
             document.getElementById('branchModalTitle').textContent = 'Add Branch';
             document.getElementById('branchSaveBtn').textContent = 'Add Branch';
+            // CHANGE 1: Show locker config section for new branches
+            document.getElementById('lockerConfigSection').style.display = 'block';
+            document.getElementById('l6StandardCount').value = 0;
+            document.getElementById('l10StandardCount').value = 0;
+            document.getElementById('l6UltraCount').value = 0;
+            document.getElementById('l10UltraCount').value = 0;
+            updateTotalLockersCount();
             openModal('branchModal');
         }
 
@@ -3968,15 +4129,31 @@
                 document.getElementById('branchLocation').value = b.location || b.address || '';
                 document.getElementById('branchPhone').value = b.phone || '';
                 document.getElementById('branchManager').value = b.manager_name || '';
+                // CHANGE 1: Hide locker config section for edits
+                document.getElementById('lockerConfigSection').style.display = 'none';
                 openModal('branchModal');
             } catch (err) {
                 alert('Error loading branch: ' + err.message);
             }
         }
 
+        // CHANGE 1: Calculate total lockers count
+        function updateTotalLockersCount() {
+            const l6Std = parseInt(document.getElementById('l6StandardCount').value) || 0;
+            const l10Std = parseInt(document.getElementById('l10StandardCount').value) || 0;
+            const l6Ultra = parseInt(document.getElementById('l6UltraCount').value) || 0;
+            const l10Ultra = parseInt(document.getElementById('l10UltraCount').value) || 0;
+
+            // Assuming 6 lockers per L6 unit and 10 per L10 unit (standard assumption)
+            const total = (l6Std * 6) + (l10Std * 10) + (l6Ultra * 6) + (l10Ultra * 10);
+            document.getElementById('totalLockersDisplay').textContent = total;
+        }
+
         async function saveBranch() {
             const name = document.getElementById('branchName').value.trim();
             if (!name) return alert('Please enter branch name');
+            const editId = document.getElementById('branchEditId').value;
+
             const data = {
                 name: name,
                 location: document.getElementById('branchLocation').value,
@@ -3984,17 +4161,27 @@
                 phone: document.getElementById('branchPhone').value,
                 manager_name: document.getElementById('branchManager').value
             };
-            const editId = document.getElementById('branchEditId').value;
 
             try {
                 if (editId) {
+                    // Edit existing branch (PUT)
                     await api('PUT', `/api/branches/${editId}`, data);
+                    closeModal('branchModal');
+                    await loadBranches();
+                    await loadBranchSelector();
                 } else {
-                    await api('POST', '/api/branches', data);
+                    // CHANGE 1: Create new branch with locker setup
+                    data.l6_standard = parseInt(document.getElementById('l6StandardCount').value) || 0;
+                    data.l10_standard = parseInt(document.getElementById('l10StandardCount').value) || 0;
+                    data.l6_ultra = parseInt(document.getElementById('l6UltraCount').value) || 0;
+                    data.l10_ultra = parseInt(document.getElementById('l10UltraCount').value) || 0;
+
+                    const result = await api('POST', '/api/branches/setup', data);
+                    closeModal('branchModal');
+                    alert(`Branch created successfully!\n\nBranch Manager User:\nUsername: ${result.staffUsername}\nPassword: ${result.staffPassword}\n\nLockers created: ${result.totalLockers}`);
+                    await loadBranches();
+                    await loadBranchSelector();
                 }
-                closeModal('branchModal');
-                await loadBranches();
-                await loadBranchSelector();
             } catch (error) {
                 alert('Failed to save branch: ' + error.message);
             }
@@ -4023,16 +4210,23 @@
             }
         }
 
+        // CHANGE 5: Branch Selector - Stay on Current Page
         function switchBranch() {
             const branchId = document.getElementById('branchSelector').value;
+
+            // Find current active section
+            const currentSection = document.querySelector('.nav-link.active')?.getAttribute('data-section') || 'dashboard';
+
             if (branchId === 'all') {
                 currentBranchId = null;
                 document.getElementById('backToAllBtn').style.display = 'none';
-                switchSection('dashboard');
+                // Stay on current section, just reload it
+                switchSection(currentSection);
             } else {
                 currentBranchId = branchId;
                 document.getElementById('backToAllBtn').style.display = 'inline-block';
-                switchSection('lockers');
+                // Stay on current section, just reload it
+                switchSection(currentSection);
             }
         }
 
@@ -4059,12 +4253,39 @@
                     <td><span class="badge badge-primary">${capitalize(u.role)}</span></td>
                     <td>${u.branch_name || 'All Branches'}</td>
                     <td>
+                        <!-- CHANGE 3: Add Change Password button for non-root users -->
+                        ${u.role !== 'headoffice' ? `<button class="btn btn-secondary" onclick="openChangePasswordModal('${u.id}', '${u.name}')">Change Password</button>` : ''}
                         <button class="btn btn-danger" onclick="deleteUser('${u.id}')">Delete</button>
                     </td>
                 </tr>
             `).join('');
 
             document.getElementById('usersTable').innerHTML = html;
+        }
+
+        // CHANGE 3: Change password modal functions
+        function openChangePasswordModal(userId, userName) {
+            document.getElementById('changeUserPwdId').value = userId;
+            document.getElementById('changeUserPwdName').textContent = userName;
+            document.getElementById('changeUserPwdPassword').value = '';
+            openModal('changeUserPwdModal');
+        }
+
+        async function saveChangePassword() {
+            const userId = document.getElementById('changeUserPwdId').value;
+            const newPassword = document.getElementById('changeUserPwdPassword').value.trim();
+
+            if (!newPassword) return alert('Please enter a password');
+            if (newPassword.length < 4) return alert('Password must be at least 4 characters');
+
+            try {
+                await api('PUT', `/api/users/${userId}/password`, { password: newPassword });
+                closeModal('changeUserPwdModal');
+                alert('Password changed successfully');
+                await loadUsers();
+            } catch (error) {
+                alert('Failed to change password: ' + error.message);
+            }
         }
 
         function openAddUserModal() {
@@ -4122,6 +4343,8 @@
         async function loadLockerTypes() {
             try {
                 const types = await api('GET', '/api/locker-types');
+                // CHANGE 2: Cache locker types for use in autoFillRent
+                cachedLockerTypes = types;
                 renderLockerTypes(types);
             } catch (error) {
                 console.error('Failed to load locker types:', error);
@@ -4137,13 +4360,19 @@
 
         function renderLockerTypes(types) {
             if (types.length === 0) {
-                document.getElementById('lockerTypesTable').innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px;">No locker types found</td></tr>';
+                document.getElementById('lockerTypesTable').innerHTML = '<tr><td colspan="11" style="text-align: center; padding: 40px;">No locker types found</td></tr>';
                 return;
             }
 
             const html = types.map(t => {
                 const vol = (t.locker_height_mm * t.locker_width_mm * t.locker_depth_mm) / 1000000;
                 const badge = t.is_upcoming ? '<span class="badge badge-warning">Upcoming</span>' : '<span class="badge badge-success">Active</span>';
+                // CHANGE 2: Add rent and deposit columns with formatting
+                const rent = t.annual_rent || 0;
+                const deposit = t.deposit || 0;
+                const rentStr = rent > 0 ? '₹' + formatIndianNumber(Math.round(rent)) : '-';
+                const depositStr = deposit > 0 ? '₹' + formatIndianNumber(Math.round(deposit)) : '-';
+
                 return `
                     <tr>
                         <td><strong>${t.name}</strong></td>
@@ -4153,9 +4382,12 @@
                         <td>${t.locker_height_mm}×${t.locker_width_mm}×${t.locker_depth_mm}</td>
                         <td>${vol > 0 ? vol.toFixed(1) : '-'}</td>
                         <td>${t.auto_size || '-'}</td>
+                        <td style="text-align: right;">${rentStr}</td>
+                        <td style="text-align: right;">${depositStr}</td>
                         <td>${badge}</td>
                         <td>
                             <div class="action-buttons">
+                                <button class="btn btn-secondary" onclick="openSetRentDepositModal('${t.id}', '${t.name}', '${t.variant || ''}')">Set Rent</button>
                                 <button class="btn btn-danger" onclick="deleteLockerType('${t.id}')">Delete</button>
                             </div>
                         </td>
@@ -4164,6 +4396,35 @@
             }).join('');
 
             document.getElementById('lockerTypesTable').innerHTML = html;
+        }
+
+        // CHANGE 2: Modal for setting rent and deposit
+        function openSetRentDepositModal(typeId, typeName, variant) {
+            document.getElementById('rentDepositTypeId').value = typeId;
+            document.getElementById('rentDepositTypeLabel').textContent = typeName + (variant ? ' (' + variant + ')' : '');
+            // Load current values
+            const types = document.getElementById('lockerTypesTable').closest('.table-container');
+            const lockerTypes = cachedLockerTypes || [];
+            const type = lockerTypes.find(t => t.id === typeId);
+            if (type) {
+                document.getElementById('rentDepositRent').value = type.annual_rent || 0;
+                document.getElementById('rentDepositDeposit').value = type.deposit || 0;
+            }
+            openModal('rentDepositModal');
+        }
+
+        async function saveRentDeposit() {
+            const typeId = document.getElementById('rentDepositTypeId').value;
+            const rent = parseFloat(document.getElementById('rentDepositRent').value) || 0;
+            const deposit = parseFloat(document.getElementById('rentDepositDeposit').value) || 0;
+
+            try {
+                await api('PUT', `/api/locker-types/${typeId}`, { annual_rent: rent, deposit: deposit });
+                closeModal('rentDepositModal');
+                await loadLockerTypes();
+            } catch (error) {
+                alert('Failed to save: ' + error.message);
+            }
         }
 
         function openAddLockerTypeModal() {
@@ -4733,9 +4994,14 @@
             cal.innerHTML = html;
         }
 
+        // CHANGE 6: Auto-log visit on appointment completion
         async function updateApptStatus(id, status) {
             try {
                 await api('PUT', `/api/appointments/${id}/status`, { status, approved_by: currentUser.name });
+                // Show appropriate message
+                if (status === 'Completed') {
+                    alert('Appointment completed & visit logged!');
+                }
                 await loadAppointments();
             } catch (err) {
                 alert('Error: ' + err.message);
