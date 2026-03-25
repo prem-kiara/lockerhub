@@ -398,6 +398,32 @@
             color: var(--primary);
         }
 
+        /* Sortable table headers */
+        th.sortable {
+            cursor: pointer;
+            user-select: none;
+            position: relative;
+            padding-right: 20px;
+        }
+        th.sortable:hover {
+            background: rgba(0,0,0,0.05);
+        }
+        th.sortable::after {
+            content: '⇅';
+            position: absolute;
+            right: 4px;
+            font-size: 11px;
+            opacity: 0.4;
+        }
+        th.sortable.sort-asc::after {
+            content: '↑';
+            opacity: 0.8;
+        }
+        th.sortable.sort-desc::after {
+            content: '↓';
+            opacity: 0.8;
+        }
+
         .modal-overlay {
             display: none;
             position: fixed;
@@ -1303,14 +1329,14 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Locker #</th>
-                                    <th>Type</th>
-                                    <th>Unit</th>
-                                    <th>Size</th>
-                                    <th>Status</th>
-                                    <th>Tenant</th>
-                                    <th>Location</th>
-                                    <th>Monthly Rent</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 0)">Locker #</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 1)">Type</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 2)">Unit</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 3)">Size</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 4)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 5)">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 6)">Location</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 7)">Monthly Rent</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1332,12 +1358,12 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Name</th>
-                                    <th>Phone</th>
-                                    <th>Locker</th>
-                                    <th>Rent (Annual)</th>
-                                    <th>Lease End</th>
-                                    <th>BG Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'tenantsTable', 0)">Name</th>
+                                    <th class="sortable" onclick="sortTable(this, 'tenantsTable', 1)">Phone</th>
+                                    <th class="sortable" onclick="sortTable(this, 'tenantsTable', 2)">Locker</th>
+                                    <th class="sortable" onclick="sortTable(this, 'tenantsTable', 3)">Rent (Annual)</th>
+                                    <th class="sortable" onclick="sortTable(this, 'tenantsTable', 4)">Lease End</th>
+                                    <th class="sortable" onclick="sortTable(this, 'tenantsTable', 5)">BG Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1366,14 +1392,14 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Receipt</th>
-                                    <th>Tenant</th>
-                                    <th>Locker</th>
-                                    <th>Period</th>
-                                    <th>Amount</th>
-                                    <th>Method</th>
-                                    <th>Date</th>
-                                    <th>Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 0)">Receipt</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 1)">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 2)">Locker</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 3)">Period</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 4)">Amount</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 5)">Method</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 6)">Date</th>
+                                    <th class="sortable" onclick="sortTable(this, 'paymentsTable', 7)">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1395,11 +1421,11 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Tenant</th>
-                                    <th>Locker</th>
-                                    <th>Visit Date</th>
-                                    <th>Purpose</th>
-                                    <th>Notes</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 0)">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 1)">Locker</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 2)">Visit Date</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 3)">Purpose</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 4)">Notes</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1420,11 +1446,11 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Tenant</th>
-                                    <th>Aadhaar</th>
-                                    <th>PAN</th>
-                                    <th>Photos Collected</th>
-                                    <th>Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 0)">Tenant</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 1)">Aadhaar</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 2)">PAN</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 3)">Photos Collected</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 4)">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1482,10 +1508,10 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Name</th>
-                                    <th>Username</th>
-                                    <th>Role</th>
-                                    <th>Branch</th>
+                                    <th class="sortable" onclick="sortTable(this, 'usersTable', 0)">Name</th>
+                                    <th class="sortable" onclick="sortTable(this, 'usersTable', 1)">Username</th>
+                                    <th class="sortable" onclick="sortTable(this, 'usersTable', 2)">Role</th>
+                                    <th class="sortable" onclick="sortTable(this, 'usersTable', 3)">Branch</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1506,14 +1532,14 @@
                         <table>
                             <thead>
                                 <tr>
-                                    <th>Name</th>
-                                    <th>Variant</th>
-                                    <th>Lockers/Unit</th>
-                                    <th>Unit Dimensions (HxWxD mm)</th>
-                                    <th>Locker Dimensions (HxWxD mm)</th>
-                                    <th>Volume (L)</th>
-                                    <th>Auto-Size</th>
-                                    <th>Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 0)">Name</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 1)">Variant</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 2)">Lockers/Unit</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 3)">Unit Dimensions (HxWxD mm)</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 4)">Locker Dimensions (HxWxD mm)</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 5)">Volume (L)</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 6)">Auto-Size</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockerTypesTable', 7)">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -2202,7 +2228,7 @@
                 document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('navPayments').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navPayments').style.display = 'block'; // Both HO and branch can access payments
                 document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
@@ -2555,6 +2581,54 @@
             }).join('');
 
             document.getElementById('lockersTable').innerHTML = html;
+        }
+
+        // ============================
+        //  SORTABLE TABLES
+        // ============================
+        function sortTable(th, tbodyId, colIndex) {
+            const tbody = document.getElementById(tbodyId);
+            if (!tbody) return;
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            if (rows.length === 0) return;
+
+            // Determine sort direction
+            const isAsc = th.classList.contains('sort-asc');
+            const newDir = isAsc ? 'desc' : 'asc';
+
+            // Clear all sibling th sort classes
+            th.closest('tr').querySelectorAll('th').forEach(h => {
+                h.classList.remove('sort-asc', 'sort-desc');
+            });
+            th.classList.add(newDir === 'asc' ? 'sort-asc' : 'sort-desc');
+
+            rows.sort((a, b) => {
+                const cellA = a.cells[colIndex];
+                const cellB = b.cells[colIndex];
+                if (!cellA || !cellB) return 0;
+
+                let valA = cellA.textContent.trim();
+                let valB = cellB.textContent.trim();
+
+                // Try numeric comparison (handles ₹2,50,000 format)
+                const numA = parseFloat(valA.replace(/[₹,\s]/g, ''));
+                const numB = parseFloat(valB.replace(/[₹,\s]/g, ''));
+                if (!isNaN(numA) && !isNaN(numB)) {
+                    return newDir === 'asc' ? numA - numB : numB - numA;
+                }
+
+                // Try date comparison
+                const dateA = Date.parse(valA);
+                const dateB = Date.parse(valB);
+                if (!isNaN(dateA) && !isNaN(dateB)) {
+                    return newDir === 'asc' ? dateA - dateB : dateB - dateA;
+                }
+
+                // String comparison
+                return newDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+            });
+
+            rows.forEach(row => tbody.appendChild(row));
         }
 
         function filterLockers() {
@@ -3050,7 +3124,7 @@
                 return `
                 <tr data-status="${p.status}">
                     <td style="font-size:12px;color:var(--text-light);">${p.receipt_no || '-'}</td>
-                    <td><strong>${p.tenant_name || '-'}</strong>${p.type === 'deposit' ? ' <span class="badge badge-primary" style="font-size:10px;">Deposit</span>' : ''}</td>
+                    <td><strong>${p.tenant_name || '-'}</strong>${p.type === 'deposit' ? ' <span class="badge badge-primary" style="font-size:10px;">Deposit</span>' : ' <span class="badge badge-success" style="font-size:10px;">Rent</span>'}</td>
                     <td>${p.locker_number || '-'}</td>
                     <td>${p.period || '-'}</td>
                     <td>₹${formatIndianNumber(p.amount)}</td>
@@ -3060,8 +3134,8 @@
                     <td>
                         <div class="action-buttons">
                             ${p.status === 'Pending' || p.status === 'Overdue' ? `<button class="btn btn-primary" onclick="markAsPaid('${p.id}')" style="font-size:12px;padding:5px 10px;">Mark Paid</button>` : ''}
-                            <button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')" style="font-size:12px;padding:5px 10px;">Edit</button>
-                            <button class="btn btn-danger" onclick="deletePayment('${p.id}')" style="font-size:12px;padding:5px 10px;">Del</button>
+                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')" style="font-size:12px;padding:5px 10px;">Edit</button>` : ''}
+                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deletePayment('${p.id}')" style="font-size:12px;padding:5px 10px;">Del</button>` : ''}
                         </div>
                     </td>
                 </tr>`;
