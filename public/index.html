@@ -1971,14 +1971,23 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="paymentPeriod">Period</label>
-                            <select id="paymentPeriod" required>
-                                <option value="">Select period</option>
+                            <label for="paymentType">Payment Type</label>
+                            <select id="paymentType" required>
+                                <option value="rent">Rent</option>
+                                <option value="deposit">Deposit</option>
                             </select>
                         </div>
                         <div class="form-group">
                             <label for="paymentAmount">Amount (₹)</label>
                             <input type="number" id="paymentAmount" required step="100">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="paymentPeriod">Period</label>
+                            <select id="paymentPeriod" required>
+                                <option value="">Select period</option>
+                            </select>
                         </div>
                     </div>
                     <div class="form-row">
@@ -2158,30 +2167,11 @@
                             <input type="text" id="branchManager" placeholder="Branch manager">
                         </div>
                     </div>
-                    <!-- CHANGE 1: Locker Configuration Section -->
+                    <!-- Locker Configuration Section (dynamically populated from locker_types) -->
                     <div id="lockerConfigSection" style="display: none; border-top: 2px solid #e3d5c3; padding-top: 20px; margin-top: 20px;">
                         <h3 style="margin-bottom: 15px; color: #2c1810;">Locker Configuration</h3>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="l6StandardCount">L6 Standard Units</label>
-                                <input type="number" id="l6StandardCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
-                            </div>
-                            <div class="form-group">
-                                <label for="l10StandardCount">L10 Standard Units</label>
-                                <input type="number" id="l10StandardCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
-                            </div>
-                        </div>
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="l6UltraCount">L6 Ultra Units</label>
-                                <input type="number" id="l6UltraCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
-                            </div>
-                            <div class="form-group">
-                                <label for="l10UltraCount">L10 Ultra Units</label>
-                                <input type="number" id="l10UltraCount" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
-                            </div>
-                        </div>
-                        <div class="form-group">
+                        <div id="lockerTypeInputs"></div>
+                        <div class="form-group" style="margin-top:10px;">
                             <label>Total Lockers Count: <span id="totalLockersDisplay" style="color: #b8860b; font-weight: bold;">0</span></label>
                         </div>
                     </div>
@@ -3680,6 +3670,7 @@
                 await loadTenantSelect('paymentTenant');
                 document.getElementById('paymentTenant').value = payment.tenant_id;
                 populatePeriodOptions();
+                document.getElementById('paymentType').value = payment.type || 'rent';
                 document.getElementById('paymentPeriod').value = payment.period || '';
                 document.getElementById('paymentAmount').value = payment.amount;
                 document.getElementById('paymentMethod').value = payment.method;
@@ -3754,6 +3745,7 @@
                 branch_id: currentBranchId,
                 tenant_id: tenantSelect.value,
                 locker_id: opt ? (opt.getAttribute('data-lockerid') || '') : '',
+                type: document.getElementById('paymentType').value,
                 period: document.getElementById('paymentPeriod').value,
                 amount: parseInt(document.getElementById('paymentAmount').value),
                 method: document.getElementById('paymentMethod').value,
@@ -4082,17 +4074,37 @@
             }
         }
 
-        function openAddBranchModal() {
+        let branchWizardLockerTypes = [];
+
+        async function openAddBranchModal() {
             document.getElementById('branchForm').reset();
             document.getElementById('branchEditId').value = '';
             document.getElementById('branchModalTitle').textContent = 'Add Branch';
             document.getElementById('branchSaveBtn').textContent = 'Add Branch';
-            // CHANGE 1: Show locker config section for new branches
+            // Dynamically load locker types from DB
             document.getElementById('lockerConfigSection').style.display = 'block';
-            document.getElementById('l6StandardCount').value = 0;
-            document.getElementById('l10StandardCount').value = 0;
-            document.getElementById('l6UltraCount').value = 0;
-            document.getElementById('l10UltraCount').value = 0;
+            try {
+                branchWizardLockerTypes = await api('GET', '/api/locker-types');
+                const activeTypes = branchWizardLockerTypes.filter(t => !t.is_upcoming);
+                const container = document.getElementById('lockerTypeInputs');
+                let html = '';
+                for (let i = 0; i < activeTypes.length; i += 2) {
+                    html += '<div class="form-row">';
+                    for (let j = i; j < Math.min(i + 2, activeTypes.length); j++) {
+                        const t = activeTypes[j];
+                        const label = `${t.name} ${t.variant} Units (${t.lockers_per_unit}/unit)`;
+                        html += `<div class="form-group">
+                            <label for="lockerTypeCount_${t.id}">${label}</label>
+                            <input type="number" id="lockerTypeCount_${t.id}" data-type-id="${t.id}" data-lockers-per-unit="${t.lockers_per_unit}" class="branch-locker-type-input" min="0" value="0" placeholder="0" onchange="updateTotalLockersCount()">
+                        </div>`;
+                    }
+                    html += '</div>';
+                }
+                container.innerHTML = html;
+            } catch (e) {
+                console.error('Failed to load locker types for wizard:', e);
+                document.getElementById('lockerTypeInputs').innerHTML = '<p style="color:#991b1b;">Failed to load locker types. Please add locker types first.</p>';
+            }
             updateTotalLockersCount();
             openModal('branchModal');
         }
@@ -4117,15 +4129,14 @@
             }
         }
 
-        // CHANGE 1: Calculate total lockers count
         function updateTotalLockersCount() {
-            const l6Std = parseInt(document.getElementById('l6StandardCount').value) || 0;
-            const l10Std = parseInt(document.getElementById('l10StandardCount').value) || 0;
-            const l6Ultra = parseInt(document.getElementById('l6UltraCount').value) || 0;
-            const l10Ultra = parseInt(document.getElementById('l10UltraCount').value) || 0;
-
-            // Assuming 6 lockers per L6 unit and 10 per L10 unit (standard assumption)
-            const total = (l6Std * 6) + (l10Std * 10) + (l6Ultra * 6) + (l10Ultra * 10);
+            const inputs = document.querySelectorAll('.branch-locker-type-input');
+            let total = 0;
+            inputs.forEach(inp => {
+                const units = parseInt(inp.value) || 0;
+                const lockersPerUnit = parseInt(inp.dataset.lockersPerUnit) || 0;
+                total += units * lockersPerUnit;
+            });
             document.getElementById('totalLockersDisplay').textContent = total;
         }
 
@@ -4150,11 +4161,15 @@
                     await loadBranches();
                     await loadBranchSelector();
                 } else {
-                    // CHANGE 1: Create new branch with locker setup
-                    data.l6_standard = parseInt(document.getElementById('l6StandardCount').value) || 0;
-                    data.l10_standard = parseInt(document.getElementById('l10StandardCount').value) || 0;
-                    data.l6_ultra = parseInt(document.getElementById('l6UltraCount').value) || 0;
-                    data.l10_ultra = parseInt(document.getElementById('l10UltraCount').value) || 0;
+                    // Collect locker type unit counts dynamically
+                    const typeUnits = [];
+                    document.querySelectorAll('.branch-locker-type-input').forEach(inp => {
+                        const count = parseInt(inp.value) || 0;
+                        if (count > 0) {
+                            typeUnits.push({ type_id: inp.dataset.typeId, count });
+                        }
+                    });
+                    data.type_units = typeUnits;
 
                     const result = await api('POST', '/api/branches/setup', data);
                     closeModal('branchModal');

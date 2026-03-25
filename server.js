@@ -340,7 +340,7 @@ app.post('/api/branches', (req, res) => {
 
 // CHANGE 1: Branch Setup Wizard - Create branch + config + user + units + lockers
 app.post('/api/branches/setup', (req, res) => {
-  const { name, address, phone, location, manager_name, l6_standard, l10_standard, l6_ultra, l10_ultra } = req.body;
+  const { name, address, phone, location, manager_name, type_units } = req.body;
 
   try {
     const branchId = genId();
@@ -362,42 +362,40 @@ app.post('/api/branches/setup', (req, res) => {
       staffUserId, staffUsername, staffPassword, name + ' Manager', 'branch', branchId
     );
 
-    // Get locker type IDs (assuming standard types exist)
-    const l6StdType = db.prepare("SELECT id FROM locker_types WHERE name = 'L6' AND variant = 'Standard' LIMIT 1").get();
-    const l10StdType = db.prepare("SELECT id FROM locker_types WHERE name = 'L10' AND variant = 'Standard' LIMIT 1").get();
-    const l6UltraType = db.prepare("SELECT id FROM locker_types WHERE name = 'L6' AND variant LIKE '%Ultra%' LIMIT 1").get();
-    const l10UltraType = db.prepare("SELECT id FROM locker_types WHERE name = 'L10' AND variant LIKE '%Ultra%' LIMIT 1").get();
-
     let totalLockers = 0;
 
-    // 4. For each locker type, create units and lockers
-    const configs = [
-      { count: l6_standard, typeId: l6StdType ? l6StdType.id : null, prefix: 'L6', size: 'Large' },
-      { count: l10_standard, typeId: l10StdType ? l10StdType.id : null, prefix: 'L10', size: 'Medium' },
-      { count: l6_ultra, typeId: l6UltraType ? l6UltraType.id : null, prefix: 'L6U', size: 'Large' },
-      { count: l10_ultra, typeId: l10UltraType ? l10UltraType.id : null, prefix: 'L10U', size: 'Medium' }
-    ];
+    // 4. For each locker type requested, create units and lockers
+    const typeUnitsList = type_units || [];
+    for (const tu of typeUnitsList) {
+      const typeId = tu.type_id;
+      const unitCount = parseInt(tu.count) || 0;
+      if (!typeId || unitCount <= 0) continue;
 
-    for (const cfg of configs) {
-      if (!cfg.typeId || !cfg.count) continue;
+      const typeInfo = db.prepare('SELECT * FROM locker_types WHERE id = ?').get(typeId);
+      if (!typeInfo) continue;
 
-      const typeInfo = db.prepare('SELECT lockers_per_unit FROM locker_types WHERE id = ?').get(cfg.typeId);
-      const lockersPerUnit = typeInfo ? typeInfo.lockers_per_unit : 6;
+      const lockersPerUnit = typeInfo.lockers_per_unit || 6;
+      // Build prefix from type name + variant
+      let prefix = typeInfo.name;
+      if (typeInfo.variant && typeInfo.variant !== 'Standard') {
+        prefix += typeInfo.variant.charAt(0).toUpperCase(); // e.g., L6S for Secunex, L10S
+      }
+      const autoSize = typeInfo.auto_size || 'Medium';
 
-      for (let u = 1; u <= cfg.count; u++) {
+      for (let u = 1; u <= unitCount; u++) {
         const unitId = genId();
-        const unitNumber = `${cfg.prefix}-${u.toString().padStart(2, '0')}`;
+        const unitNumber = `${prefix}-${u.toString().padStart(2, '0')}`;
 
         // Create unit
         db.prepare('INSERT INTO units (id, branch_id, locker_type_id, unit_number, location, status) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(unitId, branchId, cfg.typeId, unitNumber, '', 'active');
+          .run(unitId, branchId, typeId, unitNumber, '', 'active');
 
         // Create lockers for this unit
         for (let l = 0; l < lockersPerUnit; l++) {
           const lockerId = genId();
-          const lockerNumber = unitNumber + LETTERS[l];
+          const lockerNumber = unitNumber + '-' + LETTERS[l];
           db.prepare('INSERT INTO lockers (id, branch_id, unit_id, locker_type_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(lockerId, branchId, unitId, cfg.typeId, lockerNumber, cfg.size, '', 0, 'vacant');
+            .run(lockerId, branchId, unitId, typeId, lockerNumber, autoSize, '', 0, 'vacant');
           totalLockers++;
         }
       }
@@ -654,9 +652,17 @@ app.post('/api/lockers/bulk', (req, res) => {
 });
 
 app.put('/api/lockers/:id', (req, res) => {
-  const { status, notes } = req.body;
-  if (status !== undefined) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run(status, req.params.id);
-  if (notes !== undefined) db.prepare('UPDATE lockers SET notes = ? WHERE id = ?').run(notes, req.params.id);
+  const d = req.body;
+  const fields = [];
+  const vals = [];
+  const allowed = ['number', 'size', 'location', 'rent', 'status', 'notes', 'locker_type_id', 'unit_id'];
+  for (const key of allowed) {
+    if (d[key] !== undefined) { fields.push(`${key} = ?`); vals.push(d[key]); }
+  }
+  if (fields.length === 0) return res.json({ ok: true });
+  vals.push(req.params.id);
+  db.prepare(`UPDATE lockers SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+  logInfo('Locker updated', { id: req.params.id, fields: Object.keys(d).filter(k => allowed.includes(k)) });
   res.json({ ok: true });
 });
 
@@ -884,19 +890,37 @@ app.get('/api/payments/:id', (req, res) => {
 
 app.post('/api/payments', (req, res) => {
   const d = req.body;
-  const id = genId();
-  const receipt_no = d.receipt_no || getNextReceiptNo();
+  const type = d.type || 'rent';
+
   // Auto-fill locker_id from tenant if not provided
   let locker_id = d.locker_id || '';
   if (!locker_id && d.tenant_id) {
     const tenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(d.tenant_id);
     if (tenant) locker_id = tenant.locker_id || '';
   }
-  db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-    id, d.branch_id, d.tenant_id, locker_id, d.type || 'rent', d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || ''
-  );
-  logInfo('Payment recorded', { id, receipt_no, type: d.type || 'rent', tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status });
-  res.json({ id, receipt_no });
+
+  // Check if there's an existing Pending/Overdue payment for the same tenant+type to update instead of duplicate
+  const existingPending = d.tenant_id ? db.prepare(
+    "SELECT id, receipt_no FROM payments WHERE tenant_id = ? AND type = ? AND (status = 'Pending' OR status = 'Overdue') LIMIT 1"
+  ).get(d.tenant_id, type) : null;
+
+  if (existingPending) {
+    // Update the existing pending record instead of creating a duplicate
+    db.prepare(`UPDATE payments SET locker_id = ?, period = ?, amount = ?, due_date = ?, status = ?, paid_on = ?, method = ?, ref_no = ?, notes = ? WHERE id = ?`).run(
+      locker_id, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || '', existingPending.id
+    );
+    logInfo('Payment updated (matched pending)', { id: existingPending.id, receipt_no: existingPending.receipt_no, type, tenant: d.tenant_id, amount: d.amount, status: d.status });
+    res.json({ id: existingPending.id, receipt_no: existingPending.receipt_no, updated: true });
+  } else {
+    // No pending match — create a new payment record
+    const id = genId();
+    const receipt_no = d.receipt_no || getNextReceiptNo();
+    db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      id, d.branch_id, d.tenant_id, locker_id, type, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || ''
+    );
+    logInfo('Payment recorded', { id, receipt_no, type, tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status });
+    res.json({ id, receipt_no });
+  }
 });
 
 app.put('/api/payments/:id', (req, res) => {
