@@ -8,9 +8,11 @@ const { generatePdfBuffer } = require('./allotment-form');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Ensure data directory exists
+// Ensure data directories exist
 const DATA_DIR = path.join(__dirname, 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+const LOG_DIR = path.join(DATA_DIR, 'logs');
+if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR);
 
 // Database setup
 const db = new Database(path.join(DATA_DIR, 'lockerhub.db'));

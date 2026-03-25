@@ -34,9 +34,12 @@ if [ -d "LockerHub" ]; then
   echo "LockerHub directory already exists, pulling latest..."
   cd LockerHub && git pull
 else
-  echo "IMPORTANT: Replace the URL below with your actual Git repo URL"
-  echo "Run: git clone https://github.com/YOUR_USERNAME/LockerHub.git"
-  echo "Then: cd LockerHub"
+  echo ""
+  echo "  IMPORTANT: Clone your repo manually first:"
+  echo "  git clone https://github.com/YOUR_USERNAME/LockerHub.git"
+  echo "  cd LockerHub"
+  echo "  Then run this script again."
+  echo ""
   exit 1
 fi
 
@@ -44,22 +47,34 @@ fi
 echo ">>> Installing dependencies..."
 npm install
 
-# Rebuild native modules
-echo ">>> Rebuilding better-sqlite3..."
+# Rebuild native modules for Linux
+echo ">>> Rebuilding better-sqlite3 for Linux..."
 npm rebuild better-sqlite3
 
-# Start with PM2
+# Start with PM2 using ecosystem config
 echo ">>> Starting LockerHub with PM2..."
-pm2 start server.js --name lockerhub
+pm2 start ecosystem.config.js
 pm2 save
-pm2 startup systemd -u ubuntu --hp /home/ubuntu
+
+# Setup PM2 to start on boot
+echo ">>> Configuring auto-start on reboot..."
+sudo env PATH=$PATH:/usr/bin pm2 startup systemd -u ubuntu --hp /home/ubuntu
+pm2 save
 
 echo ""
 echo "========================================="
 echo "  LockerHub is running!"
 echo "  Access: http://YOUR_EC2_PUBLIC_IP:8080"
+echo ""
+echo "  Default logins:"
+echo "    Head Office: root / admin@123"
+echo "    RS Puram:    rspuram / admin@123"
+echo ""
 echo "  PM2 commands:"
-echo "    pm2 status        - Check status"
-echo "    pm2 logs lockerhub - View logs"
+echo "    pm2 status           - Check status"
+echo "    pm2 logs lockerhub   - View logs"
 echo "    pm2 restart lockerhub - Restart"
+echo ""
+echo "  To update code later:"
+echo "    cd ~/LockerHub && ./update.sh"
 echo "========================================="
