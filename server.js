@@ -19,9 +19,65 @@ const db = new Database(path.join(DATA_DIR, 'lockerhub.db'));
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// ============================
+//  LOGGING SYSTEM
+// ============================
+const APP_LOG = path.join(LOG_DIR, 'app.log');
+
+function writeLog(level, message, meta = {}) {
+  const timestamp = new Date().toISOString();
+  const metaStr = Object.keys(meta).length ? ' | ' + JSON.stringify(meta) : '';
+  const line = `[${timestamp}] [${level.toUpperCase()}] ${message}${metaStr}\n`;
+  fs.appendFileSync(APP_LOG, line);
+  if (level === 'error') console.error(line.trim());
+}
+
+function logInfo(msg, meta) { writeLog('info', msg, meta); }
+function logWarn(msg, meta) { writeLog('warn', msg, meta); }
+function logError(msg, meta) { writeLog('error', msg, meta); }
+
+// Rotate log if > 5MB
+function rotateLogIfNeeded() {
+  try {
+    if (fs.existsSync(APP_LOG) && fs.statSync(APP_LOG).size > 5 * 1024 * 1024) {
+      const rotated = APP_LOG.replace('.log', `_${Date.now()}.log`);
+      fs.renameSync(APP_LOG, rotated);
+      logInfo('Log rotated', { old: rotated });
+    }
+  } catch (e) { /* ignore rotation errors */ }
+}
+// Check rotation every hour
+setInterval(rotateLogIfNeeded, 60 * 60 * 1000);
+
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  const originalEnd = res.end;
+  res.end = function(...args) {
+    const duration = Date.now() - start;
+    const logEntry = {
+      method: req.method,
+      url: req.originalUrl,
+      status: res.statusCode,
+      duration: duration + 'ms',
+      ip: req.ip || req.connection.remoteAddress
+    };
+    // Skip logging static file requests to keep logs clean
+    if (!req.originalUrl.startsWith('/api/')) {
+      // Don't log static files
+    } else {
+      const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+      writeLog(level, `${req.method} ${req.originalUrl} ${res.statusCode} (${duration}ms)`, { ip: logEntry.ip });
+    }
+    originalEnd.apply(res, args);
+  };
+  next();
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============================
@@ -103,7 +159,9 @@ db.exec(`
     emergency TEXT DEFAULT '',
     locker_id TEXT DEFAULT '',
     lease_start TEXT DEFAULT '',
+    lease_end TEXT DEFAULT '',
     annual_rent REAL DEFAULT 0,
+    deposit REAL DEFAULT 0,
     bank_name TEXT DEFAULT '',
     bank_account TEXT DEFAULT '',
     bank_ifsc TEXT DEFAULT '',
@@ -122,6 +180,7 @@ db.exec(`
     branch_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     locker_id TEXT DEFAULT '',
+    type TEXT DEFAULT 'rent',
     period TEXT DEFAULT '',
     amount REAL DEFAULT 0,
     due_date TEXT DEFAULT '',
@@ -129,6 +188,7 @@ db.exec(`
     paid_on TEXT DEFAULT '',
     method TEXT DEFAULT '',
     ref_no TEXT DEFAULT '',
+    receipt_no TEXT DEFAULT '',
     notes TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (branch_id) REFERENCES branches(id),
@@ -200,8 +260,10 @@ app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
   const user = db.prepare('SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE u.username = ?').get(username);
   if (!user || user.password !== password) {
+    logWarn('Login failed', { username, ip: req.ip });
     return res.status(401).json({ error: 'Invalid username or password' });
   }
+  logInfo('Login success', { username, role: user.role, branch: user.branch_name });
   res.json({ id: user.id, name: user.name, role: user.role, branch_id: user.branch_id, branch_name: user.branch_name });
 });
 
@@ -325,6 +387,14 @@ function getNextUnitNumber(branch_id, locker_type_id) {
     if (match) nextNum = parseInt(match[1]) + 1;
   }
   return `${prefix}-${String(nextNum).padStart(2, '0')}`;
+}
+
+// Helper: generate next receipt number
+function getNextReceiptNo() {
+  const last = db.prepare("SELECT receipt_no FROM payments WHERE receipt_no != '' ORDER BY created_at DESC LIMIT 1").get();
+  if (!last || !last.receipt_no) return 'RCP-0001';
+  const num = parseInt(last.receipt_no.replace('RCP-', '')) || 0;
+  return 'RCP-' + String(num + 1).padStart(4, '0');
 }
 
 // GET next available unit number
@@ -460,25 +530,52 @@ app.post('/api/tenants', (req, res) => {
   try {
     const d = req.body;
     const id = genId();
-    db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency, locker_id, lease_start,
-      annual_rent, bank_name, bank_account, bank_ifsc, bank_branch,
+    // Auto-calculate lease_end (365 days from lease_start)
+    let lease_end = d.lease_end || '';
+    if (!lease_end && d.lease_start) {
+      const start = new Date(d.lease_start);
+      start.setFullYear(start.getFullYear() + 1);
+      lease_end = start.toISOString().split('T')[0];
+    }
+    db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency, locker_id, lease_start, lease_end,
+      annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch,
       bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency || '', d.locker_id || '', d.lease_start || '',
-      d.annual_rent || 0, d.bank_name || '', d.bank_account || '', d.bank_ifsc || '', d.bank_branch || '',
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency || '', d.locker_id || '', d.lease_start || '', lease_end,
+      d.annual_rent || 0, d.deposit || 0, d.bank_name || '', d.bank_account || '', d.bank_ifsc || '', d.bank_branch || '',
       d.bg_aadhaar || '', d.bg_pan || '', d.bg_photos_collected ? 1 : 0, d.bg_status || 'Pending', d.bg_notes || ''
     );
     // Mark locker as occupied
     if (d.locker_id) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('occupied', d.locker_id);
-    res.json({ id });
+    logInfo('Tenant created', { id, name: d.name, locker: d.locker_id, branch: d.branch_id, deposit: d.deposit, annual_rent: d.annual_rent });
+    res.json({ id, lease_end, annual_rent: d.annual_rent || 0, deposit: d.deposit || 0 });
   } catch (err) {
-    console.error('Error creating tenant:', err.message);
+    logError('Error creating tenant', { error: err.message, name: req.body.name });
     res.status(500).json({ error: err.message });
   }
 });
 
+app.get('/api/tenants/:id', (req, res) => {
+  const tenant = db.prepare(`SELECT t.*, l.number as locker_number FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id WHERE t.id = ?`).get(req.params.id);
+  if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+  res.json(tenant);
+});
+
 app.put('/api/tenants/:id', (req, res) => {
   const d = req.body;
+  // Handle locker status changes
+  const oldTenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(req.params.id);
+  const oldLockerId = oldTenant ? oldTenant.locker_id : '';
+  const newLockerId = d.locker_id || '';
+
+  if (oldLockerId !== newLockerId) {
+    // Free old locker
+    if (oldLockerId) db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(oldLockerId);
+    // Occupy new locker
+    if (newLockerId) db.prepare("UPDATE lockers SET status = 'occupied' WHERE id = ?").run(newLockerId);
+    logInfo('Locker reassigned', { tenant: req.params.id, from: oldLockerId, to: newLockerId });
+  }
+
   const fields = [];
   const vals = [];
   for (const [k, v] of Object.entries(d)) {
@@ -494,11 +591,16 @@ app.put('/api/tenants/:id', (req, res) => {
 });
 
 app.delete('/api/tenants/:id', (req, res) => {
-  const tenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(req.params.id);
+  const tenant = db.prepare('SELECT locker_id, name FROM tenants WHERE id = ?').get(req.params.id);
   if (tenant && tenant.locker_id) {
-    db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('vacant', tenant.locker_id);
+    db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(tenant.locker_id);
   }
+  // Clean up related records
+  const delPayments = db.prepare('DELETE FROM payments WHERE tenant_id = ?').run(req.params.id);
+  const delPayouts = db.prepare('DELETE FROM payouts WHERE tenant_id = ?').run(req.params.id);
+  const delVisits = db.prepare('DELETE FROM visits WHERE tenant_id = ?').run(req.params.id);
   db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
+  logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes });
   res.json({ ok: true });
 });
 
@@ -583,13 +685,29 @@ app.get('/api/payments', (req, res) => {
   res.json(payments);
 });
 
+app.get('/api/payments/:id', (req, res) => {
+  const payment = db.prepare(`SELECT p.*, t.name as tenant_name, l.number as locker_number
+    FROM payments p LEFT JOIN tenants t ON p.tenant_id = t.id LEFT JOIN lockers l ON p.locker_id = l.id
+    WHERE p.id = ?`).get(req.params.id);
+  if (!payment) return res.status(404).json({ error: 'Payment not found' });
+  res.json(payment);
+});
+
 app.post('/api/payments', (req, res) => {
   const d = req.body;
   const id = genId();
-  db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, period, amount, due_date, status, paid_on, method, ref_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-    id, d.branch_id, d.tenant_id, d.locker_id || '', d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || ''
+  const receipt_no = d.receipt_no || getNextReceiptNo();
+  // Auto-fill locker_id from tenant if not provided
+  let locker_id = d.locker_id || '';
+  if (!locker_id && d.tenant_id) {
+    const tenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(d.tenant_id);
+    if (tenant) locker_id = tenant.locker_id || '';
+  }
+  db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, d.branch_id, d.tenant_id, locker_id, d.type || 'rent', d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || ''
   );
-  res.json({ id });
+  logInfo('Payment recorded', { id, receipt_no, type: d.type || 'rent', tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status });
+  res.json({ id, receipt_no });
 });
 
 app.put('/api/payments/:id', (req, res) => {
@@ -598,6 +716,88 @@ app.put('/api/payments/:id', (req, res) => {
   for (const [k, v] of Object.entries(d)) { if (k === 'id' || k === 'branch_id') continue; fields.push(`${k} = ?`); vals.push(v); }
   if (fields.length) { vals.push(req.params.id); db.prepare(`UPDATE payments SET ${fields.join(', ')} WHERE id = ?`).run(...vals); }
   res.json({ ok: true });
+});
+
+app.delete('/api/payments/:id', (req, res) => {
+  const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
+  db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
+  logWarn('Payment deleted', { id: req.params.id, receipt: payment ? payment.receipt_no : '', amount: payment ? payment.amount : 0 });
+  res.json({ ok: true });
+});
+
+// ============================
+//  RENT SCHEDULE GENERATION
+// Mark overdue payments automatically (annual rent: overdue if due_date passed)
+app.post('/api/payments/check-overdue', (req, res) => {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const result = db.prepare("UPDATE payments SET status = 'Overdue' WHERE status = 'Pending' AND due_date != '' AND due_date < ?").run(today);
+    logInfo('Overdue check completed', { marked: result.changes });
+    res.json({ marked_overdue: result.changes });
+  } catch (err) {
+    logError('Error checking overdue', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================
+//  RENEWAL REMINDERS
+// ============================
+app.get('/api/renewals', (req, res) => {
+  try {
+    const { branch_id } = req.query;
+    const today = new Date().toISOString().split('T')[0];
+    // Get tenants whose lease_end is within 30 days or already past
+    const futureDate = new Date();
+    futureDate.setDate(futureDate.getDate() + 30);
+    const future30 = futureDate.toISOString().split('T')[0];
+
+    let query, params;
+    if (branch_id && branch_id !== 'all') {
+      query = `SELECT t.*, l.number as locker_number FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+        WHERE t.branch_id = ? AND t.lease_end != '' AND t.lease_end <= ? ORDER BY t.lease_end ASC`;
+      params = [branch_id, future30];
+    } else {
+      query = `SELECT t.*, l.number as locker_number, b.name as branch_name FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+        JOIN branches b ON t.branch_id = b.id
+        WHERE t.lease_end != '' AND t.lease_end <= ? ORDER BY t.lease_end ASC`;
+      params = [future30];
+    }
+
+    const tenants = db.prepare(query).all(...params);
+    const renewals = tenants.map(t => {
+      const leaseEnd = new Date(t.lease_end);
+      const todayDate = new Date(today);
+      const daysLeft = Math.ceil((leaseEnd - todayDate) / (1000 * 60 * 60 * 24));
+      return { ...t, days_left: daysLeft, is_expired: daysLeft < 0 };
+    });
+
+    res.json(renewals);
+  } catch (err) {
+    logError('Renewals error', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Renew a tenant's lease (extend by 1 year)
+app.post('/api/renewals/:id/renew', (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+    const oldEnd = tenant.lease_end || tenant.lease_start;
+    const newStart = oldEnd; // New lease starts where old one ended
+    const newEndDate = new Date(newStart);
+    newEndDate.setFullYear(newEndDate.getFullYear() + 1);
+    const newEnd = newEndDate.toISOString().split('T')[0];
+
+    db.prepare('UPDATE tenants SET lease_start = ?, lease_end = ? WHERE id = ?').run(newStart, newEnd, req.params.id);
+    logInfo('Lease renewed', { tenant: req.params.id, name: tenant.name, new_start: newStart, new_end: newEnd });
+    res.json({ ok: true, new_start: newStart, new_end: newEnd });
+  } catch (err) {
+    logError('Renewal error', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============================
@@ -718,6 +918,13 @@ app.get('/api/stats', (req, res) => {
   const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified' AND bg_status != 'verified'`).get(branch_id);
   const pendingInterest = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND (status = 'Pending' OR status = 'Missed')`).get(branch_id);
 
+  // Current month rent summary
+  const now = new Date();
+  const currentMonth = now.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
+  const monthPaid = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND period = ?`).get(branch_id, currentMonth);
+  const monthPending = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Pending' AND period = ?`).get(branch_id, currentMonth);
+  const monthOverdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue' AND period = ?`).get(branch_id, currentMonth);
+
   res.json({
     total_lockers: lockers.total || 0, occupied: lockers.occupied || 0, vacant: lockers.vacant || 0,
     occupancy_pct: lockers.total ? Math.round((lockers.occupied || 0) / lockers.total * 100) : 0,
@@ -727,7 +934,11 @@ app.get('/api/stats', (req, res) => {
     missed_payouts: missedPayouts.count, missed_payout_amount: missedPayouts.total,
     collected: collected.total, today_visits: todayVisits.count,
     unverified_tenants: unverified.count,
-    pending_interest: pendingInterest.total
+    pending_interest: pendingInterest.total,
+    current_month: currentMonth,
+    month_paid: monthPaid.count, month_paid_amount: monthPaid.total,
+    month_pending: monthPending.count, month_pending_amount: monthPending.total,
+    month_overdue: monthOverdue.count, month_overdue_amount: monthOverdue.total
   });
 });
 
@@ -898,7 +1109,7 @@ app.get('/api/backup/list', (req, res) => {
 });
 
 // ============================
-//  HEALTH CHECK (keeps Render free tier alive)
+//  HEALTH CHECK
 // ============================
 app.get('/api/health', (req, res) => {
   try {
@@ -910,9 +1121,108 @@ app.get('/api/health', (req, res) => {
 });
 
 // ============================
+//  LOG VIEWER API
+// ============================
+app.get('/api/logs', (req, res) => {
+  try {
+    const lines = parseInt(req.query.lines) || 200;
+    const level = req.query.level || ''; // filter: info, warn, error
+    if (!fs.existsSync(APP_LOG)) return res.json({ logs: [], message: 'No logs yet' });
+
+    const content = fs.readFileSync(APP_LOG, 'utf8');
+    let allLines = content.trim().split('\n').filter(l => l.length > 0);
+
+    // Filter by level if specified
+    if (level) {
+      allLines = allLines.filter(l => l.includes(`[${level.toUpperCase()}]`));
+    }
+
+    // Return last N lines (most recent first)
+    const recent = allLines.slice(-lines).reverse();
+
+    res.json({
+      total: allLines.length,
+      showing: recent.length,
+      logs: recent
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pretty HTML log viewer (open in browser)
+app.get('/api/logs/view', (req, res) => {
+  try {
+    const lines = parseInt(req.query.lines) || 300;
+    const level = req.query.level || '';
+    if (!fs.existsSync(APP_LOG)) return res.send('<h2>No logs yet</h2>');
+
+    const content = fs.readFileSync(APP_LOG, 'utf8');
+    let allLines = content.trim().split('\n').filter(l => l.length > 0);
+    if (level) allLines = allLines.filter(l => l.includes(`[${level.toUpperCase()}]`));
+    const recent = allLines.slice(-lines).reverse();
+
+    const html = `<!DOCTYPE html><html><head><title>LockerHub Logs</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+      body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; margin: 0; }
+      h1 { color: #d4a843; font-size: 20px; margin-bottom: 8px; }
+      .filters { margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+      .filters a { padding: 6px 14px; background: #2a2a4a; color: #ccc; text-decoration: none; border-radius: 4px; font-size: 13px; }
+      .filters a.active, .filters a:hover { background: #b8860b; color: #fff; }
+      .stats { color: #888; font-size: 13px; margin-bottom: 12px; }
+      .log-line { padding: 4px 8px; border-bottom: 1px solid #2a2a4a; font-size: 12px; line-height: 1.6; word-break: break-all; }
+      .log-line.error { color: #ff6b6b; background: rgba(255,0,0,0.05); }
+      .log-line.warn { color: #ffc078; }
+      .log-line.info { color: #a0d0a0; }
+      .refresh { position: fixed; top: 16px; right: 16px; padding: 8px 16px; background: #b8860b; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+    </style></head><body>
+    <h1>LockerHub — Live Logs</h1>
+    <div class="filters">
+      <a href="/api/logs/view" ${!level ? 'class="active"' : ''}>All</a>
+      <a href="/api/logs/view?level=error" ${level === 'error' ? 'class="active"' : ''}>Errors</a>
+      <a href="/api/logs/view?level=warn" ${level === 'warn' ? 'class="active"' : ''}>Warnings</a>
+      <a href="/api/logs/view?level=info" ${level === 'info' ? 'class="active"' : ''}>Info</a>
+    </div>
+    <div class="stats">Showing ${recent.length} of ${allLines.length} entries</div>
+    <button class="refresh" onclick="location.reload()">Refresh</button>
+    <div>${recent.map(l => {
+      const cls = l.includes('[ERROR]') ? 'error' : l.includes('[WARN]') ? 'warn' : 'info';
+      return '<div class="log-line ' + cls + '">' + l.replace(/</g, '&lt;') + '</div>';
+    }).join('')}</div>
+    </body></html>`;
+    res.send(html);
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// ============================
+//  GLOBAL ERROR HANDLER
+// ============================
+app.use((err, req, res, next) => {
+  logError(`Unhandled error: ${err.message}`, {
+    method: req.method,
+    url: req.originalUrl,
+    stack: err.stack ? err.stack.split('\n').slice(0, 3).join(' | ') : ''
+  });
+  res.status(500).json({ error: 'Internal server error', message: err.message });
+});
+
+// Catch uncaught exceptions and unhandled rejections
+process.on('uncaughtException', (err) => {
+  logError('UNCAUGHT EXCEPTION', { message: err.message, stack: err.stack });
+});
+
+process.on('unhandledRejection', (reason) => {
+  logError('UNHANDLED REJECTION', { message: String(reason) });
+});
+
+// ============================
 //  START SERVER
 // ============================
 app.listen(PORT, '0.0.0.0', () => {
+  logInfo('Server started', { port: PORT, env: process.env.NODE_ENV || 'development' });
   console.log('');
   console.log('  ╔══════════════════════════════════════════╗');
   console.log('  ║         LockerHub Server Running         ║');

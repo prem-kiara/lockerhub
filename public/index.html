@@ -1245,13 +1245,13 @@
                 <li><a onclick="switchSection('dashboard')" class="nav-link active" data-section="dashboard">Dashboard</a></li>
                 <li><a onclick="switchSection('lockers')" class="nav-link" data-section="lockers">Lockers</a></li>
                 <li id="lockerTypesMgmt" style="display: none;"><a onclick="switchSection('lockerTypes')" class="nav-link" data-section="lockerTypes">Locker Types</a></li>
-                <li><a onclick="switchSection('units')" class="nav-link" data-section="units">Units & Cabinets</a></li>
+                <li id="navUnits" style="display: none;"><a onclick="switchSection('units')" class="nav-link" data-section="units">Units & Cabinets</a></li>
                 <li><a onclick="switchSection('tenants')" class="nav-link" data-section="tenants">Tenants</a></li>
-                <li><a onclick="switchSection('payments')" class="nav-link" data-section="payments">Rent & Payments</a></li>
+                <li id="navPayments" style="display: none;"><a onclick="switchSection('payments')" class="nav-link" data-section="payments">Rent & Payments</a></li>
                 <li><a onclick="switchSection('visits')" class="nav-link" data-section="visits">Visit Log</a></li>
-                <li><a onclick="switchSection('bgchecks')" class="nav-link" data-section="bgchecks">Background Checks</a></li>
-                <li><a onclick="switchSection('reports')" class="nav-link" data-section="reports">Reports (Excel)</a></li>
-                <li><a onclick="switchSection('backup')" class="nav-link" data-section="backup">Data & Backup</a></li>
+                <li id="navBgChecks" style="display: none;"><a onclick="switchSection('bgchecks')" class="nav-link" data-section="bgchecks">Background Checks</a></li>
+                <li id="navReports" style="display: none;"><a onclick="switchSection('reports')" class="nav-link" data-section="reports">Reports (Excel)</a></li>
+                <li id="navBackup" style="display: none;"><a onclick="switchSection('backup')" class="nav-link" data-section="backup">Data & Backup</a></li>
                 <li id="branchMgmt" style="display: none;"><a onclick="switchSection('branches')" class="nav-link" data-section="branches">Manage Branches</a></li>
                 <li id="userMgmt" style="display: none;"><a onclick="switchSection('users')" class="nav-link" data-section="users">Manage Users</a></li>
             </ul>
@@ -1293,8 +1293,10 @@
                 <div id="lockersScreen" class="screen">
                     <div class="section-title">Lockers</div>
                     <div class="section-toolbar">
-                        <button class="btn btn-primary" onclick="openAddLockerModal()">+ Add Locker</button>
-                        <button class="btn btn-secondary" onclick="openBulkAddModal()">+ Add Multiple</button>
+                        <span id="lockerAddBtns">
+                            <button class="btn btn-primary" onclick="openAddLockerModal()">+ Add Locker</button>
+                            <button class="btn btn-secondary" onclick="openBulkAddModal()">+ Add Multiple</button>
+                        </span>
                         <input type="text" class="search-box" id="lockerSearch" placeholder="Search by number or location..." onkeyup="filterLockers()">
                     </div>
                     <div class="table-container">
@@ -1333,8 +1335,8 @@
                                     <th>Name</th>
                                     <th>Phone</th>
                                     <th>Locker</th>
-                                    <th>Rent</th>
-                                    <th>Email</th>
+                                    <th>Rent (Annual)</th>
+                                    <th>Lease End</th>
                                     <th>BG Status</th>
                                     <th>Actions</th>
                                 </tr>
@@ -1349,25 +1351,34 @@
                 <!-- Payments Screen -->
                 <div id="paymentsScreen" class="screen">
                     <div class="section-title">Rent & Payments</div>
+                    <div id="rentSummaryCards" class="stat-cards" style="margin-bottom:20px;"></div>
                     <div class="section-toolbar">
                         <button class="btn btn-primary" onclick="openAddPaymentModal()">+ Record Payment</button>
-                        <input type="text" class="search-box" id="paymentSearch" placeholder="Search by tenant..." onkeyup="filterPayments()">
+                        <input type="text" class="search-box" id="paymentSearch" placeholder="Search by tenant or period..." onkeyup="filterPayments()">
+                        <select id="paymentStatusFilter" onchange="filterPayments()" style="padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:14px;">
+                            <option value="">All Status</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Overdue">Overdue</option>
+                        </select>
                     </div>
                     <div class="table-container">
                         <table>
                             <thead>
                                 <tr>
+                                    <th>Receipt</th>
                                     <th>Tenant</th>
                                     <th>Locker</th>
+                                    <th>Period</th>
                                     <th>Amount</th>
-                                    <th>Payment Method</th>
+                                    <th>Method</th>
                                     <th>Date</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="paymentsTable">
-                                <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1739,15 +1750,26 @@
                     <input type="hidden" id="paymentId">
                     <div class="form-group">
                         <label for="paymentTenant">Tenant</label>
-                        <select id="paymentTenant" required onchange="populatePaymentAmount()">
+                        <select id="paymentTenant" required onchange="populatePaymentDetails()">
                             <option value="">Select tenant</option>
                         </select>
                     </div>
+                    <div id="paymentTenantInfo" style="display:none; background:var(--bg-warm); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:16px; font-size:13px;">
+                        <span id="paymentTenantLocker"></span> &nbsp;|&nbsp; <span id="paymentTenantRent"></span>
+                    </div>
                     <div class="form-row">
+                        <div class="form-group">
+                            <label for="paymentPeriod">Period</label>
+                            <select id="paymentPeriod" required>
+                                <option value="">Select period</option>
+                            </select>
+                        </div>
                         <div class="form-group">
                             <label for="paymentAmount">Amount (₹)</label>
                             <input type="number" id="paymentAmount" required step="100">
                         </div>
+                    </div>
+                    <div class="form-row">
                         <div class="form-group">
                             <label for="paymentMethod">Payment Method</label>
                             <select id="paymentMethod" required>
@@ -1759,30 +1781,93 @@
                                 <option value="bank">Bank Transfer</option>
                             </select>
                         </div>
+                        <div class="form-group">
+                            <label for="paymentRefNo">Reference / Cheque No.</label>
+                            <input type="text" id="paymentRefNo" placeholder="UPI ref / Cheque no / NEFT ref">
+                        </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="paymentDate">Date</label>
+                            <label for="paymentDate">Payment Date</label>
                             <input type="date" id="paymentDate" required>
                         </div>
                         <div class="form-group">
                             <label for="paymentStatus">Status</label>
                             <select id="paymentStatus" required>
-                                <option value="completed">Completed</option>
-                                <option value="pending">Pending</option>
-                                <option value="failed">Failed</option>
+                                <option value="Paid">Paid</option>
+                                <option value="Pending">Pending</option>
+                                <option value="Overdue">Overdue</option>
                             </select>
                         </div>
                     </div>
                     <div class="form-group">
                         <label for="paymentNotes">Notes</label>
-                        <textarea id="paymentNotes"></textarea>
+                        <textarea id="paymentNotes" rows="2"></textarea>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="savePayment()">Save Payment</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Post-Allotment Modal (Deposit + First Rent) -->
+    <div id="postAllotmentModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Allotment Complete</h2>
+                <button class="modal-close" onclick="closeModal('postAllotmentModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div style="background:var(--bg-warm); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px;">
+                    <div style="font-weight:600; font-size:15px; margin-bottom:8px;" id="postAllotTenantName"></div>
+                    <div style="font-size:13px; color:var(--text-light);">
+                        <span id="postAllotLeaseInfo"></span>
+                    </div>
+                </div>
+
+                <div style="font-weight:600; margin-bottom:12px;">Record Initial Payments</div>
+
+                <div style="display:flex; flex-direction:column; gap:12px;">
+                    <label style="display:flex; align-items:center; gap:10px; padding:12px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; cursor:pointer;">
+                        <input type="checkbox" id="postAllotDeposit" checked style="width:18px; height:18px;">
+                        <div style="flex:1;">
+                            <div style="font-weight:500;">Security Deposit</div>
+                            <div style="font-size:13px; color:var(--text-light);" id="postAllotDepositAmt"></div>
+                        </div>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:10px; padding:12px; background:var(--card-bg); border:1px solid var(--border); border-radius:6px; cursor:pointer;">
+                        <input type="checkbox" id="postAllotRent" checked style="width:18px; height:18px;">
+                        <div style="flex:1;">
+                            <div style="font-weight:500;">First Year Rent</div>
+                            <div style="font-size:13px; color:var(--text-light);" id="postAllotRentAmt"></div>
+                        </div>
+                    </label>
+                </div>
+
+                <div class="form-row" style="margin-top:16px;">
+                    <div class="form-group">
+                        <label for="postAllotMethod">Payment Method</label>
+                        <select id="postAllotMethod">
+                            <option value="cash">Cash</option>
+                            <option value="upi">UPI</option>
+                            <option value="neft">NEFT/RTGS</option>
+                            <option value="cheque">Cheque</option>
+                            <option value="bank">Bank Transfer</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="postAllotRef">Reference No.</label>
+                        <input type="text" id="postAllotRef" placeholder="Optional">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('postAllotmentModal')">Skip for now</button>
+                <button class="btn btn-secondary" onclick="downloadAllotmentForm(postAllotTenantId)">Download Form</button>
+                <button class="btn btn-primary" onclick="recordPostAllotmentPayments()">Record Payments</button>
             </div>
         </div>
     </div>
@@ -2111,10 +2196,17 @@
 
                 // Update UI based on role
                 const isHeadOffice = result.role === 'headoffice';
+                // Head Office only sections
                 document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navPayments').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
 
                 // Update user info
                 document.getElementById('userInfo').textContent = `${result.name} (${result.role === 'headoffice' ? 'Head Office' : 'Branch'})`;
@@ -2189,35 +2281,136 @@
                 const isHeadOffice = currentUser.role === 'headoffice';
 
                 if (isHeadOffice) {
-                    // Load head office dashboard
                     const data = await api('GET', '/api/stats/all');
                     renderHeadOfficeDashboard(data);
                 } else {
-                    // Load branch dashboard
                     const stats = await api('GET', `/api/stats?branch_id=${currentBranchId}`);
                     renderBranchDashboard(stats);
                 }
+
+                // Load renewal reminders
+                const renewalUrl = currentBranchId
+                    ? `/api/renewals?branch_id=${currentBranchId}`
+                    : '/api/renewals?branch_id=all';
+                const renewals = await api('GET', renewalUrl);
+                renderRenewalReminders(renewals);
             } catch (error) {
                 console.error('Failed to load dashboard:', error);
             }
         }
 
+        function renderRenewalReminders(renewals) {
+            if (!renewals || renewals.length === 0) {
+                document.getElementById('dashboardContent').innerHTML =
+                    (document.getElementById('dashboardContent').innerHTML || '') +
+                    '';
+                return;
+            }
+
+            const html = `
+                <div style="margin-top:24px;">
+                    <div class="section-title" style="font-size:18px; color:var(--danger);">
+                        Renewal Reminders (${renewals.length})
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead><tr>
+                                <th>Tenant</th>
+                                <th>Locker</th>
+                                <th>Lease End</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr></thead>
+                            <tbody>
+                                ${renewals.map(r => {
+                                    const statusText = r.is_expired
+                                        ? `Expired ${Math.abs(r.days_left)} days ago`
+                                        : `${r.days_left} days left`;
+                                    const statusBadge = r.is_expired ? 'badge-danger' : r.days_left <= 7 ? 'badge-warning' : 'badge-primary';
+                                    return `<tr>
+                                        <td><strong>${r.name}</strong></td>
+                                        <td>${r.locker_number || '-'}</td>
+                                        <td>${new Date(r.lease_end).toLocaleDateString('en-IN')}</td>
+                                        <td><span class="badge ${statusBadge}">${statusText}</span></td>
+                                        <td>
+                                            <div class="action-buttons">
+                                                <button class="btn btn-primary" onclick="renewLease('${r.id}', '${r.name}')" style="font-size:12px;padding:5px 10px;">Renew (+1 Year)</button>
+                                            </div>
+                                        </td>
+                                    </tr>`;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('dashboardContent').innerHTML =
+                (document.getElementById('dashboardContent').innerHTML || '') + html;
+        }
+
+        async function renewLease(tenantId, name) {
+            if (!confirm(`Renew lease for ${name} by 1 year? This will also prompt you to record the next year's rent.`)) return;
+
+            showLoading('Renewing lease...');
+            try {
+                const result = await api('POST', `/api/renewals/${tenantId}/renew`);
+                hideLoading();
+
+                // Prompt to record next year's rent
+                const tenant = await api('GET', `/api/tenants/${tenantId}`);
+                if (tenant && tenant.annual_rent) {
+                    if (confirm(`Lease renewed to ${new Date(result.new_end).toLocaleDateString('en-IN')}. Record the annual rent payment of ₹${formatIndianNumber(tenant.annual_rent)} now?`)) {
+                        const today = new Date().toISOString().split('T')[0];
+                        const now = new Date();
+                        const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+                        const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
+
+                        await api('POST', '/api/payments', {
+                            branch_id: tenant.branch_id,
+                            tenant_id: tenantId,
+                            locker_id: tenant.locker_id,
+                            type: 'rent',
+                            period: period,
+                            amount: tenant.annual_rent,
+                            due_date: today,
+                            paid_on: today,
+                            status: 'Paid',
+                            method: 'cash',
+                            notes: 'Renewal - Year ' + period
+                        });
+                        alert('Rent payment recorded!');
+                    }
+                }
+
+                await loadDashboard();
+            } catch (err) {
+                hideLoading();
+                alert('Error: ' + err.message);
+            }
+        }
+
         function renderBranchDashboard(stats) {
             const html = `
-                <div class="stat-card primary">
-                    <div class="stat-card-label">Total Lockers</div>
-                    <div class="stat-card-value">${stats.total_lockers || 0}</div>
-                    <div class="stat-card-subtext">${stats.occupied || 0} occupied</div>
-                </div>
                 <div class="stat-card success">
+                    <div class="stat-card-label">Available Lockers</div>
+                    <div class="stat-card-value">${stats.vacant || 0}</div>
+                    <div class="stat-card-subtext">Ready for allotment</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="stat-card-label">Occupied Lockers</div>
+                    <div class="stat-card-value">${stats.occupied || 0}</div>
+                    <div class="stat-card-subtext">of ${stats.total_lockers || 0} total</div>
+                </div>
+                <div class="stat-card primary">
                     <div class="stat-card-label">Occupancy Rate</div>
                     <div class="stat-card-value">${stats.occupancy_pct || 0}%</div>
-                    <div class="stat-card-subtext">${stats.vacant || 0} vacant</div>
+                    <div class="stat-card-subtext">${stats.tenants || 0} tenants</div>
                 </div>
-                <div class="stat-card primary">
-                    <div class="stat-card-label">Monthly Revenue</div>
-                    <div class="stat-card-value">₹${formatIndianNumber(stats.monthly_revenue || 0)}</div>
-                    <div class="stat-card-subtext">Annual: ₹${formatIndianNumber(stats.annual_revenue || 0)}</div>
+                <div class="stat-card warning">
+                    <div class="stat-card-label">Annual Revenue</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.annual_revenue || 0)}</div>
+                    <div class="stat-card-subtext">Collected: ₹${formatIndianNumber(stats.collected || 0)}</div>
                 </div>
                 <div class="stat-card danger">
                     <div class="stat-card-label">Overdue Rent</div>
@@ -2232,22 +2425,37 @@
         function renderHeadOfficeDashboard(branches) {
             const totalLockers = branches.reduce((sum, b) => sum + (b.total_lockers || 0), 0);
             const totalOccupied = branches.reduce((sum, b) => sum + (b.occupied || 0), 0);
+            const totalVacant = branches.reduce((sum, b) => sum + (b.vacant || 0), 0);
             const totalRevenue = branches.reduce((sum, b) => sum + (b.annual_revenue || 0), 0);
+            const totalCollected = branches.reduce((sum, b) => sum + (b.collected || 0), 0);
             const totalOverdue = branches.reduce((sum, b) => sum + (b.overdue_amount || 0), 0);
+            const totalTenants = branches.reduce((sum, b) => sum + (b.tenants || 0), 0);
 
             const summaryHtml = `
-                <div class="stat-card primary">
-                    <div class="stat-card-label">Total Lockers (All Branches)</div>
-                    <div class="stat-card-value">${totalLockers}</div>
-                    <div class="stat-card-subtext">${totalOccupied} occupied</div>
-                </div>
                 <div class="stat-card success">
-                    <div class="stat-card-label">Combined Annual Revenue</div>
-                    <div class="stat-card-value">₹${formatIndianNumber(totalRevenue)}</div>
+                    <div class="stat-card-label">Available Lockers</div>
+                    <div class="stat-card-value">${totalVacant}</div>
+                    <div class="stat-card-subtext">Across all branches</div>
                 </div>
                 <div class="stat-card danger">
-                    <div class="stat-card-label">Total Overdue Amount</div>
+                    <div class="stat-card-label">Occupied Lockers</div>
+                    <div class="stat-card-value">${totalOccupied}</div>
+                    <div class="stat-card-subtext">of ${totalLockers} total</div>
+                </div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Total Tenants</div>
+                    <div class="stat-card-value">${totalTenants}</div>
+                    <div class="stat-card-subtext">${branches.length} branches</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="stat-card-label">Annual Revenue</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalRevenue)}</div>
+                    <div class="stat-card-subtext">Collected: ₹${formatIndianNumber(totalCollected)}</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="stat-card-label">Total Overdue</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalOverdue)}</div>
+                    <div class="stat-card-subtext">Across all branches</div>
                 </div>
             `;
             document.getElementById('dashboardStats').innerHTML = summaryHtml;
@@ -2257,16 +2465,28 @@
                     <div class="branch-card-title">${b.branch_name}</div>
                     <div class="branch-stats">
                         <div class="branch-stat">
-                            <div class="branch-stat-label">Lockers</div>
+                            <div class="branch-stat-label">Available</div>
+                            <div class="branch-stat-value" style="color:var(--success);">${b.vacant || 0}</div>
+                        </div>
+                        <div class="branch-stat">
+                            <div class="branch-stat-label">Occupied</div>
+                            <div class="branch-stat-value" style="color:var(--danger);">${b.occupied || 0}</div>
+                        </div>
+                        <div class="branch-stat">
+                            <div class="branch-stat-label">Total</div>
                             <div class="branch-stat-value">${b.total_lockers || 0}</div>
                         </div>
                         <div class="branch-stat">
-                            <div class="branch-stat-label">Occupancy</div>
-                            <div class="branch-stat-value">${b.occupancy_pct || 0}%</div>
+                            <div class="branch-stat-label">Tenants</div>
+                            <div class="branch-stat-value">${b.tenants || 0}</div>
                         </div>
                         <div class="branch-stat">
                             <div class="branch-stat-label">Revenue</div>
                             <div class="branch-stat-value">₹${formatIndianNumberCompact(b.annual_revenue || 0)}</div>
+                        </div>
+                        <div class="branch-stat">
+                            <div class="branch-stat-label">Occupancy</div>
+                            <div class="branch-stat-value">${b.occupancy_pct || 0}%</div>
                         </div>
                     </div>
                 </div>
@@ -2326,8 +2546,8 @@
                         <td>₹${formatIndianNumber(l.rent)}</td>
                         <td>
                             <div class="action-buttons">
-                                <button class="btn btn-secondary" onclick="openEditLockerModal('${l.id}')">Edit</button>
-                                <button class="btn btn-danger" onclick="deleteLocker('${l.id}')">Delete</button>
+                                ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditLockerModal('${l.id}')">Edit</button>
+                                <button class="btn btn-danger" onclick="deleteLocker('${l.id}')">Delete</button>` : ''}
                             </div>
                         </td>
                     </tr>
@@ -2448,24 +2668,32 @@
                 return;
             }
 
-            const html = tenants.map(t => `
+            const today = new Date();
+            const html = tenants.map(t => {
+                const leaseEnd = t.lease_end ? new Date(t.lease_end) : null;
+                const daysLeft = leaseEnd ? Math.ceil((leaseEnd - today) / (1000 * 60 * 60 * 24)) : null;
+                const leaseStatus = !leaseEnd ? '-' :
+                    daysLeft < 0 ? `<span class="badge badge-danger">Expired</span>` :
+                    daysLeft <= 30 ? `<span class="badge badge-warning">${daysLeft}d left</span>` :
+                    new Date(t.lease_end).toLocaleDateString('en-IN');
+                return `
                 <tr>
                     <td><strong>${t.name}</strong></td>
                     <td>${t.phone.startsWith('+91') ? t.phone : '+91 ' + t.phone}</td>
                     <td>${t.locker_number || '-'}</td>
-                    <td>Rs.${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
-                    <td>${t.email || '-'}</td>
+                    <td>₹${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
+                    <td>${leaseStatus}</td>
                     <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status || 'pending')}</span></td>
                     <td>
                         <div class="action-buttons">
-                            <button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>
-                            <button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>
+                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
+                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
                             <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
-                            <button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>
+                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
                         </div>
                     </td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
 
             document.getElementById('tenantsTable').innerHTML = html;
         }
@@ -2492,8 +2720,8 @@
 
             document.getElementById('tenantRentDisplay').textContent = '';
             document.getElementById('tenantDepositDisplay').textContent = '';
-            // Load available lockers
-            loadLockerSelect();
+            // Load available lockers (no current locker for new tenant)
+            loadLockerSelect(null);
             document.getElementById('tenantModal').classList.add('active');
         }
 
@@ -2536,7 +2764,7 @@
                 document.getElementById('tenantBgPan').value = tenant.bg_pan || '';
                 document.getElementById('tenantBgPhotosCollected').checked = tenant.bg_photos_collected;
 
-                await loadLockerSelect();
+                await loadLockerSelect(tenant.locker_id, tenant.branch_id);
                 document.getElementById('tenantLocker').value = tenant.locker_id || '';
                 autoFillRent();
                 document.getElementById('tenantModal').classList.add('active');
@@ -2545,16 +2773,18 @@
             }
         }
 
-        async function loadLockerSelect() {
+        async function loadLockerSelect(currentLockerId, forBranchId) {
             try {
-                const url = currentBranchId
-                    ? `/api/lockers?branch_id=${currentBranchId}`
+                const branchId = forBranchId || currentBranchId;
+                const url = branchId
+                    ? `/api/lockers?branch_id=${branchId}`
                     : '/api/lockers?branch_id=all';
                 const lockers = await api('GET', url);
                 const select = document.getElementById('tenantLocker');
+                // Show vacant lockers + the currently assigned locker (even if occupied)
                 select.innerHTML = '<option value="">Select locker</option>' +
-                    lockers.filter(l => l.status === 'vacant' || l.id === document.getElementById('tenantId').value)
-                    .map(l => `<option value="${l.id}" data-size="${l.size}">${l.number} (${capitalize(l.size)})</option>`).join('');
+                    lockers.filter(l => l.status === 'vacant' || l.id === currentLockerId)
+                    .map(l => `<option value="${l.id}" data-size="${l.size}">${l.number} (${capitalize(l.size)})${l.id === currentLockerId ? ' - Current' : ''}</option>`).join('');
             } catch (error) {
                 console.error('Failed to load lockers:', error);
             }
@@ -2593,8 +2823,20 @@
 
             const tenantId = document.getElementById('tenantId').value;
             const isHO = currentUser.role === 'headoffice';
-            const branchId = isHO ? document.getElementById('tenantBranch').value : currentBranchId;
+            let branchId = isHO ? document.getElementById('tenantBranch').value : currentBranchId;
+            // For HO editing existing tenant, if branch selector is empty, keep original
+            if (!branchId && tenantId && isHO) {
+                try {
+                    const existing = await api('GET', `/api/tenants/${tenantId}`);
+                    branchId = existing.branch_id;
+                } catch(e) {}
+            }
             if (!branchId) { alert('Please select a branch'); return; }
+
+            const annualRent = parseInt(document.getElementById('tenantAnnualRent').value) || 0;
+            const depositText = document.getElementById('tenantDepositDisplay').textContent;
+            const depositMatch = depositText.match(/[\d,]+/);
+            const deposit = depositMatch ? parseInt(depositMatch[0].replace(/,/g, '')) : 0;
 
             const data = {
                 branch_id: branchId,
@@ -2609,7 +2851,8 @@
                 bg_pan: document.getElementById('tenantBgPan').value.trim().toUpperCase(),
                 bg_photos_collected: document.getElementById('tenantBgPhotosCollected').checked,
                 bg_status: (document.getElementById('tenantBgAadhaar').value.trim() && document.getElementById('tenantBgPan').value.trim() && document.getElementById('tenantBgPhotosCollected').checked) ? 'Verified' : 'Pending',
-                annual_rent: parseInt(document.getElementById('tenantAnnualRent').value) || 0,
+                annual_rent: annualRent,
+                deposit: deposit,
                 bank_name: document.getElementById('tenantBankName').value,
                 bank_account: document.getElementById('tenantBankAccount').value,
                 bank_ifsc: document.getElementById('tenantBankIfsc').value.toUpperCase(),
@@ -2619,22 +2862,21 @@
             showLoading('Saving tenant...');
             try {
                 let newId = null;
+                let resultData = null;
                 if (tenantId) {
                     await api('PUT', `/api/tenants/${tenantId}`, data);
                 } else {
-                    const result = await api('POST', '/api/tenants', data);
-                    newId = result.id;
+                    resultData = await api('POST', '/api/tenants', data);
+                    newId = resultData.id;
                 }
                 hideLoading();
                 closeModal('tenantModal');
                 await loadTenants();
 
-                // Auto-download allotment form for new tenants
+                // For new tenants: prompt to record deposit + first year rent
                 if (newId) {
                     setTimeout(() => {
-                        if (confirm('Tenant created successfully. Download the Allotment Form PDF?')) {
-                            downloadAllotmentForm(newId);
-                        }
+                        openPostAllotmentModal(newId, name, branchId, data.locker_id, annualRent, deposit, data.lease_start);
                     }, 300);
                 }
             } catch (error) {
@@ -2644,8 +2886,100 @@
             }
         }
 
+        // ===== Post-Allotment: Record Deposit + First Rent =====
+        let postAllotTenantId = null;
+        let postAllotData = {};
+
+        function openPostAllotmentModal(tenantId, name, branchId, lockerId, annualRent, deposit, leaseStart) {
+            postAllotTenantId = tenantId;
+            postAllotData = { branchId, lockerId, annualRent, deposit, leaseStart };
+
+            document.getElementById('postAllotTenantName').textContent = name;
+
+            const leaseEnd = new Date(leaseStart);
+            leaseEnd.setFullYear(leaseEnd.getFullYear() + 1);
+            document.getElementById('postAllotLeaseInfo').textContent =
+                'Lease: ' + new Date(leaseStart).toLocaleDateString('en-IN') + ' to ' + leaseEnd.toLocaleDateString('en-IN');
+
+            document.getElementById('postAllotDepositAmt').textContent = '₹' + formatIndianNumber(deposit);
+            document.getElementById('postAllotRentAmt').textContent = '₹' + formatIndianNumber(annualRent) + ' (Annual)';
+
+            document.getElementById('postAllotDeposit').checked = deposit > 0;
+            document.getElementById('postAllotRent').checked = annualRent > 0;
+
+            document.getElementById('postAllotmentModal').classList.add('active');
+        }
+
+        async function recordPostAllotmentPayments() {
+            const recordDeposit = document.getElementById('postAllotDeposit').checked;
+            const recordRent = document.getElementById('postAllotRent').checked;
+            const method = document.getElementById('postAllotMethod').value;
+            const refNo = document.getElementById('postAllotRef').value;
+            const today = new Date().toISOString().split('T')[0];
+
+            if (!recordDeposit && !recordRent) {
+                closeModal('postAllotmentModal');
+                return;
+            }
+
+            // Determine FY period
+            const now = new Date();
+            const fy = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+            const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
+
+            showLoading('Recording payments...');
+            try {
+                if (recordDeposit && postAllotData.deposit > 0) {
+                    await api('POST', '/api/payments', {
+                        branch_id: postAllotData.branchId,
+                        tenant_id: postAllotTenantId,
+                        locker_id: postAllotData.lockerId,
+                        type: 'deposit',
+                        period: period,
+                        amount: postAllotData.deposit,
+                        due_date: today,
+                        paid_on: today,
+                        status: 'Paid',
+                        method: method,
+                        ref_no: refNo,
+                        notes: 'Security Deposit'
+                    });
+                }
+
+                if (recordRent && postAllotData.annualRent > 0) {
+                    await api('POST', '/api/payments', {
+                        branch_id: postAllotData.branchId,
+                        tenant_id: postAllotTenantId,
+                        locker_id: postAllotData.lockerId,
+                        type: 'rent',
+                        period: period,
+                        amount: postAllotData.annualRent,
+                        due_date: today,
+                        paid_on: today,
+                        status: 'Paid',
+                        method: method,
+                        ref_no: refNo,
+                        notes: 'First Year Rent'
+                    });
+                }
+
+                hideLoading();
+                closeModal('postAllotmentModal');
+
+                // Offer to download allotment form
+                setTimeout(() => {
+                    if (confirm('Payments recorded! Download the Allotment Form PDF?')) {
+                        downloadAllotmentForm(postAllotTenantId);
+                    }
+                }, 200);
+            } catch (err) {
+                hideLoading();
+                alert('Error recording payments: ' + err.message);
+            }
+        }
+
         async function deleteTenant(id) {
-            if (confirm('Are you sure you want to delete this tenant?')) {
+            if (confirm('Are you sure you want to delete this tenant? All payments and visit records will also be deleted.')) {
                 try {
                     await api('DELETE', `/api/tenants/${id}`);
                     await loadTenants();
@@ -2656,50 +2990,109 @@
         }
 
         // ===== Payments =====
+        let allTenantsCache = [];
+
         async function loadPayments() {
             try {
+                // Check overdue on every load
+                await api('POST', '/api/payments/check-overdue');
+
                 const url = currentBranchId
                     ? `/api/payments?branch_id=${currentBranchId}`
                     : '/api/payments?branch_id=all';
                 const payments = await api('GET', url);
                 renderPayments(payments);
+                renderRentSummary(payments);
             } catch (error) {
                 console.error('Failed to load payments:', error);
             }
         }
 
+        function renderRentSummary(payments) {
+            const paid = payments.filter(p => p.status === 'Paid');
+            const pending = payments.filter(p => p.status === 'Pending');
+            const overdue = payments.filter(p => p.status === 'Overdue');
+            const sum = arr => arr.reduce((s, p) => s + (p.amount || 0), 0);
+
+            document.getElementById('rentSummaryCards').innerHTML = `
+                <div class="stat-card success">
+                    <div class="stat-card-label">Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(sum(paid))}</div>
+                    <div class="stat-card-subtext">${paid.length} payments</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="stat-card-label">Pending</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(sum(pending))}</div>
+                    <div class="stat-card-subtext">${pending.length} payments</div>
+                </div>
+                <div class="stat-card danger">
+                    <div class="stat-card-label">Overdue</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(sum(overdue))}</div>
+                    <div class="stat-card-subtext">${overdue.length} payments</div>
+                </div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Total</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(sum(payments))}</div>
+                    <div class="stat-card-subtext">${payments.length} entries</div>
+                </div>
+            `;
+        }
+
         function renderPayments(payments) {
             if (payments.length === 0) {
-                document.getElementById('paymentsTable').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#7a6b5e;">No payments found</td></tr>';
+                document.getElementById('paymentsTable').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#7a6b5e;">No payments found. Click "+ Record Payment" to add a rent payment.</td></tr>';
                 return;
             }
 
-            const html = payments.map(p => `
-                <tr>
-                    <td><strong>${p.tenant_name}</strong></td>
-                    <td>${p.locker_number}</td>
+            const html = payments.map(p => {
+                const dateStr = p.paid_on || p.due_date;
+                const dateDisplay = dateStr ? new Date(dateStr).toLocaleDateString('en-IN') : '-';
+                return `
+                <tr data-status="${p.status}">
+                    <td style="font-size:12px;color:var(--text-light);">${p.receipt_no || '-'}</td>
+                    <td><strong>${p.tenant_name || '-'}</strong>${p.type === 'deposit' ? ' <span class="badge badge-primary" style="font-size:10px;">Deposit</span>' : ''}</td>
+                    <td>${p.locker_number || '-'}</td>
+                    <td>${p.period || '-'}</td>
                     <td>₹${formatIndianNumber(p.amount)}</td>
-                    <td>${capitalize(p.method)}</td>
-                    <td>${new Date(p.paid_on || p.due_date).toLocaleDateString('en-IN')}</td>
-                    <td><span class="badge ${getPaymentStatusBadge(p.status)}">${capitalize(p.status)}</span></td>
+                    <td>${p.method ? capitalize(p.method) : '-'}</td>
+                    <td>${dateDisplay}</td>
+                    <td><span class="badge ${getPaymentStatusBadge(p.status)}">${p.status}</span></td>
                     <td>
                         <div class="action-buttons">
-                            <button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')">Edit</button>
-                            <button class="btn btn-danger" onclick="deletePayment('${p.id}')">Delete</button>
+                            ${p.status === 'Pending' || p.status === 'Overdue' ? `<button class="btn btn-primary" onclick="markAsPaid('${p.id}')" style="font-size:12px;padding:5px 10px;">Mark Paid</button>` : ''}
+                            <button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')" style="font-size:12px;padding:5px 10px;">Edit</button>
+                            <button class="btn btn-danger" onclick="deletePayment('${p.id}')" style="font-size:12px;padding:5px 10px;">Del</button>
                         </div>
                     </td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
 
             document.getElementById('paymentsTable').innerHTML = html;
         }
 
         function filterPayments() {
             const search = document.getElementById('paymentSearch').value.toLowerCase();
+            const statusFilter = document.getElementById('paymentStatusFilter').value;
             document.querySelectorAll('#paymentsTable tr').forEach(row => {
                 const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(search) ? '' : 'none';
+                const rowStatus = row.getAttribute('data-status');
+                const matchSearch = !search || text.includes(search);
+                const matchStatus = !statusFilter || rowStatus === statusFilter;
+                row.style.display = (matchSearch && matchStatus) ? '' : 'none';
             });
+        }
+
+        async function markAsPaid(id) {
+            const today = new Date().toISOString().split('T')[0];
+            showLoading('Marking as paid...');
+            try {
+                await api('PUT', `/api/payments/${id}`, { status: 'Paid', paid_on: today });
+                hideLoading();
+                await loadPayments();
+            } catch (err) {
+                hideLoading();
+                alert('Failed: ' + err.message);
+            }
         }
 
         function openAddPaymentModal() {
@@ -2708,7 +3101,9 @@
             document.getElementById('paymentForm').reset();
             document.getElementById('paymentId').value = '';
             document.getElementById('paymentDate').valueAsDate = new Date();
-            document.getElementById('paymentStatus').value = 'completed';
+            document.getElementById('paymentStatus').value = 'Paid';
+            document.getElementById('paymentTenantInfo').style.display = 'none';
+            populatePeriodOptions();
 
             // Load tenants
             loadTenantSelect('paymentTenant');
@@ -2719,19 +3114,39 @@
             currentEditingId = id;
             try {
                 const payment = await api('GET', `/api/payments/${id}`);
-                document.getElementById('paymentModalTitle').textContent = 'Edit Payment';
+                document.getElementById('paymentModalTitle').textContent = 'Edit Payment' + (payment.receipt_no ? ' (' + payment.receipt_no + ')' : '');
                 document.getElementById('paymentId').value = id;
                 await loadTenantSelect('paymentTenant');
                 document.getElementById('paymentTenant').value = payment.tenant_id;
+                populatePeriodOptions();
+                document.getElementById('paymentPeriod').value = payment.period || '';
                 document.getElementById('paymentAmount').value = payment.amount;
                 document.getElementById('paymentMethod').value = payment.method;
+                document.getElementById('paymentRefNo').value = payment.ref_no || '';
                 document.getElementById('paymentDate').value = payment.paid_on || payment.due_date;
                 document.getElementById('paymentStatus').value = payment.status;
                 document.getElementById('paymentNotes').value = payment.notes || '';
+                document.getElementById('paymentTenantInfo').style.display = 'none';
                 document.getElementById('paymentModal').classList.add('active');
             } catch (error) {
                 console.error('Failed to load payment:', error);
             }
+        }
+
+        function populatePeriodOptions() {
+            const select = document.getElementById('paymentPeriod');
+            const now = new Date();
+            const currentYear = now.getFullYear();
+            // Indian financial year: Apr to Mar
+            const currentFY = now.getMonth() >= 3 ? currentYear : currentYear - 1;
+            let options = '<option value="">Select period</option>';
+            // Show 3 past FYs + current + 2 future
+            for (let fy = currentFY - 3; fy <= currentFY + 2; fy++) {
+                const label = `FY ${fy}-${String(fy + 1).slice(2)}`;
+                const isCurrent = fy === currentFY ? ' (Current)' : '';
+                options += `<option value="${label}" ${fy === currentFY ? 'selected' : ''}>${label}${isCurrent}</option>`;
+            }
+            select.innerHTML = options;
         }
 
         async function loadTenantSelect(selectId) {
@@ -2740,30 +3155,56 @@
                     ? `/api/tenants?branch_id=${currentBranchId}`
                     : '/api/tenants?branch_id=all';
                 const tenants = await api('GET', url);
+                allTenantsCache = tenants;
                 const select = document.getElementById(selectId);
                 select.innerHTML = '<option value="">Select tenant</option>' +
-                    tenants.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+                    tenants.map(t => `<option value="${t.id}" data-rent="${t.annual_rent || 0}" data-locker="${t.locker_number || ''}" data-lockerid="${t.locker_id || ''}">${t.name}${t.locker_number ? ' (' + t.locker_number + ')' : ''}</option>`).join('');
             } catch (error) {
                 console.error('Failed to load tenants:', error);
             }
         }
 
-        function populatePaymentAmount() {
-            // Would fetch monthly rent here if needed
+        function populatePaymentDetails() {
+            const select = document.getElementById('paymentTenant');
+            const opt = select.options[select.selectedIndex];
+            if (!opt || !opt.value) {
+                document.getElementById('paymentTenantInfo').style.display = 'none';
+                return;
+            }
+            const annualRent = parseFloat(opt.getAttribute('data-rent')) || 0;
+            const locker = opt.getAttribute('data-locker') || '-';
+
+            document.getElementById('paymentTenantLocker').textContent = 'Locker: ' + locker;
+            document.getElementById('paymentTenantRent').textContent = 'Annual Rent: ₹' + formatIndianNumber(annualRent);
+            document.getElementById('paymentTenantInfo').style.display = 'block';
+
+            // Auto-fill amount with annual rent
+            if (!document.getElementById('paymentAmount').value || document.getElementById('paymentAmount').value === '0') {
+                document.getElementById('paymentAmount').value = annualRent;
+            }
         }
 
         async function savePayment() {
             const paymentId = document.getElementById('paymentId').value;
+            const tenantSelect = document.getElementById('paymentTenant');
+            const opt = tenantSelect.options[tenantSelect.selectedIndex];
+
             const data = {
                 branch_id: currentBranchId,
-                tenant_id: document.getElementById('paymentTenant').value,
+                tenant_id: tenantSelect.value,
+                locker_id: opt ? (opt.getAttribute('data-lockerid') || '') : '',
+                period: document.getElementById('paymentPeriod').value,
                 amount: parseInt(document.getElementById('paymentAmount').value),
                 method: document.getElementById('paymentMethod').value,
-                due_date: document.getElementById('paymentDate').value,
+                ref_no: document.getElementById('paymentRefNo').value,
                 paid_on: document.getElementById('paymentDate').value,
+                due_date: document.getElementById('paymentDate').value,
                 status: document.getElementById('paymentStatus').value,
                 notes: document.getElementById('paymentNotes').value
             };
+
+            if (!data.tenant_id) { alert('Please select a tenant'); return; }
+            if (!data.amount) { alert('Please enter the amount'); return; }
 
             showLoading('Saving payment...');
             try {
@@ -2778,12 +3219,11 @@
             } catch (error) {
                 hideLoading();
                 alert('Failed to save payment: ' + error.message);
-                console.error('Failed to save payment:', error);
             }
         }
 
         async function deletePayment(id) {
-            if (confirm('Are you sure?')) {
+            if (confirm('Delete this payment record? This cannot be undone.')) {
                 try {
                     await api('DELETE', `/api/payments/${id}`);
                     await loadPayments();
@@ -3505,15 +3945,16 @@
         }
 
         function getPaymentStatusBadge(status) {
-            if (status === 'completed') return 'badge-success';
-            if (status === 'pending') return 'badge-warning';
+            if (status === 'Paid' || status === 'completed') return 'badge-success';
+            if (status === 'Pending' || status === 'pending') return 'badge-warning';
+            if (status === 'Overdue') return 'badge-danger';
             return 'badge-danger';
         }
 
         function getPayoutStatusBadge(status) {
-            if (status === 'completed') return 'badge-success';
-            if (status === 'pending') return 'badge-warning';
-            if (status === 'delayed') return 'badge-danger';
+            if (status === 'Paid' || status === 'completed') return 'badge-success';
+            if (status === 'Pending' || status === 'pending') return 'badge-warning';
+            if (status === 'Missed' || status === 'delayed') return 'badge-danger';
             return 'badge-primary';
         }
 
