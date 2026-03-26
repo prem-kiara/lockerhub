@@ -1856,14 +1856,13 @@
                     </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="tenantName">Name</label>
+                            <label for="tenantName">Name <span style="color:var(--danger);">*</span></label>
                             <input type="text" id="tenantName" required>
                         </div>
                         <div class="form-group">
-                            <label for="tenantPhone">Phone (+91)</label>
+                            <label for="tenantPhone">Phone (+91) <span style="color:var(--danger);">*</span></label>
                             <div style="display: flex; gap: 8px; align-items: center;">
-                                <!-- CHANGE 4: Add onblur handler for phone auto-populate -->
-                                <input type="tel" id="tenantPhone" placeholder="9876543210" required onblur="autoPopulateTenantByPhone()">
+                                <input type="tel" id="tenantPhone" placeholder="9876543210" required maxlength="10" pattern="[0-9]{10}" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" onblur="autoPopulateTenantByPhone()">
                                 <button type="button" id="tenantPhoneClearBtn" onclick="clearTenantPhoneAndForm()" style="display:none; padding: 8px 12px; background: #b52a1c; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">✕</button>
                             </div>
                             <div id="tenantPhoneInfo" style="margin-top: 8px; padding: 10px; background: #fff8e1; border-left: 3px solid #ffc107; border-radius: 4px; display: none; color: #856404; font-size: 13px;"></div>
@@ -1875,7 +1874,7 @@
                             <input type="email" id="tenantEmail">
                         </div>
                         <div class="form-group">
-                            <label for="tenantLocker">Locker</label>
+                            <label for="tenantLocker">Locker <span style="color:var(--danger);">*</span></label>
                             <select id="tenantLocker" required onchange="autoFillRent()">
                                 <option value="">Select locker</option>
                             </select>
@@ -1885,12 +1884,21 @@
                         </div>
                     </div>
                     <div class="form-group">
-                        <label for="tenantAddress">Address</label>
-                        <textarea id="tenantAddress"></textarea>
+                        <label for="tenantAddress">Address <span style="color:var(--danger);">*</span></label>
+                        <textarea id="tenantAddress" required></textarea>
                     </div>
-                    <div class="form-group">
-                        <label for="tenantEmergency">Emergency Contact</label>
-                        <input type="tel" id="tenantEmergency" pattern="[0-9]{10}" placeholder="9876543210">
+                    <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
+                        <h4 style="margin-bottom: 12px;">Emergency Contact <span style="color:var(--danger);">*</span></h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenantEmergencyName">Contact Name <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantEmergencyName" placeholder="e.g., Spouse / Parent name" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="tenantEmergency">Phone Number <span style="color:var(--danger);">*</span></label>
+                                <input type="tel" id="tenantEmergency" maxlength="10" pattern="[0-9]{10}" placeholder="9876543210" required oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+                            </div>
+                        </div>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -1899,38 +1907,38 @@
                         </div>
                     </div>
                     <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
-                        <h4 style="margin-bottom: 12px;">Bank Account Details</h4>
+                        <h4 style="margin-bottom: 12px;">Bank Account Details <span style="color:var(--danger);">*</span></h4>
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="tenantBankName">Bank Name</label>
-                                <input type="text" id="tenantBankName" placeholder="e.g., State Bank of India">
+                                <label for="tenantBankName">Bank Name <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBankName" placeholder="e.g., State Bank of India" required>
                             </div>
                             <div class="form-group">
-                                <label for="tenantBankAccount">Account Number</label>
-                                <input type="text" id="tenantBankAccount">
+                                <label for="tenantBankAccount">Account Number <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBankAccount" required>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="tenantBankIfsc">IFSC Code</label>
-                                <input type="text" id="tenantBankIfsc" placeholder="e.g., SBIN0001234" style="text-transform:uppercase;">
+                                <label for="tenantBankIfsc">IFSC Code <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBankIfsc" placeholder="e.g., SBIN0001234" style="text-transform:uppercase;" required>
                             </div>
                             <div class="form-group">
-                                <label for="tenantBankBranch">Bank Branch</label>
-                                <input type="text" id="tenantBankBranch">
+                                <label for="tenantBankBranch">Bank Branch <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBankBranch" required>
                             </div>
                         </div>
                     </div>
                     <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
-                        <h4 style="margin-bottom: 12px;">Background Verification</h4>
+                        <h4 style="margin-bottom: 12px;">Background Verification <span style="color:var(--danger);">*</span></h4>
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="tenantBgAadhaar">Aadhaar Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBgAadhaar" placeholder="e.g., 1234 5678 9012" maxlength="14">
+                                <input type="text" id="tenantBgAadhaar" placeholder="e.g., 1234 5678 9012" maxlength="14" required>
                             </div>
                             <div class="form-group">
                                 <label for="tenantBgPan">PAN Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBgPan" placeholder="e.g., ABCDE1234F" maxlength="10" style="text-transform:uppercase;">
+                                <input type="text" id="tenantBgPan" placeholder="e.g., ABCDE1234F" maxlength="10" style="text-transform:uppercase;" required>
                             </div>
                         </div>
                         <div class="checkbox-group" style="margin-top: 8px;">
@@ -2589,6 +2597,118 @@
             }
         }
 
+        // ===== Session Persistence & Inactivity Timeout =====
+        const SESSION_KEY = 'lockerhub_session';
+        const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes inactivity timeout
+        let inactivityTimer = null;
+
+        function saveSession(userData) {
+            const session = {
+                user: userData,
+                lastActive: Date.now()
+            };
+            localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+        }
+
+        function clearSession() {
+            localStorage.removeItem(SESSION_KEY);
+        }
+
+        function getSession() {
+            try {
+                const raw = localStorage.getItem(SESSION_KEY);
+                if (!raw) return null;
+                const session = JSON.parse(raw);
+                // Check if session has expired
+                if (Date.now() - session.lastActive > SESSION_TIMEOUT_MS) {
+                    clearSession();
+                    return null;
+                }
+                return session;
+            } catch (e) {
+                clearSession();
+                return null;
+            }
+        }
+
+        function resetInactivityTimer() {
+            if (inactivityTimer) clearTimeout(inactivityTimer);
+            // Update last active timestamp
+            const session = getSession();
+            if (session) {
+                session.lastActive = Date.now();
+                localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+            }
+            inactivityTimer = setTimeout(() => {
+                if (currentUser) {
+                    alert('Session expired due to inactivity. Please log in again.');
+                    logout();
+                }
+            }, SESSION_TIMEOUT_MS);
+        }
+
+        // Track user activity for inactivity timeout
+        ['click', 'keydown', 'mousemove', 'touchstart', 'scroll'].forEach(evt => {
+            document.addEventListener(evt, () => {
+                if (currentUser) resetInactivityTimer();
+            }, { passive: true });
+        });
+
+        // Apply session to UI (shared between login and restore)
+        async function applySession(result) {
+            currentUser = result;
+            currentBranchId = result.branch_id;
+            const isCustomer = result.role === 'customer';
+
+            // Show app
+            document.getElementById('loginScreen').style.display = 'none';
+            document.getElementById('appContainer').style.display = 'flex';
+
+            // Hide all nav items first
+            document.querySelectorAll('.sidebar-nav li').forEach(li => li.style.display = 'none');
+
+            if (isCustomer) {
+                document.getElementById('navCustDashboard').style.display = 'block';
+                document.getElementById('navCustAppointments').style.display = 'block';
+                document.getElementById('navCustPayments').style.display = 'block';
+                document.getElementById('lockerAddBtns').style.display = 'none';
+                document.getElementById('branchSelectorContainer').style.display = 'none';
+                document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
+                await switchSection('custDashboard');
+            } else {
+                const isHeadOffice = result.role === 'headoffice';
+                document.querySelectorAll('.sidebar-nav li').forEach(li => {
+                    if (!li.id || (!li.id.startsWith('navCust'))) li.style.display = 'block';
+                });
+                document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navPayments').style.display = 'block';
+                document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navAppointments').style.display = 'block';
+                document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
+                document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
+
+                if (isHeadOffice) {
+                    loadBranchSelector();
+                }
+                await switchSection('dashboard');
+            }
+            resetInactivityTimer();
+        }
+
+        // Restore session on page load
+        (async function restoreSession() {
+            const session = getSession();
+            if (session && session.user) {
+                await applySession(session.user);
+            }
+        })();
+
         // ===== Login =====
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -2605,51 +2725,8 @@
                     result = await api('POST', '/api/login', { username, password }, 45000);
                 }
                 hideLoading();
-                currentUser = result;
-                currentBranchId = result.branch_id;
-                const isCustomer = result.role === 'customer';
-
-                // Show app
-                document.getElementById('loginScreen').style.display = 'none';
-                document.getElementById('appContainer').style.display = 'flex';
-
-                // Hide all nav items first
-                document.querySelectorAll('.sidebar-nav li').forEach(li => li.style.display = 'none');
-
-                if (isCustomer) {
-                    // Customer nav
-                    document.getElementById('navCustDashboard').style.display = 'block';
-                    document.getElementById('navCustAppointments').style.display = 'block';
-                    document.getElementById('navCustPayments').style.display = 'block';
-                    document.getElementById('lockerAddBtns').style.display = 'none';
-                    document.getElementById('branchSelectorContainer').style.display = 'none';
-                    document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
-                    await switchSection('custDashboard');
-                } else {
-                    const isHeadOffice = result.role === 'headoffice';
-                    // Show all staff nav items
-                    document.querySelectorAll('.sidebar-nav li').forEach(li => {
-                        if (!li.id || (!li.id.startsWith('navCust'))) li.style.display = 'block';
-                    });
-                    // Head Office only sections
-                    document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('navPayments').style.display = 'block';
-                    document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
-                    document.getElementById('navAppointments').style.display = 'block';
-                    document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
-                    document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
-
-                    if (isHeadOffice) {
-                        loadBranchSelector();
-                    }
-                    await switchSection('dashboard');
-                }
+                saveSession(result);
+                await applySession(result);
             } catch (error) {
                 hideLoading();
                 const msg = error.message.includes('timed out') ? 'Server is starting up — please wait 30 seconds and try again.' : 'Invalid credentials';
@@ -2661,6 +2738,8 @@
         function logout() {
             currentUser = null;
             currentBranchId = null;
+            clearSession();
+            if (inactivityTimer) clearTimeout(inactivityTimer);
             document.getElementById('loginScreen').style.display = 'flex';
             document.getElementById('appContainer').style.display = 'none';
             document.getElementById('username').value = '';
@@ -3238,6 +3317,7 @@
                 document.getElementById('tenantPhone').value = tenant.phone;
                 document.getElementById('tenantEmail').value = tenant.email || '';
                 document.getElementById('tenantAddress').value = tenant.address || '';
+                document.getElementById('tenantEmergencyName').value = tenant.emergency_name || '';
                 document.getElementById('tenantEmergency').value = tenant.emergency || '';
                 document.getElementById('tenantLeaseStart').value = tenant.lease_start;
                 document.getElementById('tenantAnnualRent').value = tenant.annual_rent || '';
@@ -3294,6 +3374,7 @@
                 document.getElementById('tenantName').value = tenant.name || '';
                 document.getElementById('tenantEmail').value = tenant.email || '';
                 document.getElementById('tenantAddress').value = tenant.address || '';
+                document.getElementById('tenantEmergencyName').value = tenant.emergency_name || '';
                 document.getElementById('tenantEmergency').value = tenant.emergency || '';
                 document.getElementById('tenantBankName').value = tenant.bank_name || '';
                 document.getElementById('tenantBankAccount').value = tenant.bank_account || '';
@@ -3365,10 +3446,28 @@
         async function saveTenant() {
             const name = document.getElementById('tenantName').value.trim();
             const phone = document.getElementById('tenantPhone').value.trim();
+            const address = document.getElementById('tenantAddress').value.trim();
+            const emergencyName = document.getElementById('tenantEmergencyName').value.trim();
+            const emergencyPhone = document.getElementById('tenantEmergency').value.trim();
+            const lockerId = document.getElementById('tenantLocker').value;
+            const bankName = document.getElementById('tenantBankName').value.trim();
+            const bankAccount = document.getElementById('tenantBankAccount').value.trim();
+            const bankIfsc = document.getElementById('tenantBankIfsc').value.trim();
+            const bankBranch = document.getElementById('tenantBankBranch').value.trim();
             const aadhaar = document.getElementById('tenantBgAadhaar').value.trim();
             const pan = document.getElementById('tenantBgPan').value.trim();
-            if (!name) { alert('Please enter tenant name'); return; }
-            if (!phone) { alert('Please enter phone number'); return; }
+
+            // Mandatory validations
+            if (!name) { alert('Name is mandatory'); return; }
+            if (!phone || phone.length !== 10) { alert('Please enter a valid 10-digit phone number'); return; }
+            if (!lockerId) { alert('Please select a locker'); return; }
+            if (!address) { alert('Address is mandatory'); return; }
+            if (!emergencyName) { alert('Emergency contact name is mandatory'); return; }
+            if (!emergencyPhone || emergencyPhone.length !== 10) { alert('Please enter a valid 10-digit emergency contact phone number'); return; }
+            if (!bankName) { alert('Bank name is mandatory'); return; }
+            if (!bankAccount) { alert('Bank account number is mandatory'); return; }
+            if (!bankIfsc) { alert('IFSC code is mandatory'); return; }
+            if (!bankBranch) { alert('Bank branch is mandatory'); return; }
             if (!aadhaar) { alert('Aadhaar number is mandatory'); return; }
             if (!pan) { alert('PAN number is mandatory'); return; }
 
@@ -3394,20 +3493,21 @@
                 name: name,
                 phone: phone,
                 email: document.getElementById('tenantEmail').value,
-                address: document.getElementById('tenantAddress').value,
-                emergency: document.getElementById('tenantEmergency').value,
-                locker_id: document.getElementById('tenantLocker').value || null,
+                address: address,
+                emergency_name: emergencyName,
+                emergency: emergencyPhone,
+                locker_id: lockerId,
                 lease_start: document.getElementById('tenantLeaseStart').value,
-                bg_aadhaar: document.getElementById('tenantBgAadhaar').value.trim(),
-                bg_pan: document.getElementById('tenantBgPan').value.trim().toUpperCase(),
+                bg_aadhaar: aadhaar,
+                bg_pan: pan.toUpperCase(),
                 bg_photos_collected: document.getElementById('tenantBgPhotosCollected').checked,
-                bg_status: (document.getElementById('tenantBgAadhaar').value.trim() && document.getElementById('tenantBgPan').value.trim() && document.getElementById('tenantBgPhotosCollected').checked) ? 'Verified' : 'Pending',
+                bg_status: (aadhaar && pan && document.getElementById('tenantBgPhotosCollected').checked) ? 'Verified' : 'Pending',
                 annual_rent: annualRent,
                 deposit: deposit,
-                bank_name: document.getElementById('tenantBankName').value,
-                bank_account: document.getElementById('tenantBankAccount').value,
-                bank_ifsc: document.getElementById('tenantBankIfsc').value.toUpperCase(),
-                bank_branch: document.getElementById('tenantBankBranch').value
+                bank_name: bankName,
+                bank_account: bankAccount,
+                bank_ifsc: bankIfsc.toUpperCase(),
+                bank_branch: bankBranch
             };
 
             showLoading('Saving tenant...');

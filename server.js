@@ -288,6 +288,9 @@ addColumnIfMissing('payments', 'type', "TEXT DEFAULT 'rent'");
 addColumnIfMissing('payments', 'period', "TEXT DEFAULT ''");
 addColumnIfMissing('payments', 'receipt_no', "TEXT DEFAULT ''");
 
+// Emergency contact name migration
+addColumnIfMissing('tenants', 'emergency_name', "TEXT DEFAULT ''");
+
 // Customer portal migrations
 addColumnIfMissing('tenants', 'customer_password', "TEXT DEFAULT ''");
 
@@ -697,11 +700,11 @@ app.post('/api/tenants', (req, res) => {
       start.setFullYear(start.getFullYear() + 1);
       lease_end = start.toISOString().split('T')[0];
     }
-    db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency, locker_id, lease_start, lease_end,
+    db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end,
       annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch,
       bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency || '', d.locker_id || '', d.lease_start || '', lease_end,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency_name || '', d.emergency || '', d.locker_id || '', d.lease_start || '', lease_end,
       d.annual_rent || 0, d.deposit || 0, d.bank_name || '', d.bank_account || '', d.bank_ifsc || '', d.bank_branch || '',
       d.bg_aadhaar || '', d.bg_pan || '', d.bg_photos_collected ? 1 : 0, d.bg_status || 'Pending', d.bg_notes || ''
     );
