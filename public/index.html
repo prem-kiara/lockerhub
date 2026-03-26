@@ -1849,7 +1849,7 @@
                 <form id="tenantForm">
                     <input type="hidden" id="tenantId">
                     <div class="form-group" id="tenantBranchGroup" style="display:none;">
-                        <label for="tenantBranch">Branch</label>
+                        <label for="tenantBranch">Branch <span style="color:var(--danger);">*</span></label>
                         <select id="tenantBranch" required onchange="onTenantBranchChange()">
                             <option value="">Select branch</option>
                         </select>
@@ -3457,6 +3457,14 @@
             const aadhaar = document.getElementById('tenantBgAadhaar').value.trim();
             const pan = document.getElementById('tenantBgPan').value.trim();
 
+            // Branch is mandatory for Head Office users
+            const isHO = currentUser.role === 'headoffice';
+            if (isHO && !document.getElementById('tenantBranch').value) {
+                alert('Please select a branch');
+                document.getElementById('tenantBranch').focus();
+                return;
+            }
+
             // Mandatory validations
             if (!name) { alert('Name is mandatory'); return; }
             if (!phone || phone.length !== 10) { alert('Please enter a valid 10-digit phone number'); return; }
@@ -3472,7 +3480,6 @@
             if (!pan) { alert('PAN number is mandatory'); return; }
 
             const tenantId = document.getElementById('tenantId').value;
-            const isHO = currentUser.role === 'headoffice';
             let branchId = isHO ? document.getElementById('tenantBranch').value : currentBranchId;
             // For HO editing existing tenant, if branch selector is empty, keep original
             if (!branchId && tenantId && isHO) {
