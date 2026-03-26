@@ -761,46 +761,58 @@ app.get('/api/tenants/:id', (req, res) => {
 });
 
 app.put('/api/tenants/:id', (req, res) => {
-  const d = req.body;
-  // Handle locker status changes
-  const oldTenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(req.params.id);
-  const oldLockerId = oldTenant ? oldTenant.locker_id : '';
-  const newLockerId = d.locker_id || '';
+  try {
+    const d = req.body;
+    // Handle locker status changes
+    const oldTenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(req.params.id);
+    const oldLockerId = oldTenant ? oldTenant.locker_id : '';
+    const newLockerId = d.locker_id || '';
 
-  if (oldLockerId !== newLockerId) {
-    // Free old locker
-    if (oldLockerId) db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(oldLockerId);
-    // Occupy new locker
-    if (newLockerId) db.prepare("UPDATE lockers SET status = 'occupied' WHERE id = ?").run(newLockerId);
-    logInfo('Locker reassigned', { tenant: req.params.id, from: oldLockerId, to: newLockerId });
-  }
+    if (oldLockerId !== newLockerId) {
+      // Free old locker
+      if (oldLockerId) db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(oldLockerId);
+      // Occupy new locker
+      if (newLockerId) db.prepare("UPDATE lockers SET status = 'occupied' WHERE id = ?").run(newLockerId);
+      logInfo('Locker reassigned', { tenant: req.params.id, from: oldLockerId, to: newLockerId });
+    }
 
-  const fields = [];
-  const vals = [];
-  for (const [k, v] of Object.entries(d)) {
-    if (k === 'id' || k === 'branch_id') continue;
-    fields.push(`${k} = ?`);
-    vals.push(v);
+    const fields = [];
+    const vals = [];
+    for (const [k, v] of Object.entries(d)) {
+      if (k === 'id' || k === 'branch_id') continue;
+      fields.push(`${k} = ?`);
+      // SQLite does not accept JS booleans — convert to 1/0
+      vals.push(typeof v === 'boolean' ? (v ? 1 : 0) : v);
+    }
+    if (fields.length) {
+      vals.push(req.params.id);
+      db.prepare(`UPDATE tenants SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Error updating tenant', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
   }
-  if (fields.length) {
-    vals.push(req.params.id);
-    db.prepare(`UPDATE tenants SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
-  }
-  res.json({ ok: true });
 });
 
 app.delete('/api/tenants/:id', (req, res) => {
-  const tenant = db.prepare('SELECT locker_id, name FROM tenants WHERE id = ?').get(req.params.id);
-  if (tenant && tenant.locker_id) {
-    db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(tenant.locker_id);
+  try {
+    const tenant = db.prepare('SELECT locker_id, name FROM tenants WHERE id = ?').get(req.params.id);
+    if (tenant && tenant.locker_id) {
+      db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(tenant.locker_id);
+    }
+    // Clean up related records (must delete all child records before tenant due to foreign keys)
+    const delPayments = db.prepare('DELETE FROM payments WHERE tenant_id = ?').run(req.params.id);
+    const delPayouts = db.prepare('DELETE FROM payouts WHERE tenant_id = ?').run(req.params.id);
+    const delVisits = db.prepare('DELETE FROM visits WHERE tenant_id = ?').run(req.params.id);
+    const delAppointments = db.prepare('DELETE FROM appointments WHERE tenant_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
+    logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes, appointments_removed: delAppointments.changes });
+    res.json({ ok: true });
+  } catch (err) {
+    logWarn('Tenant delete failed', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Failed to delete tenant: ' + err.message });
   }
-  // Clean up related records
-  const delPayments = db.prepare('DELETE FROM payments WHERE tenant_id = ?').run(req.params.id);
-  const delPayouts = db.prepare('DELETE FROM payouts WHERE tenant_id = ?').run(req.params.id);
-  const delVisits = db.prepare('DELETE FROM visits WHERE tenant_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
-  logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes });
-  res.json({ ok: true });
 });
 
 // ============================
