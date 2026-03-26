@@ -3699,6 +3699,7 @@
                     await loadTenants();
                 } catch (error) {
                     console.error('Failed to delete tenant:', error);
+                    alert('Failed to delete tenant: ' + error.message);
                 }
             }
         }
