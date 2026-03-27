@@ -531,7 +531,7 @@ app.get('/api/units', (req, res) => {
 function getNextUnitNumber(branch_id, locker_type_id) {
   const lt = db.prepare('SELECT name FROM locker_types WHERE id = ?').get(locker_type_id);
   if (!lt) return null;
-  const prefix = lt.name; // e.g., "L6" or "L10"
+  const prefix = lt.name; // e.g., "L6", "L10", "L6U", "L10U"
   // Find the highest existing unit number for this prefix in this branch
   const existing = db.prepare(
     `SELECT unit_number FROM units WHERE branch_id = ? AND unit_number LIKE ? ORDER BY unit_number DESC LIMIT 1`
@@ -647,6 +647,21 @@ app.get('/api/lockers', (req, res) => {
       LEFT JOIN units u ON l.unit_id = u.id
       ORDER BY b.name, l.number`).all();
   }
+  res.json(lockers);
+});
+
+// Get lockers for a specific unit (with tenant details)
+app.get('/api/units/:id/lockers', (req, res) => {
+  const lockers = db.prepare(`SELECT l.*,
+    t.name as tenant_name, t.phone as tenant_phone, t.email as tenant_email,
+    t.annual_rent as tenant_annual_rent, t.deposit as tenant_deposit,
+    t.lease_start, t.lease_end, t.bg_status,
+    lt.name as type_name, lt.variant as type_variant,
+    lt.annual_rent as type_annual_rent, lt.deposit as type_deposit
+    FROM lockers l
+    LEFT JOIN tenants t ON t.locker_id = l.id
+    LEFT JOIN locker_types lt ON l.locker_type_id = lt.id
+    WHERE l.unit_id = ? ORDER BY l.number`).all(req.params.id);
   res.json(lockers);
 });
 
@@ -936,7 +951,8 @@ app.get('/api/receipt/:paymentId', async (req, res) => {
     const tenant = { name: payment.tenant_name, phone: payment.tenant_phone, locker_number: payment.locker_number };
     const locker = { number: payment.locker_number, size: payment.locker_size };
 
-    const pdfBuffer = await generateReceiptBuffer(payment, tenant, branch || {}, locker || {});
+    const customerOnly = req.query.copy === 'customer';
+    const pdfBuffer = await generateReceiptBuffer(payment, tenant, branch || {}, locker || {}, { customerOnly });
 
     const safeName = (payment.receipt_no || 'receipt').replace(/[^a-zA-Z0-9-]/g, '_');
     res.setHeader('Content-Type', 'application/pdf');
@@ -1378,8 +1394,8 @@ function autoSeed() {
   const types = [
     { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 25000, dep: 300000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
     { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 250000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 25000, dep: 300000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
-    { id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 250000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
+    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 25000, dep: 300000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
+    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 250000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
   ];
   const insType = db.prepare(`INSERT INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming, annual_rent, deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   types.forEach(t => {

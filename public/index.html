@@ -1507,7 +1507,7 @@
             </div>
             <ul class="sidebar-nav">
                 <li><a onclick="switchSection('dashboard')" class="nav-link active" data-section="dashboard">Dashboard</a></li>
-                <li><a onclick="switchSection('lockers')" class="nav-link" data-section="lockers">Lockers</a></li>
+                <li style="display:none;"><a onclick="switchSection('lockers')" class="nav-link" data-section="lockers">Lockers</a></li>
                 <li id="lockerTypesMgmt" style="display: none;"><a onclick="switchSection('lockerTypes')" class="nav-link" data-section="lockerTypes">Locker Types</a></li>
                 <li id="navUnits" style="display: none;"><a onclick="switchSection('units')" class="nav-link" data-section="units">Units & Cabinets</a></li>
                 <li><a onclick="switchSection('tenants')" class="nav-link" data-section="tenants">Tenants</a></li>
@@ -2455,12 +2455,23 @@
             <div class="modal-body">
                 <form id="lockerTypeForm">
                     <div class="form-group">
+                        <label for="ltPreset">Select Preset</label>
+                        <select id="ltPreset" onchange="applyLockerTypePreset()">
+                            <option value="">-- Choose a preset to auto-fill --</option>
+                            <option value="L6_std">L6 - Standard (Hi-Tech, 6 lockers)</option>
+                            <option value="L10_std">L10 - Standard (Hi-Tech, 10 lockers)</option>
+                            <option value="L6_ultra">L6U - Secunex Ultra (6 lockers)</option>
+                            <option value="L10_ultra">L10U - Secunex Ultra (10 lockers)</option>
+                            <option value="custom">Custom (enter manually)</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label for="ltName">Name</label>
-                        <input type="text" id="ltName" required>
+                        <input type="text" id="ltName" required placeholder="e.g., L6, L10, L6U">
                     </div>
                     <div class="form-group">
                         <label for="ltVariant">Variant</label>
-                        <input type="text" id="ltVariant" placeholder="e.g., Standard, Compact">
+                        <input type="text" id="ltVariant" placeholder="e.g., Standard, Secunex Ultra">
                     </div>
                     <div class="form-group">
                         <label for="ltLockersPerUnit">Lockers per Unit</label>
@@ -2575,6 +2586,40 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('unitModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="saveUnit()">Add Unit</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Unit Detail (Locker list) -->
+    <div id="unitDetailModal" class="modal-overlay">
+        <div class="modal" style="max-width:800px;">
+            <div class="modal-header">
+                <h2 id="unitDetailTitle">Unit Details</h2>
+                <button class="modal-close" onclick="closeModal('unitDetailModal')">×</button>
+            </div>
+            <div class="modal-body" style="padding:16px;">
+                <div id="unitDetailInfo" style="margin-bottom:16px;"></div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Locker</th>
+                                <th>Size</th>
+                                <th>Status</th>
+                                <th>Tenant</th>
+                                <th>Phone</th>
+                                <th>Annual Rent</th>
+                                <th>Deposit</th>
+                                <th>Lease End</th>
+                                <th>BG Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="unitDetailLockers"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('unitDetailModal')">Close</button>
             </div>
         </div>
     </div>
@@ -2877,6 +2922,8 @@
                 document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
 
                 if (isHeadOffice) {
+                    currentBranchId = null; // HO sees all branches by default
+                    document.getElementById('backToAllBtn').style.display = 'none';
                     loadBranchSelector();
                 }
                 await switchSection('dashboard');
@@ -2947,6 +2994,13 @@
             closeSidebar(); // Close mobile sidebar on navigation
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(section + 'Screen').classList.add('active');
+
+            // Hide branch selector on pages that don't need it (Locker Types, Branches, Users, Backup)
+            const noBranchPages = ['lockerTypes', 'branches', 'users', 'backup'];
+            const isHeadOffice = currentUser && currentUser.role === 'headoffice';
+            if (isHeadOffice) {
+                document.getElementById('branchSelectorContainer').style.display = noBranchPages.includes(section) ? 'none' : 'block';
+            }
 
             document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
             document.querySelector(`[data-section="${section}"]`).classList.add('active');
@@ -3090,20 +3144,20 @@
 
         function renderBranchDashboard(stats) {
             const html = `
-                <div class="stat-card success">
+                <div class="stat-card primary">
                     <div class="stat-card-label">Total Lockers</div>
                     <div class="stat-card-value">${stats.total_lockers || 0}</div>
-                    <div class="stat-card-subtext">${stats.vacant || 0} available</div>
+                    <div class="stat-card-subtext">${stats.occupancy_pct || 0}% occupancy</div>
                 </div>
-                <div class="stat-card primary">
-                    <div class="stat-card-label">Occupancy</div>
-                    <div class="stat-card-value">${stats.occupancy_pct || 0}%</div>
-                    <div class="stat-card-subtext">${stats.occupied || 0} of ${stats.total_lockers || 0} occupied</div>
+                <div class="stat-card success">
+                    <div class="stat-card-label">Available</div>
+                    <div class="stat-card-value">${stats.vacant || 0}</div>
+                    <div class="stat-card-subtext">Ready for allotment</div>
                 </div>
-                <div class="stat-card primary">
-                    <div class="stat-card-label">Total Tenants</div>
-                    <div class="stat-card-value">${stats.tenants || 0}</div>
-                    <div class="stat-card-subtext">${stats.unverified_tenants || 0} BG unverified</div>
+                <div class="stat-card ${(stats.occupied || 0) > 0 ? 'danger' : 'primary'}">
+                    <div class="stat-card-label">Occupied</div>
+                    <div class="stat-card-value">${stats.occupied || 0}</div>
+                    <div class="stat-card-subtext">${stats.tenants || 0} tenants</div>
                 </div>
                 <div class="stat-card warning">
                     <div class="stat-card-label">Annual Rent</div>
@@ -3130,10 +3184,15 @@
                     <div class="stat-card-value">${stats.today_visits || 0}</div>
                     <div class="stat-card-subtext">Locker room activity</div>
                 </div>
-                <div class="stat-card ${(stats.month_overdue || 0) > 0 ? 'warning' : 'success'}">
-                    <div class="stat-card-label">${stats.current_month || 'This Month'} Payments</div>
+                <div class="stat-card ${(stats.unverified_tenants || 0) > 0 ? 'warning' : 'success'}">
+                    <div class="stat-card-label">BG Verification</div>
+                    <div class="stat-card-value">${stats.unverified_tenants || 0} unverified</div>
+                    <div class="stat-card-subtext">${(stats.unverified_tenants || 0) > 0 ? 'Pending verification' : 'All verified'}</div>
+                </div>
+                <div class="stat-card ${(stats.month_paid || 0) > 0 ? 'success' : 'primary'}">
+                    <div class="stat-card-label">${stats.current_month || 'This Month'}</div>
                     <div class="stat-card-value">${stats.month_paid || 0} received</div>
-                    <div class="stat-card-subtext">₹${formatIndianNumber(stats.month_paid_amount || 0)} collected this month</div>
+                    <div class="stat-card-subtext">₹${formatIndianNumber(stats.month_paid_amount || 0)} collected</div>
                 </div>
             `;
             document.getElementById('dashboardStats').innerHTML = html;
@@ -3159,20 +3218,25 @@
             const totalMonthPaidAmount = branches.reduce((sum, b) => sum + (b.month_paid_amount || 0), 0);
 
             const summaryHtml = `
-                <div class="stat-card success">
+                <div class="stat-card primary">
                     <div class="stat-card-label">Total Lockers</div>
                     <div class="stat-card-value">${totalLockers}</div>
-                    <div class="stat-card-subtext">${totalVacant} available</div>
+                    <div class="stat-card-subtext">${branches.length} branches</div>
                 </div>
-                <div class="stat-card primary">
-                    <div class="stat-card-label">Occupancy</div>
-                    <div class="stat-card-value">${occupancyPct}%</div>
-                    <div class="stat-card-subtext">${totalOccupied} of ${totalLockers} occupied</div>
+                <div class="stat-card success">
+                    <div class="stat-card-label">Available</div>
+                    <div class="stat-card-value">${totalVacant}</div>
+                    <div class="stat-card-subtext">Ready for allotment</div>
+                </div>
+                <div class="stat-card ${totalOccupied > 0 ? 'danger' : 'primary'}">
+                    <div class="stat-card-label">Occupied</div>
+                    <div class="stat-card-value">${totalOccupied}</div>
+                    <div class="stat-card-subtext">${occupancyPct}% occupancy</div>
                 </div>
                 <div class="stat-card primary">
                     <div class="stat-card-label">Total Tenants</div>
                     <div class="stat-card-value">${totalTenants}</div>
-                    <div class="stat-card-subtext">${branches.length} branches</div>
+                    <div class="stat-card-subtext">${totalUnverified > 0 ? totalUnverified + ' BG unverified' : 'All verified'}</div>
                 </div>
                 <div class="stat-card warning">
                     <div class="stat-card-label">Annual Rent</div>
@@ -3198,11 +3262,6 @@
                     <div class="stat-card-label">Today's Visits</div>
                     <div class="stat-card-value">${totalTodayVisits}</div>
                     <div class="stat-card-subtext">Across all branches</div>
-                </div>
-                <div class="stat-card ${totalUnverified > 0 ? 'warning' : 'success'}">
-                    <div class="stat-card-label">BG Unverified</div>
-                    <div class="stat-card-value">${totalUnverified}</div>
-                    <div class="stat-card-subtext">${totalUnverified > 0 ? 'Pending verification' : 'All verified'}</div>
                 </div>
                 <div class="stat-card ${totalMonthPaid > 0 ? 'success' : 'primary'}">
                     <div class="stat-card-label">This Month</div>
@@ -4784,8 +4843,69 @@
             }
         }
 
+        // Locker type presets (known configurations)
+        const LOCKER_TYPE_PRESETS = {
+            'L6_std': {
+                name: 'L6', variant: 'Standard', lpu: 6,
+                uh: 2000, uw: 1075, ud: 700,
+                lh: 637, lw: 529, ld: 621,
+                desc: 'L6 Hi-Tech Lockers with Wooden Sleepers'
+            },
+            'L10_std': {
+                name: 'L10', variant: 'Standard', lpu: 10,
+                uh: 2000, uw: 1075, ud: 575,
+                lh: 385, lw: 530, ld: 492,
+                desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers'
+            },
+            'L6_ultra': {
+                name: 'L6U', variant: 'Secunex Ultra', lpu: 6,
+                uh: 2000, uw: 1075, ud: 700,
+                lh: 637, lw: 529, ld: 621,
+                desc: 'L6 Secunex Ultra (Silver/Gold facia)'
+            },
+            'L10_ultra': {
+                name: 'L10U', variant: 'Secunex Ultra', lpu: 10,
+                uh: 2000, uw: 1075, ud: 575,
+                lh: 385, lw: 530, ld: 492,
+                desc: 'L2/10 Secunex Ultra (Silver/Gold facia)'
+            }
+        };
+
+        function applyLockerTypePreset() {
+            const presetKey = document.getElementById('ltPreset').value;
+            if (!presetKey || presetKey === 'custom') {
+                // Clear form for custom entry
+                if (presetKey === 'custom') {
+                    document.getElementById('ltName').value = '';
+                    document.getElementById('ltVariant').value = '';
+                    document.getElementById('ltLockersPerUnit').value = '';
+                    document.getElementById('ltUnitH').value = '';
+                    document.getElementById('ltUnitW').value = '';
+                    document.getElementById('ltUnitD').value = '';
+                    document.getElementById('ltLockerH').value = '';
+                    document.getElementById('ltLockerW').value = '';
+                    document.getElementById('ltLockerD').value = '';
+                    document.getElementById('ltDescription').value = '';
+                }
+                return;
+            }
+            const p = LOCKER_TYPE_PRESETS[presetKey];
+            if (!p) return;
+            document.getElementById('ltName').value = p.name;
+            document.getElementById('ltVariant').value = p.variant;
+            document.getElementById('ltLockersPerUnit').value = p.lpu;
+            document.getElementById('ltUnitH').value = p.uh;
+            document.getElementById('ltUnitW').value = p.uw;
+            document.getElementById('ltUnitD').value = p.ud;
+            document.getElementById('ltLockerH').value = p.lh;
+            document.getElementById('ltLockerW').value = p.lw;
+            document.getElementById('ltLockerD').value = p.ld;
+            document.getElementById('ltDescription').value = p.desc;
+        }
+
         function openAddLockerTypeModal() {
             document.getElementById('lockerTypeForm').reset();
+            document.getElementById('ltPreset').value = '';
             document.getElementById('lockerTypeModal').classList.add('active');
         }
 
@@ -4875,7 +4995,7 @@
                 const colorAttr = showBranch ? `data-branch-color="${branchColor}"` : '';
 
                 return `
-                    <div class="unit-card ${u.status === 'upcoming' ? 'upcoming' : 'active'}" ${colorAttr}>
+                    <div class="unit-card ${u.status === 'upcoming' ? 'upcoming' : 'active'}" ${colorAttr} onclick="openUnitDetail('${u.id}', '${u.unit_number}')" style="cursor:pointer;">
                         <div class="unit-card-header">
                             <div class="unit-card-number">${u.unit_number}</div>
                             ${badgeHtml}
@@ -4891,7 +5011,7 @@
                             <span>${occupancyPct}%</span>
                         </div>
                         ${u.location ? `<div class="unit-card-location">${u.location}</div>` : ''}
-                        <div class="unit-card-actions">
+                        <div class="unit-card-actions" onclick="event.stopPropagation();">
                             ${u.status === 'upcoming' ? `<button class="btn btn-primary" onclick="activateUnit('${u.id}')">Activate</button>` : ''}
                             <button class="btn btn-danger" onclick="deleteUnit('${u.id}')">Delete</button>
                         </div>
@@ -4900,6 +5020,62 @@
             }).join('');
 
             document.getElementById('unitsGrid').innerHTML = html;
+        }
+
+        async function openUnitDetail(unitId, unitNumber) {
+            document.getElementById('unitDetailTitle').textContent = `Unit ${unitNumber} — Lockers`;
+            document.getElementById('unitDetailLockers').innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px;">Loading...</td></tr>';
+            document.getElementById('unitDetailModal').classList.add('active');
+
+            try {
+                const lockers = await api('GET', `/api/units/${unitId}/lockers`);
+                if (lockers.length === 0) {
+                    document.getElementById('unitDetailLockers').innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px;">No lockers in this unit</td></tr>';
+                    document.getElementById('unitDetailInfo').innerHTML = '';
+                    return;
+                }
+
+                // Summary info
+                const occupied = lockers.filter(l => l.status === 'occupied').length;
+                const vacant = lockers.filter(l => l.status === 'vacant').length;
+                const typeName = lockers[0].type_name || '-';
+                const typeVariant = lockers[0].type_variant && lockers[0].type_variant !== 'Standard' ? ` (${lockers[0].type_variant})` : '';
+                const rent = lockers[0].type_annual_rent || 0;
+                const deposit = lockers[0].type_deposit || 0;
+
+                document.getElementById('unitDetailInfo').innerHTML = `
+                    <div style="display:flex; gap:16px; flex-wrap:wrap; font-size:13px; color:var(--text-light);">
+                        <span><strong>Type:</strong> ${typeName}${typeVariant}</span>
+                        <span><strong>Lockers:</strong> ${lockers.length} (${occupied} occupied, ${vacant} vacant)</span>
+                        <span><strong>Annual Rent:</strong> ₹${formatIndianNumber(rent)}</span>
+                        <span><strong>Deposit:</strong> ₹${formatIndianNumber(deposit)}</span>
+                    </div>
+                `;
+
+                const rows = lockers.map(l => {
+                    const statusClass = l.status === 'occupied' ? 'color:var(--danger);font-weight:600;' :
+                                        l.status === 'vacant' ? 'color:var(--success);font-weight:600;' : '';
+                    const leaseEnd = l.lease_end ? new Date(l.lease_end).toLocaleDateString('en-IN') : '-';
+                    const bgClass = l.bg_status === 'Verified' || l.bg_status === 'verified' ? 'color:var(--success)' :
+                                    l.bg_status ? 'color:var(--warning)' : '';
+                    return `<tr>
+                        <td><strong>${l.number}</strong></td>
+                        <td>${capitalize(l.size || '-')}</td>
+                        <td style="${statusClass}">${capitalize(l.status)}</td>
+                        <td>${l.tenant_name || '-'}</td>
+                        <td>${l.tenant_phone || '-'}</td>
+                        <td>₹${formatIndianNumber(l.tenant_annual_rent || rent)}</td>
+                        <td>₹${formatIndianNumber(l.tenant_deposit || deposit)}</td>
+                        <td>${l.status === 'occupied' ? leaseEnd : '-'}</td>
+                        <td style="${bgClass}">${l.bg_status || '-'}</td>
+                    </tr>`;
+                }).join('');
+
+                document.getElementById('unitDetailLockers').innerHTML = rows;
+            } catch (error) {
+                console.error('Failed to load unit detail:', error);
+                document.getElementById('unitDetailLockers').innerHTML = '<tr><td colspan="9" style="text-align:center; padding:20px; color:var(--danger);">Failed to load locker details</td></tr>';
+            }
         }
 
         function openAddUnitModal() {
@@ -5183,10 +5359,10 @@
             setTimeout(() => hideLoading(), 2000);
         }
 
-        function downloadReceipt(paymentId) {
+        function downloadReceipt(paymentId, customerCopyOnly) {
             showLoading('Generating Receipt...');
             const a = document.createElement('a');
-            a.href = `/api/receipt/${paymentId}`;
+            a.href = `/api/receipt/${paymentId}${customerCopyOnly ? '?copy=customer' : ''}`;
             a.download = '';
             document.body.appendChild(a);
             a.click();
@@ -5638,7 +5814,7 @@
                         <td>₹${formatIndianNumber(p.amount || 0)}</td>
                         <td><span class="badge ${p.status === 'Paid' ? 'badge-success' : 'badge-warning'}">${p.status}</span></td>
                         <td>${p.method || '-'}</td>
-                        <td>${p.status === 'Paid' ? `<button class="btn btn-secondary" onclick="downloadReceipt('${p.id}')" style="font-size:11px;padding:3px 8px;">🧾 ${p.receipt_no || 'Download'}</button>` : (p.receipt_no || '-')}</td>
+                        <td>${p.status === 'Paid' ? `<button class="btn btn-secondary" onclick="downloadReceipt('${p.id}', true)" style="font-size:11px;padding:3px 8px;">🧾 ${p.receipt_no || 'Download'}</button>` : (p.receipt_no || '-')}</td>
                     </tr>`;
                 }).join('');
             } catch (err) {
