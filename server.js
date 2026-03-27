@@ -623,9 +623,29 @@ app.get('/api/lockers', (req, res) => {
   const { branch_id } = req.query;
   let lockers;
   if (branch_id && branch_id !== 'all') {
-    lockers = db.prepare('SELECT * FROM lockers WHERE branch_id = ? ORDER BY number').all(branch_id);
+    lockers = db.prepare(`SELECT l.*,
+      t.name as tenant_name, t.phone as tenant_phone,
+      lt.name as type_name, lt.variant as type_variant,
+      lt.annual_rent as type_annual_rent, lt.deposit as type_deposit,
+      u.unit_number
+      FROM lockers l
+      LEFT JOIN tenants t ON t.locker_id = l.id
+      LEFT JOIN locker_types lt ON l.locker_type_id = lt.id
+      LEFT JOIN units u ON l.unit_id = u.id
+      WHERE l.branch_id = ? ORDER BY l.number`).all(branch_id);
   } else {
-    lockers = db.prepare('SELECT l.*, b.name as branch_name FROM lockers l JOIN branches b ON l.branch_id = b.id ORDER BY b.name, l.number').all();
+    lockers = db.prepare(`SELECT l.*,
+      b.name as branch_name,
+      t.name as tenant_name, t.phone as tenant_phone,
+      lt.name as type_name, lt.variant as type_variant,
+      lt.annual_rent as type_annual_rent, lt.deposit as type_deposit,
+      u.unit_number
+      FROM lockers l
+      JOIN branches b ON l.branch_id = b.id
+      LEFT JOIN tenants t ON t.locker_id = l.id
+      LEFT JOIN locker_types lt ON l.locker_type_id = lt.id
+      LEFT JOIN units u ON l.unit_id = u.id
+      ORDER BY b.name, l.number`).all();
   }
   res.json(lockers);
 });
@@ -1336,17 +1356,17 @@ function autoSeed() {
     'admin001', 'root', 'admin@123', 'Head Office Admin', 'headoffice', null
   );
 
-  // Locker types
+  // Locker types — Large (L6): 25k rent, 3L deposit | Medium (L10): 20k rent, 2.5L deposit
   const types = [
-    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
-    { id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
+    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 25000, dep: 300000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 250000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 25000, dep: 300000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
+    { id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 250000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
   ];
-  const insType = db.prepare(`INSERT INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insType = db.prepare(`INSERT INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming, annual_rent, deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   types.forEach(t => {
     const sz = classifySize(t.lh, t.lw, t.ld);
-    insType.run(t.id, t.name, t.variant, t.lpu, t.uh, t.uw, t.ud, t.lh, t.lw, t.ld, t.w, sz, t.desc, t.up);
+    insType.run(t.id, t.name, t.variant, t.lpu, t.uh, t.uw, t.ud, t.lh, t.lw, t.ld, t.w, sz, t.desc, t.up, t.rent, t.dep);
   });
 
   const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';

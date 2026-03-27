@@ -1437,10 +1437,10 @@
                                     <th class="sortable" onclick="sortTable(this, 'lockersTable', 1)">Type</th>
                                     <th class="sortable" onclick="sortTable(this, 'lockersTable', 2)">Unit</th>
                                     <th class="sortable" onclick="sortTable(this, 'lockersTable', 3)">Size</th>
-                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 4)">Status</th>
-                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 5)">Tenant</th>
-                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 6)">Location</th>
-                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 7)">Monthly Rent</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 4)">Annual Rent</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 5)">Deposit</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 6)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'lockersTable', 7)">Tenant</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -1924,6 +1924,7 @@
                             <div id="tenantRentDisplay" style="margin-top:6px;font-size:13px;color:#7a6b5e;"></div>
                             <div id="tenantDepositDisplay" style="margin-top:2px;font-size:13px;color:#7a6b5e;"></div>
                             <input type="hidden" id="tenantAnnualRent" value="0">
+                            <input type="hidden" id="tenantDeposit" value="0">
                         </div>
                     </div>
                     <div class="form-group">
@@ -3090,16 +3091,37 @@
                 if (l.status === 'occupied') badgeClass = 'badge-danger';
                 else if (l.status === 'upcoming') badgeClass = 'badge-warning';
 
+                // Type: name + variant from locker_types join
+                const typeName = l.type_name || '-';
+                const typeVariant = l.type_variant && l.type_variant !== 'Standard' ? ' (' + l.type_variant + ')' : '';
+                const typeDisplay = typeName !== '-' ? typeName + typeVariant : '-';
+
+                // Rent & deposit: locker_type config first, then size-based defaults
+                let annualRent = l.type_annual_rent || 0;
+                let deposit = l.type_deposit || 0;
+                if (annualRent === 0) {
+                    const s = (l.size || '').toLowerCase();
+                    if (s === 'small') { annualRent = 15000; deposit = 200000; }
+                    else if (s === 'medium') { annualRent = 20000; deposit = 250000; }
+                    else if (s === 'large') { annualRent = 25000; deposit = 300000; }
+                    else if (s === 'xl') { annualRent = 30000; deposit = 350000; }
+                }
+
+                // Tenant display with phone
+                const tenantDisplay = l.tenant_name
+                    ? '<strong>' + l.tenant_name + '</strong>' + (l.tenant_phone ? '<br><span style="font-size:11px;color:#7a6b5e;">' + l.tenant_phone + '</span>' : '')
+                    : '-';
+
                 return `
                     <tr>
                         <td><strong>${l.number}</strong></td>
-                        <td>${l.locker_type || '-'}</td>
+                        <td>${typeDisplay}</td>
                         <td>${l.unit_number || '-'}</td>
                         <td>${capitalize(l.size)}</td>
+                        <td style="text-align:right;">${annualRent > 0 ? '₹' + formatIndianNumber(annualRent) : '<span style="color:#b52a1c;">Not set</span>'}</td>
+                        <td style="text-align:right;">${deposit > 0 ? '₹' + formatIndianNumber(deposit) : '<span style="color:#b52a1c;">Not set</span>'}</td>
                         <td><span class="badge ${badgeClass}">${badgeText}</span></td>
-                        <td>${l.tenant_name || '-'}</td>
-                        <td>${l.location || '-'}</td>
-                        <td>₹${formatIndianNumber(l.rent)}</td>
+                        <td>${tenantDisplay}</td>
                         <td>
                             <div class="action-buttons">
                                 ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditLockerModal('${l.id}')">Edit</button>
@@ -3311,12 +3333,17 @@
             });
         }
 
-        function openAddTenantModal() {
+        async function openAddTenantModal() {
             currentEditingId = null;
             document.getElementById('tenantModalTitle').textContent = 'Add Tenant';
             document.getElementById('tenantForm').reset();
             document.getElementById('tenantId').value = '';
             document.getElementById('tenantLeaseStart').valueAsDate = new Date();
+
+            // Ensure locker types are cached for rent/deposit lookup
+            if (cachedLockerTypes.length === 0) {
+                try { cachedLockerTypes = await api('GET', '/api/locker-types'); } catch(e) {}
+            }
 
             // Show branch selector for head office
             const isHO = currentUser.role === 'headoffice';
@@ -3405,7 +3432,7 @@
                 // Show vacant lockers + the currently assigned locker (even if occupied)
                 select.innerHTML = '<option value="">Select locker</option>' +
                     lockers.filter(l => l.status === 'vacant' || l.id === currentLockerId)
-                    .map(l => `<option value="${l.id}" data-size="${l.size}">${l.number} (${capitalize(l.size)})${l.id === currentLockerId ? ' - Current' : ''}</option>`).join('');
+                    .map(l => `<option value="${l.id}" data-size="${l.size}" data-type-id="${l.locker_type_id || ''}">${l.number} (${capitalize(l.size)})${l.id === currentLockerId ? ' - Current' : ''}</option>`).join('');
             } catch (error) {
                 console.error('Failed to load lockers:', error);
             }
@@ -3467,11 +3494,12 @@
             const select = document.getElementById('tenantLocker');
             const opt = select.options[select.selectedIndex];
             const lockerTypeId = opt ? opt.getAttribute('data-type-id') : '';
+            const size = opt ? opt.getAttribute('data-size') : '';
 
             let rent = 0;
             let deposit = 0;
 
-            // CHANGE 2: Look up rent/deposit from cached locker types
+            // Look up rent/deposit from locker type configuration
             if (lockerTypeId && cachedLockerTypes.length > 0) {
                 const lockerType = cachedLockerTypes.find(lt => lt.id === lockerTypeId);
                 if (lockerType) {
@@ -3480,22 +3508,20 @@
                 }
             }
 
-            // Fallback to size-based defaults if not found
-            if (rent === 0) {
-                const size = opt ? opt.getAttribute('data-size') : '';
-                if (size === 'Large' || size === 'large') rent = 25000;
-                else if (size === 'Medium' || size === 'medium') rent = 20000;
-                else if (size === 'XL' || size === 'xl') rent = 30000;
-                else if (size === 'Small' || size === 'small') rent = 15000;
-
-                if (rent === 25000) deposit = 300000;
-                else if (rent === 20000) deposit = 250000;
-                else if (rent === 30000) deposit = 350000;
-                else if (rent === 15000) deposit = 200000;
+            // Size-based defaults if locker type doesn't have rent/deposit configured
+            if (rent === 0 && size) {
+                const s = size.toLowerCase();
+                if (s === 'small') { rent = 15000; deposit = 200000; }
+                else if (s === 'medium') { rent = 20000; deposit = 250000; }
+                else if (s === 'large') { rent = 25000; deposit = 300000; }
+                else if (s === 'xl') { rent = 30000; deposit = 350000; }
             }
 
             document.getElementById('tenantAnnualRent').value = rent;
-            document.getElementById('tenantRentDisplay').textContent = rent > 0 ? 'Annual Rent: Rs.' + rent.toLocaleString('en-IN') : '';
+            document.getElementById('tenantDeposit').value = deposit;
+            const rentDisplay = document.getElementById('tenantRentDisplay');
+            rentDisplay.style.color = '#7a6b5e';
+            rentDisplay.textContent = rent > 0 ? 'Annual Rent: Rs.' + rent.toLocaleString('en-IN') : '';
             document.getElementById('tenantDepositDisplay').textContent = deposit > 0 ? 'Deposit: Rs.' + deposit.toLocaleString('en-IN') : '';
         }
 
@@ -3547,9 +3573,7 @@
             if (!branchId) { alert('Please select a branch'); return; }
 
             const annualRent = parseInt(document.getElementById('tenantAnnualRent').value) || 0;
-            const depositText = document.getElementById('tenantDepositDisplay').textContent;
-            const depositMatch = depositText.match(/[\d,]+/);
-            const deposit = depositMatch ? parseInt(depositMatch[0].replace(/,/g, '')) : 0;
+            const deposit = parseInt(document.getElementById('tenantDeposit').value) || 0;
 
             const data = {
                 branch_id: branchId,
