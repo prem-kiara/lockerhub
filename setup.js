@@ -67,43 +67,43 @@ async function main() {
       id: 'lt_l6_std', name: 'L6', variant: 'Standard', lockers_per_unit: 6,
       unit_h: 2000, unit_w: 1075, unit_d: 700,
       locker_h: 637, locker_w: 529, locker_d: 621,
-      weight: 0, is_upcoming: 0,
+      weight: 0, is_upcoming: 0, annual_rent: 25000, deposit: 300000,
       desc: 'L6 Hi-Tech Lockers with Wooden Sleepers — 6 lockers per unit'
     },
     {
       id: 'lt_l10_std', name: 'L10', variant: 'Standard', lockers_per_unit: 10,
       unit_h: 2000, unit_w: 1075, unit_d: 575,
       locker_h: 385, locker_w: 530, locker_d: 492,
-      weight: 475, is_upcoming: 0,
+      weight: 475, is_upcoming: 0, annual_rent: 20000, deposit: 250000,
       desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers — 10 lockers per unit'
     },
     {
       id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lockers_per_unit: 6,
       unit_h: 2000, unit_w: 1075, unit_d: 700,
       locker_h: 637, locker_w: 529, locker_d: 621,
-      weight: 0, is_upcoming: 1,
+      weight: 0, is_upcoming: 1, annual_rent: 25000, deposit: 300000,
       desc: 'L6 Secunex Ultra (Silver/Gold facia) with Wooden Sleepers — 6 lockers per unit. UPCOMING.'
     },
     {
       id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lockers_per_unit: 10,
       unit_h: 2000, unit_w: 1075, unit_d: 575,
       locker_h: 385, locker_w: 530, locker_d: 492,
-      weight: 475, is_upcoming: 1,
+      weight: 475, is_upcoming: 1, annual_rent: 20000, deposit: 250000,
       desc: 'L2/10 Secunex Ultra (Silver/Gold facia) with Wooden Sleepers — 10 lockers per unit. UPCOMING.'
     }
   ];
 
   const insertType = db.prepare(`INSERT OR IGNORE INTO locker_types (id, name, variant, lockers_per_unit,
     unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm,
-    weight_kg, auto_size, description, is_upcoming) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    weight_kg, auto_size, description, is_upcoming, annual_rent, deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
   lockerTypes.forEach(t => {
     const size = classifySize(t.locker_h, t.locker_w, t.locker_d);
     insertType.run(t.id, t.name, t.variant, t.lockers_per_unit,
       t.unit_h, t.unit_w, t.unit_d, t.locker_h, t.locker_w, t.locker_d,
-      t.weight, size, t.desc, t.is_upcoming);
+      t.weight, size, t.desc, t.is_upcoming, t.annual_rent, t.deposit);
     const vol = ((t.locker_h * t.locker_w * t.locker_d) / 1000000).toFixed(1);
-    console.log(`  ✅ ${t.name} ${t.variant}: ${t.lockers_per_unit}/unit, ${t.locker_h}×${t.locker_w}×${t.locker_d}mm = ${vol}L → ${size}${t.is_upcoming ? ' [UPCOMING]' : ''}`);
+    console.log(`  ✅ ${t.name} ${t.variant}: ${t.lockers_per_unit}/unit, ${t.locker_h}×${t.locker_w}×${t.locker_d}mm = ${vol}L → ${size}, Rent: ₹${t.annual_rent.toLocaleString()}, Deposit: ₹${t.deposit.toLocaleString()}${t.is_upcoming ? ' [UPCOMING]' : ''}`);
   });
 
   // ===== RS PURAM BRANCH =====
