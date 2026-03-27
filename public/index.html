@@ -1322,51 +1322,71 @@
 
         .units-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 20px;
-            padding: 20px 0;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 12px;
+            padding: 12px 0;
         }
 
         .unit-card {
             background: var(--card-bg);
-            border: 3px solid var(--border);
-            border-radius: 8px;
-            padding: 16px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            transition: all 0.3s ease;
+            border: 2px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+            transition: all 0.2s ease;
+            border-left: 4px solid var(--border);
         }
 
         .unit-card:hover {
-            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+            box-shadow: 0 3px 6px rgba(0,0,0,0.12);
         }
 
         .unit-card.active {
-            border-color: var(--success);
+            border-left-color: var(--success);
         }
 
         .unit-card.upcoming {
-            border-color: var(--warning);
+            border-left-color: var(--warning);
         }
+
+        /* Branch color coding for unit cards */
+        .unit-card[data-branch-color="1"] { border-left-color: #2563eb; }
+        .unit-card[data-branch-color="2"] { border-left-color: #7c3aed; }
+        .unit-card[data-branch-color="3"] { border-left-color: #0891b2; }
+        .unit-card[data-branch-color="4"] { border-left-color: #c2410c; }
+        .unit-card[data-branch-color="5"] { border-left-color: #15803d; }
 
         .unit-card-header {
             display: flex;
             justify-content: space-between;
-            align-items: start;
-            margin-bottom: 12px;
+            align-items: center;
+            margin-bottom: 6px;
         }
 
         .unit-card-number {
-            font-size: 18px;
+            font-size: 15px;
             font-weight: 700;
             color: var(--text);
         }
 
         .unit-card-badge {
-            padding: 4px 8px;
-            border-radius: 4px;
-            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 10px;
             font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
+
+        .unit-card-badge.branch-badge {
+            background: rgba(37, 99, 235, 0.1);
+            color: #2563eb;
+        }
+        .unit-card-badge.branch-badge[data-color="1"] { background: rgba(37, 99, 235, 0.1); color: #2563eb; }
+        .unit-card-badge.branch-badge[data-color="2"] { background: rgba(124, 58, 237, 0.1); color: #7c3aed; }
+        .unit-card-badge.branch-badge[data-color="3"] { background: rgba(8, 145, 178, 0.1); color: #0891b2; }
+        .unit-card-badge.branch-badge[data-color="4"] { background: rgba(194, 65, 12, 0.1); color: #c2410c; }
+        .unit-card-badge.branch-badge[data-color="5"] { background: rgba(21, 128, 61, 0.1); color: #15803d; }
 
         .unit-card-badge.active {
             background: rgba(22, 163, 74, 0.1);
@@ -1379,9 +1399,9 @@
         }
 
         .unit-card-info {
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-light);
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
 
         .unit-card-info strong {
@@ -1390,10 +1410,10 @@
 
         .unit-card-type {
             background: var(--bg);
-            padding: 8px;
+            padding: 5px 8px;
             border-radius: 4px;
-            font-size: 12px;
-            margin-bottom: 10px;
+            font-size: 11px;
+            margin-bottom: 6px;
             word-break: break-word;
         }
 
@@ -1401,18 +1421,18 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 8px 0;
+            padding: 5px 0;
             border-bottom: 1px solid var(--border);
-            margin-bottom: 10px;
-            font-size: 13px;
+            margin-bottom: 6px;
+            font-size: 12px;
         }
 
         .unit-card-occupancy-bar {
             flex-grow: 1;
-            height: 6px;
+            height: 5px;
             background: var(--border);
             border-radius: 3px;
-            margin: 0 8px;
+            margin: 0 6px;
             overflow: hidden;
         }
 
@@ -1423,32 +1443,31 @@
         }
 
         .unit-card-location {
-            font-size: 12px;
+            font-size: 11px;
             color: var(--text-light);
-            margin-bottom: 10px;
-            padding-top: 8px;
-            border-top: 1px solid var(--border);
+            margin-bottom: 6px;
         }
 
         .unit-card-branch {
-            font-size: 11px;
+            font-size: 10px;
             background: var(--primary);
             color: white;
-            padding: 3px 6px;
+            padding: 2px 6px;
             border-radius: 3px;
             display: inline-block;
-            margin-bottom: 10px;
+            margin-bottom: 6px;
         }
 
         .unit-card-actions {
             display: flex;
-            gap: 8px;
+            gap: 6px;
+            margin-top: 4px;
         }
 
         .unit-card-actions button {
             flex: 1;
-            padding: 6px 8px;
-            font-size: 12px;
+            padding: 4px 6px;
+            font-size: 11px;
         }
 
         @media (max-width: 768px) {
@@ -2212,8 +2231,7 @@
     <div id="postAllotmentModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h2>Allotment Complete</h2>
-                <button class="modal-close" onclick="closeModal('postAllotmentModal')">×</button>
+                <h2>Allotment Complete — Record Payment</h2>
             </div>
             <div class="modal-body">
                 <div style="background:var(--bg-warm); border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:16px;">
@@ -2260,7 +2278,6 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeModal('postAllotmentModal')">Skip for now</button>
                 <button class="btn btn-secondary" onclick="downloadAllotmentForm(postAllotTenantId)">Download Form</button>
                 <button class="btn btn-primary" onclick="recordPostAllotmentPayments()">Record Payments</button>
             </div>
@@ -2979,10 +2996,12 @@
             try {
                 const isHeadOffice = currentUser.role === 'headoffice';
 
-                if (isHeadOffice) {
+                if (isHeadOffice && !currentBranchId) {
+                    // Head office with no branch selected — show all-branches overview
                     const data = await api('GET', '/api/stats/all');
                     renderHeadOfficeDashboard(data);
                 } else {
+                    // Specific branch selected (or branch-level user)
                     const stats = await api('GET', `/api/stats?branch_id=${currentBranchId}`);
                     renderBranchDashboard(stats);
                 }
@@ -3070,31 +3089,47 @@
         }
 
         function renderBranchDashboard(stats) {
+            const pendingCollection = (stats.annual_revenue || 0) - (stats.collected || 0);
             const html = `
                 <div class="stat-card success">
-                    <div class="stat-card-label">Available Lockers</div>
-                    <div class="stat-card-value">${stats.vacant || 0}</div>
-                    <div class="stat-card-subtext">Ready for allotment</div>
-                </div>
-                <div class="stat-card danger">
-                    <div class="stat-card-label">Occupied Lockers</div>
-                    <div class="stat-card-value">${stats.occupied || 0}</div>
-                    <div class="stat-card-subtext">of ${stats.total_lockers || 0} total</div>
+                    <div class="stat-card-label">Total Lockers</div>
+                    <div class="stat-card-value">${stats.total_lockers || 0}</div>
+                    <div class="stat-card-subtext">${stats.vacant || 0} available</div>
                 </div>
                 <div class="stat-card primary">
-                    <div class="stat-card-label">Occupancy Rate</div>
+                    <div class="stat-card-label">Occupancy</div>
                     <div class="stat-card-value">${stats.occupancy_pct || 0}%</div>
-                    <div class="stat-card-subtext">${stats.tenants || 0} tenants</div>
+                    <div class="stat-card-subtext">${stats.occupied || 0} of ${stats.total_lockers || 0} occupied</div>
+                </div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Total Tenants</div>
+                    <div class="stat-card-value">${stats.tenants || 0}</div>
+                    <div class="stat-card-subtext">${stats.unverified_tenants || 0} BG unverified</div>
                 </div>
                 <div class="stat-card warning">
                     <div class="stat-card-label">Annual Revenue</div>
                     <div class="stat-card-value">₹${formatIndianNumber(stats.annual_revenue || 0)}</div>
-                    <div class="stat-card-subtext">Collected: ₹${formatIndianNumber(stats.collected || 0)}</div>
+                    <div class="stat-card-subtext">₹${formatIndianNumber(Math.round((stats.annual_revenue || 0) / 12))}/month</div>
                 </div>
-                <div class="stat-card danger">
-                    <div class="stat-card-label">Overdue Rent</div>
+                <div class="stat-card success">
+                    <div class="stat-card-label">Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.collected || 0)}</div>
+                    <div class="stat-card-subtext">Pending: ₹${formatIndianNumber(pendingCollection > 0 ? pendingCollection : 0)}</div>
+                </div>
+                <div class="stat-card ${(stats.overdue_amount || 0) > 0 ? 'danger' : 'success'}">
+                    <div class="stat-card-label">Overdue</div>
                     <div class="stat-card-value">₹${formatIndianNumber(stats.overdue_amount || 0)}</div>
                     <div class="stat-card-subtext">${stats.overdue_count || 0} tenants</div>
+                </div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Today's Visits</div>
+                    <div class="stat-card-value">${stats.today_visits || 0}</div>
+                    <div class="stat-card-subtext">Locker room activity</div>
+                </div>
+                <div class="stat-card ${(stats.month_overdue || 0) > 0 ? 'warning' : 'success'}">
+                    <div class="stat-card-label">${stats.current_month || 'This Month'}</div>
+                    <div class="stat-card-value">${stats.month_paid || 0} paid</div>
+                    <div class="stat-card-subtext">${stats.month_pending || 0} pending, ${stats.month_overdue || 0} overdue</div>
                 </div>
             `;
             document.getElementById('dashboardStats').innerHTML = html;
@@ -3109,17 +3144,21 @@
             const totalCollected = branches.reduce((sum, b) => sum + (b.collected || 0), 0);
             const totalOverdue = branches.reduce((sum, b) => sum + (b.overdue_amount || 0), 0);
             const totalTenants = branches.reduce((sum, b) => sum + (b.tenants || 0), 0);
+            const occupancyPct = totalLockers > 0 ? Math.round(totalOccupied / totalLockers * 100) : 0;
+            const totalTodayVisits = branches.reduce((sum, b) => sum + (b.today_visits || 0), 0);
+            const totalUnverified = branches.reduce((sum, b) => sum + (b.unverified_tenants || 0), 0);
+            const pendingCollection = totalRevenue - totalCollected;
 
             const summaryHtml = `
                 <div class="stat-card success">
-                    <div class="stat-card-label">Available Lockers</div>
-                    <div class="stat-card-value">${totalVacant}</div>
-                    <div class="stat-card-subtext">Across all branches</div>
+                    <div class="stat-card-label">Total Lockers</div>
+                    <div class="stat-card-value">${totalLockers}</div>
+                    <div class="stat-card-subtext">${totalVacant} available</div>
                 </div>
-                <div class="stat-card danger">
-                    <div class="stat-card-label">Occupied Lockers</div>
-                    <div class="stat-card-value">${totalOccupied}</div>
-                    <div class="stat-card-subtext">of ${totalLockers} total</div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Occupancy</div>
+                    <div class="stat-card-value">${occupancyPct}%</div>
+                    <div class="stat-card-subtext">${totalOccupied} of ${totalLockers} occupied</div>
                 </div>
                 <div class="stat-card primary">
                     <div class="stat-card-label">Total Tenants</div>
@@ -3129,49 +3168,31 @@
                 <div class="stat-card warning">
                     <div class="stat-card-label">Annual Revenue</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalRevenue)}</div>
-                    <div class="stat-card-subtext">Collected: ₹${formatIndianNumber(totalCollected)}</div>
+                    <div class="stat-card-subtext">₹${formatIndianNumber(Math.round(totalRevenue / 12))}/month</div>
                 </div>
-                <div class="stat-card danger">
-                    <div class="stat-card-label">Total Overdue</div>
+                <div class="stat-card success">
+                    <div class="stat-card-label">Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalCollected)}</div>
+                    <div class="stat-card-subtext">Pending: ₹${formatIndianNumber(pendingCollection > 0 ? pendingCollection : 0)}</div>
+                </div>
+                <div class="stat-card ${totalOverdue > 0 ? 'danger' : 'success'}">
+                    <div class="stat-card-label">Overdue</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalOverdue)}</div>
+                    <div class="stat-card-subtext">${totalOverdue > 0 ? 'Needs attention' : 'All clear'}</div>
+                </div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Today's Visits</div>
+                    <div class="stat-card-value">${totalTodayVisits}</div>
                     <div class="stat-card-subtext">Across all branches</div>
+                </div>
+                <div class="stat-card ${totalUnverified > 0 ? 'warning' : 'success'}">
+                    <div class="stat-card-label">BG Unverified</div>
+                    <div class="stat-card-value">${totalUnverified}</div>
+                    <div class="stat-card-subtext">${totalUnverified > 0 ? 'Pending verification' : 'All verified'}</div>
                 </div>
             `;
             document.getElementById('dashboardStats').innerHTML = summaryHtml;
-
-            const branchesHtml = branches.map(b => `
-                <div class="branch-card" onclick="viewBranch('${b.branch_id}')">
-                    <div class="branch-card-title">${b.branch_name}</div>
-                    <div class="branch-stats">
-                        <div class="branch-stat">
-                            <div class="branch-stat-label">Available</div>
-                            <div class="branch-stat-value" style="color:var(--success);">${b.vacant || 0}</div>
-                        </div>
-                        <div class="branch-stat">
-                            <div class="branch-stat-label">Occupied</div>
-                            <div class="branch-stat-value" style="color:var(--danger);">${b.occupied || 0}</div>
-                        </div>
-                        <div class="branch-stat">
-                            <div class="branch-stat-label">Total</div>
-                            <div class="branch-stat-value">${b.total_lockers || 0}</div>
-                        </div>
-                        <div class="branch-stat">
-                            <div class="branch-stat-label">Tenants</div>
-                            <div class="branch-stat-value">${b.tenants || 0}</div>
-                        </div>
-                        <div class="branch-stat">
-                            <div class="branch-stat-label">Revenue</div>
-                            <div class="branch-stat-value">₹${formatIndianNumberCompact(b.annual_revenue || 0)}</div>
-                        </div>
-                        <div class="branch-stat">
-                            <div class="branch-stat-label">Occupancy</div>
-                            <div class="branch-stat-value">${b.occupancy_pct || 0}%</div>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-
-            document.getElementById('dashboardContent').innerHTML = branchesHtml;
+            document.getElementById('dashboardContent').innerHTML = '';
         }
 
         function viewBranch(branchId) {
@@ -4791,10 +4812,12 @@
         async function loadUnits() {
             try {
                 const isHeadOffice = currentUser.role === 'headoffice';
-                const url = isHeadOffice ? '/api/units?branch_id=all' : `/api/units?branch_id=${currentBranchId}`;
+                const url = currentBranchId
+                    ? `/api/units?branch_id=${currentBranchId}`
+                    : '/api/units?branch_id=all';
                 const units = await api('GET', url);
 
-                if (isHeadOffice) {
+                if (isHeadOffice && !currentBranchId) {
                     document.getElementById('unitBranchGroup').style.display = 'block';
                     await loadBranchSelectorForUnits();
                 } else {
@@ -4813,23 +4836,33 @@
                 return;
             }
 
+            // Build branch color map (assign each branch a color index 1-5)
+            const branchNames = [...new Set(units.map(u => u.branch_name).filter(Boolean))];
+            const branchColorMap = {};
+            branchNames.forEach((name, i) => { branchColorMap[name] = (i % 5) + 1; });
+
             const html = units.map(u => {
                 const occupied = u.occupied_count || 0;
                 const total = u.locker_count || 0;
                 const occupancyPct = total > 0 ? Math.round((occupied / total) * 100) : 0;
-                const badge = u.status === 'upcoming' ? 'badge-warning upcoming' : 'badge-success active';
-                const branchTag = isHeadOffice ? `<div class="unit-card-branch">${u.branch_name}</div>` : '';
+                const branchColor = branchColorMap[u.branch_name] || 1;
+                const showBranch = isHeadOffice && !currentBranchId;
+
+                // Badge: show branch name if viewing all branches, otherwise show status
+                const badgeHtml = showBranch
+                    ? `<span class="unit-card-badge branch-badge" data-color="${branchColor}">${u.branch_name}</span>`
+                    : (u.status === 'upcoming' ? `<span class="unit-card-badge upcoming">Upcoming</span>` : '');
+
+                const colorAttr = showBranch ? `data-branch-color="${branchColor}"` : '';
 
                 return `
-                    <div class="unit-card ${u.status === 'upcoming' ? 'upcoming' : 'active'}">
+                    <div class="unit-card ${u.status === 'upcoming' ? 'upcoming' : 'active'}" ${colorAttr}>
                         <div class="unit-card-header">
                             <div class="unit-card-number">${u.unit_number}</div>
-                            <span class="unit-card-badge ${u.status === 'upcoming' ? 'upcoming' : 'active'}">${capitalize(u.status)}</span>
+                            ${badgeHtml}
                         </div>
-                        ${branchTag}
                         <div class="unit-card-type">
-                            <strong>${u.type_name}</strong>
-                            ${u.variant ? ` (${u.variant})` : ''}
+                            <strong>${u.type_name || '-'}</strong>${u.variant ? ` (${u.variant})` : ''}
                         </div>
                         <div class="unit-card-occupancy">
                             <span>${occupied}/${total}</span>
@@ -4838,7 +4871,7 @@
                             </div>
                             <span>${occupancyPct}%</span>
                         </div>
-                        <div class="unit-card-location">${u.location || 'No location'}</div>
+                        ${u.location ? `<div class="unit-card-location">${u.location}</div>` : ''}
                         <div class="unit-card-actions">
                             ${u.status === 'upcoming' ? `<button class="btn btn-primary" onclick="activateUnit('${u.id}')">Activate</button>` : ''}
                             <button class="btn btn-danger" onclick="deleteUnit('${u.id}')">Delete</button>
@@ -5246,9 +5279,8 @@
         // ===== Admin/Branch Appointments =====
         async function loadAppointments() {
             try {
-                // HO sees all (no branch filter), branch sees only their branch
-                const isHO = currentUser.role === 'headoffice';
-                const branchId = isHO ? '' : (currentBranchId || '');
+                // Use currentBranchId if a branch is selected (works for both HO and branch users)
+                const branchId = currentBranchId || '';
                 const status = document.getElementById('apptStatusFilter').value;
                 const from = document.getElementById('apptDateFrom').value;
                 const to = document.getElementById('apptDateTo').value;
