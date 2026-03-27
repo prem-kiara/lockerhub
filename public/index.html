@@ -50,12 +50,15 @@
             background: linear-gradient(135deg, var(--sidebar-dark) 0%, var(--sidebar-darker) 100%);
             color: white;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
             padding: 0;
             position: fixed;
             left: 0;
             top: 0;
             height: 100vh;
             z-index: 1000;
+            display: flex;
+            flex-direction: column;
         }
 
         .sidebar-header {
@@ -74,6 +77,9 @@
         .sidebar-nav {
             padding: 20px 0;
             list-style: none;
+            flex: 1;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
         .sidebar-nav li {
@@ -148,7 +154,7 @@
 
         .user-dropdown-item {
             width: 100%;
-            padding: 10px 16px;
+            padding: 12px 16px;
             background: none;
             border: none;
             text-align: left;
@@ -156,6 +162,7 @@
             cursor: pointer;
             transition: background 0.15s ease;
             color: var(--text);
+            min-height: 44px;
         }
 
         .user-dropdown-item:hover {
@@ -963,14 +970,41 @@
 
             .section-toolbar {
                 flex-wrap: wrap;
+                gap: 10px;
             }
 
             .search-box {
                 width: 100%;
+                order: 10;
             }
 
             .action-buttons {
                 flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .action-buttons .btn,
+            .action-buttons button {
+                min-height: 44px;
+                min-width: 44px;
+            }
+
+            /* Touch targets for nav links */
+            .sidebar-nav a {
+                padding: 14px 20px;
+                min-height: 44px;
+            }
+
+            /* Branch selector in topbar */
+            .branch-selector {
+                max-width: 180px;
+                font-size: 13px;
+            }
+
+            .back-to-all-btn {
+                font-size: 12px;
+                padding: 8px 12px;
+                min-height: 44px;
             }
         }
 
@@ -978,7 +1012,7 @@
         @media (max-width: 480px) {
             .topbar {
                 padding: 10px 12px;
-                flex-wrap: wrap;
+                flex-wrap: nowrap;
                 gap: 8px;
             }
 
@@ -986,6 +1020,7 @@
                 gap: 8px;
                 flex: 1;
                 min-width: 0;
+                overflow: hidden;
             }
 
             .topbar-title {
@@ -997,7 +1032,14 @@
 
             .topbar-right {
                 font-size: 12px;
+            }
+
+            .topbar-right #userInfo {
                 display: none;
+            }
+
+            .user-menu {
+                padding: 6px 8px;
             }
 
             .content-area {
@@ -1032,11 +1074,21 @@
 
             .section-toolbar {
                 gap: 8px;
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .section-toolbar > * {
+                width: 100%;
             }
 
             .btn {
-                padding: 8px 12px;
+                padding: 10px 14px;
                 font-size: 13px;
+                min-height: 44px;
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
             }
 
             .search-box {
@@ -1168,16 +1220,20 @@
                 text-align: center;
             }
 
-            /* Backup buttons */
-            .btn-primary, .btn-secondary, .btn-danger {
+            /* Backup & toolbar buttons */
+            .section-toolbar .btn-primary,
+            .section-toolbar .btn-secondary,
+            .section-toolbar .btn-danger {
                 width: 100%;
                 justify-content: center;
+                min-height: 44px;
             }
 
             /* Branch selector */
             .branch-selector {
                 width: 100%;
                 font-size: 14px;
+                min-height: 44px;
             }
 
             .back-to-all-btn {
@@ -1195,6 +1251,72 @@
             .interest-summary {
                 font-size: 12px;
                 padding: 10px 12px;
+            }
+
+            /* Compact branch selector on very small screens */
+            #branchSelectorContainer {
+                max-width: 120px;
+            }
+
+            #branchSelectorContainer .branch-selector {
+                font-size: 12px;
+                padding: 6px 8px;
+            }
+
+            /* Ensure dropdowns don't overflow viewport */
+            .user-dropdown {
+                right: 0;
+                left: auto;
+            }
+
+            /* Better modal scrolling on small screens */
+            .modal-body {
+                max-height: calc(95vh - 130px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+            }
+
+            /* Prevent horizontal overflow on body */
+            body {
+                overflow-x: hidden;
+            }
+
+            .main-content {
+                overflow-x: hidden;
+            }
+        }
+
+        /* ===== RESPONSIVE: TINY PHONES (360px) ===== */
+        @media (max-width: 360px) {
+            .stat-cards {
+                grid-template-columns: 1fr;
+            }
+
+            .branch-stats {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .topbar-title {
+                font-size: 13px;
+            }
+
+            .modal-header h2 {
+                font-size: 15px;
+            }
+
+            .section-title {
+                font-size: 16px;
+            }
+        }
+
+        /* ===== SAFE AREA (notched phones) ===== */
+        @supports (padding: env(safe-area-inset-bottom)) {
+            .modal-footer {
+                padding-bottom: calc(12px + env(safe-area-inset-bottom));
+            }
+
+            .sidebar {
+                padding-bottom: env(safe-area-inset-bottom);
             }
         }
 
