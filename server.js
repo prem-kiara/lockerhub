@@ -1229,17 +1229,24 @@ app.get('/api/stats', (req, res) => {
   const tenantCount = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ?`).get(branch_id);
   const overdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(branch_id);
   const missedPayouts = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND status = 'Missed'`).get(branch_id);
-  const collected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(branch_id);
+
+  // Separate rent collected vs deposit collected
+  const rentCollected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND type = 'rent'`).get(branch_id);
+  const depositCollected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND type = 'deposit'`).get(branch_id);
+  const totalCollected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(branch_id);
+  const totalPending = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Pending'`).get(branch_id);
+
   const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM visits WHERE branch_id = ? AND date(datetime) = date('now')`).get(branch_id);
   const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified' AND bg_status != 'verified'`).get(branch_id);
   const pendingInterest = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND (status = 'Pending' OR status = 'Missed')`).get(branch_id);
 
-  // Current month rent summary
+  // Current month summary — match by paid_on date (YYYY-MM-DD), not period
   const now = new Date();
   const currentMonth = now.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
-  const monthPaid = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND period = ?`).get(branch_id, currentMonth);
-  const monthPending = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Pending' AND period = ?`).get(branch_id, currentMonth);
-  const monthOverdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue' AND period = ?`).get(branch_id, currentMonth);
+  const yearMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const monthPaid = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND paid_on LIKE ?`).get(branch_id, yearMonth + '%');
+  const monthPending = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Pending'`).get(branch_id);
+  const monthOverdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(branch_id);
 
   res.json({
     total_lockers: lockers.total || 0, occupied: lockers.occupied || 0, vacant: lockers.vacant || 0,
@@ -1248,7 +1255,9 @@ app.get('/api/stats', (req, res) => {
     tenants: tenantCount.total,
     overdue_count: overdue.count, overdue_amount: overdue.total,
     missed_payouts: missedPayouts.count, missed_payout_amount: missedPayouts.total,
-    collected: collected.total, today_visits: todayVisits.count,
+    collected: totalCollected.total, rent_collected: rentCollected.total, deposit_collected: depositCollected.total,
+    pending_count: totalPending.count, pending_amount: totalPending.total,
+    today_visits: todayVisits.count,
     unverified_tenants: unverified.count,
     pending_interest: pendingInterest.total,
     current_month: currentMonth,
@@ -1263,15 +1272,21 @@ app.get('/api/stats', (req, res) => {
 // ============================
 app.get('/api/stats/all', (req, res) => {
   const branches = db.prepare('SELECT * FROM branches ORDER BY name').all();
+  const now = new Date();
+  const yearMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
   const stats = branches.map(b => {
     const lockers = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) as occupied, SUM(CASE WHEN status='vacant' THEN 1 ELSE 0 END) as vacant FROM lockers WHERE branch_id = ?`).get(b.id);
     const revenue = db.prepare(`SELECT COALESCE(SUM(annual_rent), 0) as total FROM tenants WHERE branch_id = ? AND locker_id != ''`).get(b.id);
     const tenants = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ?`).get(b.id);
     const overdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(b.id);
     const missedPayouts = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND status = 'Missed'`).get(b.id);
-    const collected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(b.id);
+    const rentCollected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND type = 'rent'`).get(b.id);
+    const depositCollected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND type = 'deposit'`).get(b.id);
+    const totalCollected = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(b.id);
+    const totalPending = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Pending'`).get(b.id);
     const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM visits WHERE branch_id = ? AND date(datetime) = date('now')`).get(b.id);
     const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified' AND bg_status != 'verified'`).get(b.id);
+    const monthPaid = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND paid_on LIKE ?`).get(b.id, yearMonth + '%');
 
     return {
       branch_id: b.id, branch_name: b.name,
@@ -1281,8 +1296,11 @@ app.get('/api/stats/all', (req, res) => {
       annual_revenue: revenue.total, tenants: tenants.total,
       overdue_count: overdue.count, overdue_amount: overdue.total,
       missed_payouts: missedPayouts.count, missed_payout_amount: missedPayouts.total,
-      collected: collected.total, today_visits: todayVisits.count,
-      unverified_tenants: unverified.count
+      collected: totalCollected.total, rent_collected: rentCollected.total, deposit_collected: depositCollected.total,
+      pending_count: totalPending.count, pending_amount: totalPending.total,
+      today_visits: todayVisits.count,
+      unverified_tenants: unverified.count,
+      month_paid: monthPaid.count, month_paid_amount: monthPaid.total
     };
   });
   res.json(stats);

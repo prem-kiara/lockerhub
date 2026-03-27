@@ -3089,7 +3089,6 @@
         }
 
         function renderBranchDashboard(stats) {
-            const pendingCollection = (stats.annual_revenue || 0) - (stats.collected || 0);
             const html = `
                 <div class="stat-card success">
                     <div class="stat-card-label">Total Lockers</div>
@@ -3107,14 +3106,19 @@
                     <div class="stat-card-subtext">${stats.unverified_tenants || 0} BG unverified</div>
                 </div>
                 <div class="stat-card warning">
-                    <div class="stat-card-label">Annual Revenue</div>
+                    <div class="stat-card-label">Annual Rent</div>
                     <div class="stat-card-value">₹${formatIndianNumber(stats.annual_revenue || 0)}</div>
                     <div class="stat-card-subtext">₹${formatIndianNumber(Math.round((stats.annual_revenue || 0) / 12))}/month</div>
                 </div>
                 <div class="stat-card success">
-                    <div class="stat-card-label">Collected</div>
+                    <div class="stat-card-label">Total Collected</div>
                     <div class="stat-card-value">₹${formatIndianNumber(stats.collected || 0)}</div>
-                    <div class="stat-card-subtext">Pending: ₹${formatIndianNumber(pendingCollection > 0 ? pendingCollection : 0)}</div>
+                    <div class="stat-card-subtext">Rent: ₹${formatIndianNumber(stats.rent_collected || 0)} | Deposit: ₹${formatIndianNumber(stats.deposit_collected || 0)}</div>
+                </div>
+                <div class="stat-card ${(stats.pending_count || 0) > 0 ? 'warning' : 'success'}">
+                    <div class="stat-card-label">Pending</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.pending_amount || 0)}</div>
+                    <div class="stat-card-subtext">${stats.pending_count || 0} payments pending</div>
                 </div>
                 <div class="stat-card ${(stats.overdue_amount || 0) > 0 ? 'danger' : 'success'}">
                     <div class="stat-card-label">Overdue</div>
@@ -3127,9 +3131,9 @@
                     <div class="stat-card-subtext">Locker room activity</div>
                 </div>
                 <div class="stat-card ${(stats.month_overdue || 0) > 0 ? 'warning' : 'success'}">
-                    <div class="stat-card-label">${stats.current_month || 'This Month'}</div>
-                    <div class="stat-card-value">${stats.month_paid || 0} paid</div>
-                    <div class="stat-card-subtext">${stats.month_pending || 0} pending, ${stats.month_overdue || 0} overdue</div>
+                    <div class="stat-card-label">${stats.current_month || 'This Month'} Payments</div>
+                    <div class="stat-card-value">${stats.month_paid || 0} received</div>
+                    <div class="stat-card-subtext">₹${formatIndianNumber(stats.month_paid_amount || 0)} collected this month</div>
                 </div>
             `;
             document.getElementById('dashboardStats').innerHTML = html;
@@ -3142,12 +3146,17 @@
             const totalVacant = branches.reduce((sum, b) => sum + (b.vacant || 0), 0);
             const totalRevenue = branches.reduce((sum, b) => sum + (b.annual_revenue || 0), 0);
             const totalCollected = branches.reduce((sum, b) => sum + (b.collected || 0), 0);
+            const totalRentCollected = branches.reduce((sum, b) => sum + (b.rent_collected || 0), 0);
+            const totalDepositCollected = branches.reduce((sum, b) => sum + (b.deposit_collected || 0), 0);
+            const totalPending = branches.reduce((sum, b) => sum + (b.pending_amount || 0), 0);
+            const totalPendingCount = branches.reduce((sum, b) => sum + (b.pending_count || 0), 0);
             const totalOverdue = branches.reduce((sum, b) => sum + (b.overdue_amount || 0), 0);
             const totalTenants = branches.reduce((sum, b) => sum + (b.tenants || 0), 0);
             const occupancyPct = totalLockers > 0 ? Math.round(totalOccupied / totalLockers * 100) : 0;
             const totalTodayVisits = branches.reduce((sum, b) => sum + (b.today_visits || 0), 0);
             const totalUnverified = branches.reduce((sum, b) => sum + (b.unverified_tenants || 0), 0);
-            const pendingCollection = totalRevenue - totalCollected;
+            const totalMonthPaid = branches.reduce((sum, b) => sum + (b.month_paid || 0), 0);
+            const totalMonthPaidAmount = branches.reduce((sum, b) => sum + (b.month_paid_amount || 0), 0);
 
             const summaryHtml = `
                 <div class="stat-card success">
@@ -3166,14 +3175,19 @@
                     <div class="stat-card-subtext">${branches.length} branches</div>
                 </div>
                 <div class="stat-card warning">
-                    <div class="stat-card-label">Annual Revenue</div>
+                    <div class="stat-card-label">Annual Rent</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalRevenue)}</div>
                     <div class="stat-card-subtext">₹${formatIndianNumber(Math.round(totalRevenue / 12))}/month</div>
                 </div>
                 <div class="stat-card success">
-                    <div class="stat-card-label">Collected</div>
+                    <div class="stat-card-label">Total Collected</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalCollected)}</div>
-                    <div class="stat-card-subtext">Pending: ₹${formatIndianNumber(pendingCollection > 0 ? pendingCollection : 0)}</div>
+                    <div class="stat-card-subtext">Rent: ₹${formatIndianNumber(totalRentCollected)} | Deposit: ₹${formatIndianNumber(totalDepositCollected)}</div>
+                </div>
+                <div class="stat-card ${totalPendingCount > 0 ? 'warning' : 'success'}">
+                    <div class="stat-card-label">Pending</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalPending)}</div>
+                    <div class="stat-card-subtext">${totalPendingCount} payments pending</div>
                 </div>
                 <div class="stat-card ${totalOverdue > 0 ? 'danger' : 'success'}">
                     <div class="stat-card-label">Overdue</div>
@@ -3189,6 +3203,11 @@
                     <div class="stat-card-label">BG Unverified</div>
                     <div class="stat-card-value">${totalUnverified}</div>
                     <div class="stat-card-subtext">${totalUnverified > 0 ? 'Pending verification' : 'All verified'}</div>
+                </div>
+                <div class="stat-card ${totalMonthPaid > 0 ? 'success' : 'primary'}">
+                    <div class="stat-card-label">This Month</div>
+                    <div class="stat-card-value">${totalMonthPaid} received</div>
+                    <div class="stat-card-subtext">₹${formatIndianNumber(totalMonthPaidAmount)} collected</div>
                 </div>
             `;
             document.getElementById('dashboardStats').innerHTML = summaryHtml;
