@@ -1507,7 +1507,7 @@
             </div>
             <ul class="sidebar-nav">
                 <li><a onclick="switchSection('dashboard')" class="nav-link active" data-section="dashboard">Dashboard</a></li>
-                <li style="display:none;"><a onclick="switchSection('lockers')" class="nav-link" data-section="lockers">Lockers</a></li>
+                <li id="navLockers" style="display:none;"><a onclick="switchSection('lockers')" class="nav-link" data-section="lockers">Lockers</a></li>
                 <li id="lockerTypesMgmt" style="display: none;"><a onclick="switchSection('lockerTypes')" class="nav-link" data-section="lockerTypes">Locker Types</a></li>
                 <li id="navUnits" style="display: none;"><a onclick="switchSection('units')" class="nav-link" data-section="units">Units & Cabinets</a></li>
                 <li><a onclick="switchSection('tenants')" class="nav-link" data-section="tenants">Tenants</a></li>
@@ -2908,6 +2908,7 @@
                 document.querySelectorAll('.sidebar-nav li').forEach(li => {
                     if (!li.id || (!li.id.startsWith('navCust'))) li.style.display = 'block';
                 });
+                document.getElementById('navLockers').style.display = 'none'; // Lockers tab removed — use Units instead
                 document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
