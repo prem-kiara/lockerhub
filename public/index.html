@@ -2979,10 +2979,12 @@
             try {
                 const isHeadOffice = currentUser.role === 'headoffice';
 
-                if (isHeadOffice) {
+                if (isHeadOffice && !currentBranchId) {
+                    // Head office with no branch selected — show all-branches overview
                     const data = await api('GET', '/api/stats/all');
                     renderHeadOfficeDashboard(data);
                 } else {
+                    // Specific branch selected (or branch-level user)
                     const stats = await api('GET', `/api/stats?branch_id=${currentBranchId}`);
                     renderBranchDashboard(stats);
                 }
@@ -4791,10 +4793,12 @@
         async function loadUnits() {
             try {
                 const isHeadOffice = currentUser.role === 'headoffice';
-                const url = isHeadOffice ? '/api/units?branch_id=all' : `/api/units?branch_id=${currentBranchId}`;
+                const url = currentBranchId
+                    ? `/api/units?branch_id=${currentBranchId}`
+                    : '/api/units?branch_id=all';
                 const units = await api('GET', url);
 
-                if (isHeadOffice) {
+                if (isHeadOffice && !currentBranchId) {
                     document.getElementById('unitBranchGroup').style.display = 'block';
                     await loadBranchSelectorForUnits();
                 } else {
@@ -5246,9 +5250,8 @@
         // ===== Admin/Branch Appointments =====
         async function loadAppointments() {
             try {
-                // HO sees all (no branch filter), branch sees only their branch
-                const isHO = currentUser.role === 'headoffice';
-                const branchId = isHO ? '' : (currentBranchId || '');
+                // Use currentBranchId if a branch is selected (works for both HO and branch users)
+                const branchId = currentBranchId || '';
                 const status = document.getElementById('apptStatusFilter').value;
                 const from = document.getElementById('apptDateFrom').value;
                 const to = document.getElementById('apptDateTo').value;
