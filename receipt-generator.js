@@ -64,7 +64,145 @@ function numberToWords(num) {
 
 function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
-function generateReceiptBuffer(payment, tenant, branch, locker) {
+function renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, startY) {
+  let y2 = startY;
+  const isFullPage = startY < 100; // Full-page mode (customer-only download)
+
+  // Header
+  if (HAS_LOGO) {
+    const logoH = isFullPage ? 52 : 30;
+    try { doc.image(LOGO_PATH, M, y2, { height: logoH }); } catch (e) { /* skip */ }
+  }
+
+  if (isFullPage) {
+    // Full header for standalone customer copy
+    const pageCenter = W / 2;
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(DARK);
+    const nameW = doc.widthOfString(COMPANY_FULL);
+    tx(doc, COMPANY_FULL, pageCenter - nameW / 2, y2);
+    doc.font('Helvetica').fontSize(6.5).fillColor('#666666');
+    const subText = `CIN: ${CIN}  |  GSTIN: ${GST}  |  Ph: ${PHONE}`;
+    const subW = doc.widthOfString(subText);
+    tx(doc, subText, pageCenter - subW / 2, y2 + 16);
+    doc.font('Helvetica').fontSize(5.5).fillColor('#888888');
+    const regText = `Regd: ${REGD}`;
+    const regW = doc.widthOfString(regText);
+    tx(doc, regText, pageCenter - regW / 2, y2 + 26);
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(GOLD);
+    const sdlText = 'Hi-Tech Lockers';
+    const sdlW = doc.widthOfString(sdlText);
+    tx(doc, sdlText, pageCenter - sdlW / 2, y2 + 38);
+    y2 += 55;
+  } else {
+    // Compact header for bottom-of-page copy
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(DARK);
+    tx(doc, COMPANY_FULL, M + 40, y2 + 2);
+    doc.font('Helvetica').fontSize(6).fillColor('#888888');
+    tx(doc, `GSTIN: ${GST}  |  Ph: ${PHONE}`, M + 40, y2 + 16);
+    y2 += 35;
+  }
+
+  // Gold line
+  doc.save().strokeColor(GOLD).lineWidth(1.5).moveTo(M, y2).lineTo(W - M, y2).stroke().restore();
+  y2 += 6;
+
+  // Title
+  const titleFontSize = isFullPage ? 14 : 11;
+  doc.font('Helvetica-Bold').fontSize(titleFontSize).fillColor(GOLD);
+  tx(doc, 'PAYMENT RECEIPT — CUSTOMER COPY', M, y2);
+  doc.font('Helvetica-Bold').fontSize(isFullPage ? 10 : 9).fillColor(DARK);
+  const rcpStr = `Receipt No: ${payment.receipt_no || '-'}`;
+  const rcpW = doc.widthOfString(rcpStr);
+  tx(doc, rcpStr, W - M - rcpW, y2);
+  y2 += isFullPage ? 28 : 20;
+
+  // Details
+  const lx = M;
+  const vx = M + 110;
+  const lx2 = W / 2 + 10;
+  const vx2 = W / 2 + 110;
+  const rowH = isFullPage ? 20 : 15;
+  const labelSize = isFullPage ? 9 : 8;
+  const valSize = isFullPage ? 10 : 8.5;
+
+  function compactRow(l1, v1, l2, v2) {
+    doc.font('Helvetica').fontSize(labelSize).fillColor(GREY); tx(doc, l1, lx, y2);
+    doc.font('Helvetica-Bold').fontSize(valSize).fillColor(DARK); tx(doc, v1 || '-', vx, y2);
+    if (l2) {
+      doc.font('Helvetica').fontSize(labelSize).fillColor(GREY); tx(doc, l2, lx2, y2);
+      doc.font('Helvetica-Bold').fontSize(valSize).fillColor(DARK); tx(doc, v2 || '-', vx2, y2);
+    }
+    y2 += rowH;
+  }
+
+  compactRow('Date:', formatDate(payment.paid_on || payment.due_date), 'Branch:', (branch && branch.name) || '-');
+  compactRow('Customer:', tenant.name || '-', 'Phone:', tenant.phone || '-');
+  compactRow('Locker No:', (locker && locker.number) || tenant.locker_number || '-', 'Type:', capitalize(payment.type || 'rent'));
+  compactRow('Period:', payment.period || '-', 'Method:', capitalize(payment.method || '-'));
+  if (payment.ref_no) compactRow('Reference:', payment.ref_no, '', '');
+
+  y2 += isFullPage ? 15 : 5;
+
+  // Amount box
+  const boxH = isFullPage ? 55 : 35;
+  doc.save().fillColor('#faf6f0').rect(M, y2, contentW, boxH).fill().restore();
+  doc.save().strokeColor(GOLD).lineWidth(isFullPage ? 1.5 : 1).rect(M, y2, contentW, boxH).stroke().restore();
+
+  if (isFullPage) {
+    doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
+    tx(doc, 'Amount Received:', M + 15, y2 + 10);
+    doc.font('Helvetica-Bold').fontSize(22).fillColor(GOLD);
+    const amountStr = `Rs.${formatRupees(payment.amount || 0)}`;
+    const amountW = doc.widthOfString(amountStr);
+    tx(doc, amountStr, W - M - 15 - amountW, y2 + 6);
+    doc.font('Helvetica').fontSize(9).fillColor('#666666');
+    tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 15, y2 + 34);
+  } else {
+    doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK);
+    tx(doc, 'Amount:', M + 10, y2 + 5);
+    doc.font('Helvetica-Bold').fontSize(16).fillColor(GOLD);
+    const amt2 = `Rs.${formatRupees(payment.amount || 0)}`;
+    tx(doc, amt2, M + 75, y2 + 3);
+    doc.font('Helvetica').fontSize(7.5).fillColor('#666666');
+    tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 10, y2 + 22);
+  }
+  y2 += boxH + (isFullPage ? 10 : 7);
+
+  // Notes (full page only)
+  if (isFullPage && payment.notes) {
+    y2 += 5;
+    doc.font('Helvetica').fontSize(8.5).fillColor(GREY);
+    tx(doc, 'Notes:', M, y2);
+    doc.font('Helvetica').fontSize(8.5).fillColor(DARK);
+    tx(doc, payment.notes, M + 40, y2);
+    y2 += 18;
+  }
+
+  // Signatures
+  y2 += isFullPage ? 30 : 15;
+  const sigW = isFullPage ? 160 : 140;
+  doc.save().strokeColor(LGREY).lineWidth(0.5)
+    .moveTo(M, y2).lineTo(M + sigW, y2).stroke()
+    .moveTo(W - M - sigW, y2).lineTo(W - M, y2).stroke().restore();
+  y2 += isFullPage ? 5 : 4;
+  doc.font('Helvetica').fontSize(isFullPage ? 8 : 7).fillColor(GREY);
+  tx(doc, "Customer's Signature", M, y2);
+  tx(doc, 'Authorised Signatory', W - M - sigW, y2);
+
+  if (isFullPage) {
+    y2 += 12;
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(DARK);
+    tx(doc, `For ${COMPANY_FULL}`, W - M - sigW, y2);
+  }
+
+  // Bottom footer
+  doc.font('Helvetica').fontSize(5).fillColor('#aaaaaa');
+  tx(doc, `© ${COMPANY_FULL}. This is a computer-generated receipt.`, M, H - 20);
+  tx(doc, 'Thank you for choosing Dhanam Finance Hi-Tech Lockers.', 0, H - 20, { width: W - M, align: 'right' });
+}
+
+function generateReceiptBuffer(payment, tenant, branch, locker, options) {
+  const opts = options || {};
   return new Promise((resolve, reject) => {
     try {
       const doc = new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: true });
@@ -74,6 +212,13 @@ function generateReceiptBuffer(payment, tenant, branch, locker) {
       doc.on('error', reject);
 
       const contentW = W - 2 * M;
+
+      // If customer copy only, skip the company copy and render customer copy full-page
+      if (opts.customerOnly) {
+        renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, 50);
+        doc.end();
+        return;
+      }
 
       // ===== HEADER =====
       let y = 62;
@@ -241,81 +386,7 @@ function generateReceiptBuffer(payment, tenant, branch, locker) {
       tx(doc, cutText, (W - cutW) / 2, cutY - 8);
 
       // ===== DUPLICATE COPY (customer copy — compact) =====
-      let y2 = cutY + 15;
-
-      // Mini header
-      if (HAS_LOGO) {
-        try { doc.image(LOGO_PATH, M, y2, { height: 30 }); } catch (e) { /* skip */ }
-      }
-      doc.font('Helvetica-Bold').fontSize(11).fillColor(DARK);
-      tx(doc, COMPANY_FULL, M + 40, y2 + 2);
-      doc.font('Helvetica').fontSize(6).fillColor('#888888');
-      tx(doc, `GSTIN: ${GST}  |  Ph: ${PHONE}`, M + 40, y2 + 16);
-      y2 += 35;
-
-      // Gold line
-      doc.save().strokeColor(GOLD).lineWidth(1.5).moveTo(M, y2).lineTo(W - M, y2).stroke().restore();
-      y2 += 6;
-
-      // Title
-      doc.font('Helvetica-Bold').fontSize(11).fillColor(GOLD);
-      tx(doc, 'PAYMENT RECEIPT — CUSTOMER COPY', M, y2);
-      doc.font('Helvetica-Bold').fontSize(9).fillColor(DARK);
-      const rcpStr = `Receipt No: ${payment.receipt_no || '-'}`;
-      const rcpW = doc.widthOfString(rcpStr);
-      tx(doc, rcpStr, W - M - rcpW, y2);
-      y2 += 20;
-
-      // Compact details in a table-like format
-      const lx = M;
-      const vx = M + 110;
-      const lx2 = W / 2 + 10;
-      const vx2 = W / 2 + 110;
-
-      function compactRow(l1, v1, l2, v2) {
-        doc.font('Helvetica').fontSize(8).fillColor(GREY); tx(doc, l1, lx, y2);
-        doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK); tx(doc, v1 || '-', vx, y2);
-        if (l2) {
-          doc.font('Helvetica').fontSize(8).fillColor(GREY); tx(doc, l2, lx2, y2);
-          doc.font('Helvetica-Bold').fontSize(8.5).fillColor(DARK); tx(doc, v2 || '-', vx2, y2);
-        }
-        y2 += 15;
-      }
-
-      compactRow('Date:', formatDate(payment.paid_on || payment.due_date), 'Branch:', (branch && branch.name) || '-');
-      compactRow('Customer:', tenant.name || '-', 'Phone:', tenant.phone || '-');
-      compactRow('Locker No:', (locker && locker.number) || tenant.locker_number || '-', 'Type:', capitalize(payment.type || 'rent'));
-      compactRow('Period:', payment.period || '-', 'Method:', capitalize(payment.method || '-'));
-      if (payment.ref_no) compactRow('Reference:', payment.ref_no, '', '');
-
-      y2 += 5;
-
-      // Amount box
-      doc.save().fillColor('#faf6f0').rect(M, y2, contentW, 35).fill().restore();
-      doc.save().strokeColor(GOLD).lineWidth(1).rect(M, y2, contentW, 35).stroke().restore();
-      doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK);
-      tx(doc, 'Amount:', M + 10, y2 + 5);
-      doc.font('Helvetica-Bold').fontSize(16).fillColor(GOLD);
-      const amt2 = `Rs.${formatRupees(payment.amount || 0)}`;
-      tx(doc, amt2, M + 75, y2 + 3);
-      doc.font('Helvetica').fontSize(7.5).fillColor('#666666');
-      tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 10, y2 + 22);
-      y2 += 42;
-
-      // Signatures
-      y2 += 15;
-      doc.save().strokeColor(LGREY).lineWidth(0.5)
-        .moveTo(M, y2).lineTo(M + 140, y2).stroke()
-        .moveTo(W - M - 140, y2).lineTo(W - M, y2).stroke().restore();
-      y2 += 4;
-      doc.font('Helvetica').fontSize(7).fillColor(GREY);
-      tx(doc, "Customer's Signature", M, y2);
-      tx(doc, 'Authorised Signatory', W - M - 140, y2);
-
-      // Bottom footer
-      doc.font('Helvetica').fontSize(5).fillColor('#aaaaaa');
-      tx(doc, `© ${COMPANY_FULL}. This is a computer-generated receipt.`, M, H - 20);
-      tx(doc, 'Thank you for choosing Dhanam Finance Hi-Tech Lockers.', 0, H - 20, { width: W - M, align: 'right' });
+      renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, cutY + 15);
 
       doc.end();
     } catch (err) {
