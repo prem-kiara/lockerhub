@@ -215,22 +215,7 @@
             cursor: pointer;
         }
 
-        .back-to-all-btn {
-            padding: 8px 16px;
-            background: var(--primary);
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .back-to-all-btn:hover {
-            background: var(--primary-hover);
-        }
-
-        .interest-summary {
+.interest-summary {
             background: var(--bg-warm);
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -1001,11 +986,6 @@
                 font-size: 13px;
             }
 
-            .back-to-all-btn {
-                font-size: 12px;
-                padding: 8px 12px;
-                min-height: 44px;
-            }
         }
 
         /* ===== RESPONSIVE: MOBILE (480px) ===== */
@@ -1234,11 +1214,6 @@
                 width: 100%;
                 font-size: 14px;
                 min-height: 44px;
-            }
-
-            .back-to-all-btn {
-                font-size: 12px;
-                padding: 6px 10px;
             }
 
             /* Checkbox groups */
@@ -1539,7 +1514,6 @@
                             <option value="all">All Branches</option>
                         </select>
                     </div>
-                    <button id="backToAllBtn" class="back-to-all-btn" style="display: none !important;" onclick="backToAllBranches()">← Back to All Branches</button>
                 </div>
                 <div class="topbar-right">
                     <div class="user-menu" id="userMenu" onclick="toggleUserDropdown()">
@@ -2924,7 +2898,6 @@
 
                 if (isHeadOffice) {
                     currentBranchId = null; // HO sees all branches by default
-                    document.getElementById('backToAllBtn').style.display = 'none';
                     loadBranchSelector();
                 }
                 await switchSection('dashboard');
@@ -3276,16 +3249,8 @@
 
         function viewBranch(branchId) {
             currentBranchId = branchId;
-            document.getElementById('backToAllBtn').style.display = 'inline-block';
             document.getElementById('branchSelector').value = branchId;
             switchSection('lockers');
-        }
-
-        function backToAllBranches() {
-            currentBranchId = null;
-            document.getElementById('backToAllBtn').style.display = 'none';
-            document.getElementById('branchSelector').value = 'all';
-            switchSection('dashboard');
         }
 
         // ===== Lockers =====
@@ -4636,12 +4601,10 @@
 
             if (branchId === 'all') {
                 currentBranchId = null;
-                document.getElementById('backToAllBtn').style.display = 'none';
                 // Stay on current section, just reload it
                 switchSection(currentSection);
             } else {
                 currentBranchId = branchId;
-                document.getElementById('backToAllBtn').style.display = 'inline-block';
                 // Stay on current section, just reload it
                 switchSection(currentSection);
             }
