@@ -1933,6 +1933,15 @@ app.post('/api/esign/initiate', async (req, res) => {
     // Call Digio API to upload PDF and create sign request
     const fileBase64 = pdfBuffer.toString('base64');
 
+    // Calculate sign coordinates — last page for agreement, page 1 for receipt
+    const pageCount = (pdfBuffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+    const signPage = document_type === 'receipt' ? '1' : String(pageCount || 8);
+    const signCoords = {
+      [signerIdentifier]: {
+        [signPage]: [{ llx: 70, lly: 640, urx: 280, ury: 720 }]
+      }
+    };
+
     const digioPayload = {
       signers: [{
         identifier: signerIdentifier,
@@ -1941,9 +1950,11 @@ app.post('/api/esign/initiate', async (req, res) => {
         reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
       }],
       expire_in_days: 10,
-      display_on_page: 'all',
+      display_on_page: 'custom',
+      sign_coordinates: signCoords,
       notify_signers: false,
       send_sign_link: false,
+      generate_access_token: true,
       include_authentication_url: 'true',
       file_name: fileName,
       file_data: fileBase64
