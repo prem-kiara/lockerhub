@@ -3057,6 +3057,7 @@
         // ===== Navigation =====
         async function switchSection(section) {
             closeSidebar(); // Close mobile sidebar on navigation
+            if (typeof stopEsignPolling === 'function') stopEsignPolling(); // Stop polling when leaving e-sign
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(section + 'Screen').classList.add('active');
 
@@ -5717,6 +5718,7 @@
                 const branchId = currentBranchId || 'all';
                 const requests = await api('GET', `/api/esign?branch_id=${branchId}`);
                 renderEsignTable(requests);
+                startEsignPolling(); // Auto-poll for pending updates
             } catch (error) {
                 console.error('Failed to load e-sign requests:', error);
                 document.getElementById('esignTable').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:#991b1b;">Failed to load e-sign requests</td></tr>';
@@ -5740,19 +5742,20 @@
                 const date = r.created_at ? r.created_at.split('T')[0] : '-';
                 const docLabel = r.document_type === 'receipt' ? 'Payment Receipt' : 'Locker Agreement';
                 const status = getEsignStatusBadge(r.status);
-                const isSigned = (r.status || '').toLowerCase() === 'signed' || (r.status || '').toLowerCase() === 'completed';
-                const isPending = (r.status || '').toLowerCase() === 'requested' || (r.status || '').toLowerCase() === 'pending';
+                const s = (r.status || '').toLowerCase();
+                const isSigned = s === 'signed' || s === 'completed';
+                const isCancelled = s === 'cancelled' || s === 'expired';
+                const isPending = !isSigned && !isCancelled; // anything not final is "pending"
 
                 let actions = '';
-                if (isPending && r.auth_url) {
-                    actions += `<button class="btn btn-primary" onclick="showEsignLink('${r.auth_url}')" style="font-size:11px;padding:3px 8px;">Copy Link</button> `;
-                }
-                if (isPending) {
+                if (isSigned) {
+                    actions += `<button class="btn btn-primary" onclick="downloadSignedDoc('${r.id}')" style="font-size:11px;padding:4px 12px;">⬇ Download Signed</button>`;
+                } else if (isPending) {
+                    if (r.auth_url) {
+                        actions += `<button class="btn btn-primary" onclick="showEsignLink('${r.auth_url}')" style="font-size:11px;padding:3px 8px;">Copy Link</button> `;
+                    }
                     actions += `<button class="btn btn-secondary" onclick="refreshEsignStatus('${r.id}')" style="font-size:11px;padding:3px 8px;">Check Status</button> `;
                     actions += `<button class="btn btn-danger" onclick="cancelEsign('${r.id}')" style="font-size:11px;padding:3px 8px;">Cancel</button>`;
-                }
-                if (isSigned) {
-                    actions += `<button class="btn btn-primary" onclick="downloadSignedDoc('${r.id}')" style="font-size:11px;padding:3px 8px;">Download Signed</button>`;
                 }
 
                 return `<tr>
@@ -5854,17 +5857,52 @@
 
         async function refreshEsignStatus(esignId) {
             try {
-                showLoading('Checking status...');
-                const result = await api('GET', `/api/esign/${esignId}/status`);
+                showLoading('Checking status with Digio...');
+                const result = await api('GET', `/api/esign/${esignId}/status`, null, 20000);
                 hideLoading();
+                const s = (result.status || '').toLowerCase();
                 await loadEsign();
-                if (result.status) {
-                    alert(`Status: ${result.status}`);
+                if (s === 'signed' || s === 'completed') {
+                    if (confirm('Document has been signed! Download the signed copy now?')) {
+                        downloadSignedDoc(esignId);
+                    }
+                } else {
+                    alert(`Current status: ${result.status || 'Unknown'}`);
                 }
             } catch (error) {
                 hideLoading();
+                console.error('Status check error:', error);
                 alert('Failed to check status: ' + (error.message || 'Unknown error'));
             }
+        }
+
+        // Auto-refresh: poll pending e-sign requests every 30 seconds when on E-Sign tab
+        let esignPollTimer = null;
+        function startEsignPolling() {
+            stopEsignPolling();
+            esignPollTimer = setInterval(async () => {
+                try {
+                    const branchId = currentBranchId || 'all';
+                    const requests = await api('GET', `/api/esign?branch_id=${branchId}`);
+                    const hasPending = requests.some(r => {
+                        const s = (r.status || '').toLowerCase();
+                        return s === 'requested' || s === 'pending';
+                    });
+                    if (hasPending) {
+                        // Refresh status of each pending one from Digio
+                        for (const r of requests) {
+                            const s = (r.status || '').toLowerCase();
+                            if (s === 'requested' || s === 'pending') {
+                                try { await api('GET', `/api/esign/${r.id}/status`, null, 10000); } catch(e) {}
+                            }
+                        }
+                        await loadEsign();
+                    }
+                } catch (e) { /* silent */ }
+            }, 30000);
+        }
+        function stopEsignPolling() {
+            if (esignPollTimer) { clearInterval(esignPollTimer); esignPollTimer = null; }
         }
 
         async function cancelEsign(esignId) {

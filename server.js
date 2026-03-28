@@ -1792,22 +1792,29 @@ const DIGIO_AUTH = Buffer.from(`${digio.clientId}:${digio.clientSecret}`).toStri
 
 function digioRequest(method, apiPath, body) {
   return new Promise((resolve, reject) => {
+    const headers = {
+      'Authorization': `Basic ${DIGIO_AUTH}`
+    };
+    if (body && method !== 'GET') {
+      headers['Content-Type'] = 'application/json';
+    }
     const options = {
       hostname: digio.baseUrl,
       port: digio.port,
       path: apiPath,
       method: method,
-      headers: {
-        'Authorization': `Basic ${DIGIO_AUTH}`,
-        'Content-Type': 'application/json'
-      },
-      rejectUnauthorized: false
+      headers: headers,
+      rejectUnauthorized: false,
+      timeout: 15000
     };
+
+    logInfo('Digio API call', { method, path: apiPath });
 
     const req = https.request(options, (res) => {
       let data = '';
       res.on('data', chunk => data += chunk);
       res.on('end', () => {
+        logInfo('Digio API response', { status: res.statusCode, path: apiPath, body: data.substring(0, 200) });
         try {
           const parsed = JSON.parse(data);
           if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -1816,7 +1823,6 @@ function digioRequest(method, apiPath, body) {
             reject({ status: res.statusCode, ...parsed });
           }
         } catch (e) {
-          // Might be binary (download)
           if (res.statusCode >= 200 && res.statusCode < 300) {
             resolve(data);
           } else {
@@ -1825,8 +1831,9 @@ function digioRequest(method, apiPath, body) {
         }
       });
     });
-    req.on('error', reject);
-    if (body) req.write(JSON.stringify(body));
+    req.on('timeout', () => { req.destroy(); reject({ message: 'Digio API request timed out' }); });
+    req.on('error', (err) => { logError('Digio API error', { error: err.message, path: apiPath }); reject(err); });
+    if (body && method !== 'GET') req.write(JSON.stringify(body));
     req.end();
   });
 }
@@ -1930,10 +1937,18 @@ app.post('/api/esign/initiate', async (req, res) => {
         identifier: signerIdentifier,
         name: tenant.name,
         sign_type: 'aadhaar',
-        reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
+        reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement',
+        sign_coordinates: {
+          'last': {
+            llx: 50,
+            lly: 80,
+            urx: 250,
+            ury: 140
+          }
+        }
       }],
       expire_in_days: 10,
-      display_on_page: 'all',
+      display_on_page: 'custom',
       notify_signers: false,
       send_sign_link: false,
       include_authentication_url: 'true',
