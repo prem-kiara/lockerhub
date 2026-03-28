@@ -1933,27 +1933,6 @@ app.post('/api/esign/initiate', async (req, res) => {
     // Call Digio API to upload PDF and create sign request
     const fileBase64 = pdfBuffer.toString('base64');
 
-    // E-sign stamp coordinates (Digio uses PDF bottom-left origin, A4 = 595.28 x 841.89)
-    // Count pages in the generated PDF to target the last page accurately
-    const pageCount = (pdfBuffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
-    let signCoordinates;
-    if (document_type === 'receipt') {
-      // Receipt (customer-only single page): signature area near bottom
-      signCoordinates = {
-        [signerIdentifier]: {
-          '1': [{ llx: 35, lly: 420, urx: 220, ury: 490 }]
-        }
-      };
-    } else {
-      // Agreement: last page = Acknowledgement, hirer signature box at top area
-      const lastPage = String(pageCount || 8);
-      signCoordinates = {
-        [signerIdentifier]: {
-          [lastPage]: [{ llx: 70, lly: 640, urx: 280, ury: 720 }]
-        }
-      };
-    }
-
     const digioPayload = {
       signers: [{
         identifier: signerIdentifier,
@@ -1962,8 +1941,7 @@ app.post('/api/esign/initiate', async (req, res) => {
         reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
       }],
       expire_in_days: 10,
-      display_on_page: 'Custom',
-      sign_coordinates: signCoordinates,
+      display_on_page: 'all',
       notify_signers: false,
       send_sign_link: false,
       include_authentication_url: 'true',
