@@ -1937,18 +1937,10 @@ app.post('/api/esign/initiate', async (req, res) => {
         identifier: signerIdentifier,
         name: tenant.name,
         sign_type: 'aadhaar',
-        reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement',
-        sign_coordinates: {
-          'last': {
-            llx: 50,
-            lly: 80,
-            urx: 250,
-            ury: 140
-          }
-        }
+        reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
       }],
       expire_in_days: 10,
-      display_on_page: 'custom',
+      display_on_page: 'last',
       notify_signers: false,
       send_sign_link: false,
       include_authentication_url: 'true',
