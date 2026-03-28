@@ -280,7 +280,6 @@ function page2(doc, t, branch) {
 
   doc.font('Helvetica').fontSize(8).fillColor('black');
   tx(doc, 'Date: ___________________', M, y);
-  tx(doc, 'Customer Signature: ___________________', W / 2 + 40, y);
   y += 25;
 
   y = sectionTitle(doc, 'For Office Use Only', y, '#666666');
@@ -362,13 +361,12 @@ function page3(doc, t, branch) {
   doc.fillColor('black');
   y += 18;
 
-  for (let i = 1; i <= 3; i++) {
-    doc.save().strokeColor('#dddddd').lineWidth(0.5).rect(M, y, W - 2 * M, 20).stroke().restore();
-    doc.font('Helvetica').fontSize(8);
-    tx(doc, String(i), M + 15, y + 5);
-    if (i === 1 && t.name) tx(doc, t.name, M + 55, y + 5);
-    y += 20;
-  }
+  // Single hirer row
+  doc.save().strokeColor('#dddddd').lineWidth(0.5).rect(M, y, W - 2 * M, 24).stroke().restore();
+  doc.font('Helvetica').fontSize(8);
+  tx(doc, '1', M + 15, y + 7);
+  if (t.name) tx(doc, t.name, M + 55, y + 7);
+  y += 26;
 
   y += 10;
   doc.font('Helvetica-Bold').fontSize(8);
@@ -466,15 +464,6 @@ function pageTerms(doc) {
     y = doc.y + 3;
   });
 
-  y += 12;
-  doc.font('Helvetica-Bold').fontSize(8);
-  tx(doc, 'Signature of the Hirer(s):', M, y);
-  tx(doc, 'Signature of the Branch Manager:', W - M - 190, y);
-  y += 16;
-  doc.save().strokeColor(LGREY).lineWidth(0.5)
-    .moveTo(M, y).lineTo(M + 170, y).stroke()
-    .moveTo(W - M - 170, y).lineTo(W - M, y).stroke().restore();
-
   drawFooter(doc, 'DFIN/ALT/02/Ver 1.0');
 }
 
@@ -523,10 +512,7 @@ function pageHirerInfo(doc, t) {
   ['Married', 'Single', 'Others'].forEach(ms => { cx = checkbox(doc, ms, cx, y - 16) + 4; });
   y = field(doc, "Mother's Maiden Name:", M, y, '', 240, 130);
 
-  doc.font('Helvetica').fontSize(6).fillColor(GREY);
-  tx(doc, 'Hirer Signature', W - M - 75, y - 3);
-  doc.fillColor('black');
-  y += 6;
+  y += 3;
 
   // Contact Details
   y = sectionTitle(doc, 'Contact Details', y);
@@ -782,26 +768,7 @@ function pageDeclaration(doc, t) {
   field(doc, 'Place:', M + 170, y, '', 110, 38);
   y += 18;
 
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(GOLD);
-  tx(doc, 'Signature:', M, y);
-  doc.fillColor('black');
-  labeledBox(doc, 'Hirer', M + 60, y + 2, 90, 28);
-  y += 35;
-
-  // Witnesses - side by side
-  const wY = y;
-  const wColW = (W - 2 * M - 20) / 2;
-  for (let wi = 0; wi < 2; wi++) {
-    const wx = M + wi * (wColW + 20);
-    const wn = wi === 0 ? '1st' : '2nd';
-    doc.font('Helvetica-Bold').fontSize(7.5).fillColor(GOLD);
-    tx(doc, `${wn} Witness:`, wx, wY);
-    doc.fillColor('black');
-    field(doc, 'Name:', wx, wY + 14, '', wColW - 45, 38);
-    field(doc, 'Address:', wx, wY + 30, '', wColW - 50, 50);
-    field(doc, 'Signature:', wx, wY + 46, '', wColW - 60, 60);
-  }
-  y = wY + 62;
+  y += 6;
 
   drawFooter(doc, 'DFIN/ALT/05/Ver 1.0');
 }

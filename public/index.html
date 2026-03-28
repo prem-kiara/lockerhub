@@ -5858,21 +5858,28 @@
         async function refreshEsignStatus(esignId) {
             try {
                 showLoading('Checking status with Digio...');
-                const result = await api('GET', `/api/esign/${esignId}/status`, null, 20000);
+                const result = await api('GET', `/api/esign/${esignId}/status`, null, 30000);
                 hideLoading();
                 const s = (result.status || '').toLowerCase();
+                console.log('E-sign status result:', JSON.stringify(result));
                 await loadEsign();
                 if (s === 'signed' || s === 'completed') {
                     if (confirm('Document has been signed! Download the signed copy now?')) {
                         downloadSignedDoc(esignId);
                     }
                 } else {
-                    alert(`Current status: ${result.status || 'Unknown'}`);
+                    // Show signer-level status if available
+                    let statusMsg = `Document status: ${result.status || 'Unknown'}`;
+                    if (result.signing_parties && result.signing_parties.length > 0) {
+                        const sp = result.signing_parties[0];
+                        statusMsg += `\nSigner: ${sp.name || '-'} — ${sp.status || 'unknown'}`;
+                    }
+                    alert(statusMsg);
                 }
             } catch (error) {
                 hideLoading();
                 console.error('Status check error:', error);
-                alert('Failed to check status: ' + (error.message || 'Unknown error'));
+                alert('Failed to check status: ' + (error.message || 'Unknown error') + '\n\nCheck browser console for details.');
             }
         }
 

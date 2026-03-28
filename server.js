@@ -1805,7 +1805,7 @@ function digioRequest(method, apiPath, body) {
       method: method,
       headers: headers,
       rejectUnauthorized: false,
-      timeout: 15000
+      timeout: 25000
     };
 
     logInfo('Digio API call', { method, path: apiPath });
@@ -1908,7 +1908,7 @@ app.post('/api/esign/initiate', async (req, res) => {
       if (!payment) return res.status(400).json({ error: 'No paid payment found for this tenant' });
       const pTenant = { name: payment.tenant_name, phone: payment.tenant_phone, locker_number: payment.locker_number };
       const pLocker = { number: payment.locker_number, size: payment.locker_size };
-      pdfBuffer = await generateReceiptBuffer(payment, pTenant, branch || {}, pLocker || {});
+      pdfBuffer = await generateReceiptBuffer(payment, pTenant, branch || {}, pLocker || {}, { customerOnly: true });
       fileName = `Receipt_${(payment.receipt_no || 'receipt').replace(/[^a-zA-Z0-9-]/g, '_')}.pdf`;
     } else {
       // Agreement / allotment form
@@ -1932,6 +1932,28 @@ app.post('/api/esign/initiate', async (req, res) => {
 
     // Call Digio API to upload PDF and create sign request
     const fileBase64 = pdfBuffer.toString('base64');
+
+    // E-sign stamp coordinates (Digio uses PDF bottom-left origin, A4 = 595.28 x 841.89)
+    // Count pages in the generated PDF to target the last page accurately
+    const pageCount = (pdfBuffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+    let signCoordinates;
+    if (document_type === 'receipt') {
+      // Receipt (customer-only single page): signature area near bottom
+      signCoordinates = {
+        [signerIdentifier]: {
+          '1': [{ llx: 35, lly: 420, urx: 220, ury: 490 }]
+        }
+      };
+    } else {
+      // Agreement: last page = Acknowledgement, hirer signature box at top area
+      const lastPage = String(pageCount || 8);
+      signCoordinates = {
+        [signerIdentifier]: {
+          [lastPage]: [{ llx: 70, lly: 640, urx: 280, ury: 720 }]
+        }
+      };
+    }
+
     const digioPayload = {
       signers: [{
         identifier: signerIdentifier,
@@ -1940,7 +1962,8 @@ app.post('/api/esign/initiate', async (req, res) => {
         reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
       }],
       expire_in_days: 10,
-      display_on_page: 'last',
+      display_on_page: 'Custom',
+      sign_coordinates: signCoordinates,
       notify_signers: false,
       send_sign_link: false,
       include_authentication_url: 'true',
@@ -1993,17 +2016,31 @@ app.get('/api/esign/:id/status', async (req, res) => {
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
     if (!esign.digio_doc_id) return res.status(400).json({ error: 'No Digio document ID found' });
 
+    logInfo('Checking e-sign status', { id: req.params.id, digio_doc_id: esign.digio_doc_id });
+
     const digioResp = await digioRequest('GET', `/v2/client/document/${esign.digio_doc_id}`, null);
 
-    // Update local status
-    const newStatus = digioResp.status || esign.status;
+    logInfo('Digio status response', { id: req.params.id, response: JSON.stringify(digioResp).substring(0, 500) });
+
+    // Determine status - check multiple possible fields
+    let newStatus = esign.status;
+    if (digioResp.status) {
+      newStatus = digioResp.status;
+    } else if (digioResp.signing_parties && digioResp.signing_parties.length > 0) {
+      // Check individual signer status
+      const signerStatus = digioResp.signing_parties[0].status;
+      if (signerStatus) newStatus = signerStatus;
+    }
+
     db.prepare('UPDATE esign_requests SET status = ?, updated_at = datetime(?) WHERE id = ?')
       .run(newStatus, new Date().toISOString(), req.params.id);
 
-    res.json({ ...digioResp, local_id: esign.id });
+    res.json({ status: newStatus, digio_status: digioResp.status, signing_parties: digioResp.signing_parties, local_id: esign.id, digio_doc_id: esign.digio_doc_id });
   } catch (err) {
-    logError('E-sign status check failed', { error: err.message || JSON.stringify(err) });
-    res.status(500).json({ error: err.message || 'Status check failed' });
+    const errMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+    logError('E-sign status check failed', { id: req.params.id, error: errMsg, status: err.status });
+    // Return the Digio error details if available
+    res.status(err.status || 500).json({ error: errMsg, digio_status: err.status, details: typeof err === 'object' ? err : {} });
   }
 });
 
