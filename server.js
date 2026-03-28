@@ -3,6 +3,7 @@ const Database = require('better-sqlite3');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
+const https = require('https');
 const { generatePdfBuffer } = require('./allotment-form');
 const { generateReceiptBuffer } = require('./receipt-generator');
 
@@ -262,6 +263,28 @@ db.exec(`
     freq TEXT DEFAULT 'monthly',
     calc_on TEXT DEFAULT 'rent_paid',
     FOREIGN KEY (branch_id) REFERENCES branches(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS esign_requests (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT,
+    tenant_id TEXT,
+    document_type TEXT DEFAULT 'agreement',
+    document_id TEXT DEFAULT '',
+    file_name TEXT DEFAULT '',
+    signer_name TEXT DEFAULT '',
+    signer_identifier TEXT DEFAULT '',
+    sign_type TEXT DEFAULT 'aadhaar',
+    status TEXT DEFAULT 'pending',
+    digio_doc_id TEXT DEFAULT '',
+    auth_url TEXT DEFAULT '',
+    signed_file_url TEXT DEFAULT '',
+    expire_in_days INTEGER DEFAULT 10,
+    notes TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
   );
 `);
 
@@ -1743,6 +1766,297 @@ app.delete('/api/appointments/:id', (req, res) => {
   db.prepare('UPDATE appointments SET status = ? WHERE id = ?').run('Cancelled', req.params.id);
   logInfo('Appointment cancelled', { id: req.params.id });
   res.json({ success: true });
+});
+
+// ============================
+//  E-SIGN (Digio Integration)
+// ============================
+const DIGIO_CONFIG = {
+  sandbox: {
+    baseUrl: 'ext.digio.in',
+    port: 444,
+    clientId: 'AI5DU7JP5MB7PJC9BJ7JOEY4O11XY798',
+    clientSecret: 'Y5USKG7QDN4VFJAUVACNLAAKMPQ55V4K'
+  },
+  production: {
+    baseUrl: 'api.digio.in',
+    port: 443,
+    clientId: process.env.DIGIO_CLIENT_ID || '',
+    clientSecret: process.env.DIGIO_CLIENT_SECRET || ''
+  }
+};
+
+const DIGIO_ENV = process.env.DIGIO_ENV === 'production' ? 'production' : 'sandbox';
+const digio = DIGIO_CONFIG[DIGIO_ENV];
+const DIGIO_AUTH = Buffer.from(`${digio.clientId}:${digio.clientSecret}`).toString('base64');
+
+function digioRequest(method, apiPath, body) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: digio.baseUrl,
+      port: digio.port,
+      path: apiPath,
+      method: method,
+      headers: {
+        'Authorization': `Basic ${DIGIO_AUTH}`,
+        'Content-Type': 'application/json'
+      },
+      rejectUnauthorized: false
+    };
+
+    const req = https.request(options, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const parsed = JSON.parse(data);
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(parsed);
+          } else {
+            reject({ status: res.statusCode, ...parsed });
+          }
+        } catch (e) {
+          // Might be binary (download)
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(data);
+          } else {
+            reject({ status: res.statusCode, message: data });
+          }
+        }
+      });
+    });
+    req.on('error', reject);
+    if (body) req.write(JSON.stringify(body));
+    req.end();
+  });
+}
+
+function digioDownload(apiPath) {
+  return new Promise((resolve, reject) => {
+    const options = {
+      hostname: digio.baseUrl,
+      port: digio.port,
+      path: apiPath,
+      method: 'GET',
+      headers: {
+        'Authorization': `Basic ${DIGIO_AUTH}`
+      },
+      rejectUnauthorized: false
+    };
+
+    const req = https.request(options, (res) => {
+      const chunks = [];
+      res.on('data', chunk => chunks.push(chunk));
+      res.on('end', () => {
+        const buffer = Buffer.concat(chunks);
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(buffer);
+        } else {
+          reject({ status: res.statusCode, message: buffer.toString() });
+        }
+      });
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+// List all e-sign requests
+app.get('/api/esign', (req, res) => {
+  const { branch_id } = req.query;
+  let sql = `SELECT e.*, t.name as tenant_name, t.phone as tenant_phone, b.name as branch_name
+    FROM esign_requests e
+    LEFT JOIN tenants t ON e.tenant_id = t.id
+    LEFT JOIN branches b ON e.branch_id = b.id`;
+  const params = [];
+  if (branch_id && branch_id !== 'all') {
+    sql += ' WHERE e.branch_id = ?';
+    params.push(branch_id);
+  }
+  sql += ' ORDER BY e.created_at DESC';
+  res.json(db.prepare(sql).all(...params));
+});
+
+// Initiate e-sign: upload PDF to Digio and get auth URL
+app.post('/api/esign/initiate', async (req, res) => {
+  try {
+    const { tenant_id, document_type, branch_id } = req.body;
+
+    // Get tenant details
+    const tenant = db.prepare('SELECT t.*, l.number as locker_number, l.size as locker_size FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id WHERE t.id = ?').get(tenant_id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+    const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(branch_id || tenant.branch_id);
+    const locker = tenant.locker_id ? db.prepare('SELECT * FROM lockers WHERE id = ?').get(tenant.locker_id) : {};
+
+    // Generate PDF based on document type
+    let pdfBuffer, fileName;
+    if (document_type === 'receipt') {
+      // Find the latest paid payment for this tenant
+      const payment = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number, l.size as locker_size
+        FROM payments p
+        LEFT JOIN tenants t ON p.tenant_id = t.id
+        LEFT JOIN lockers l ON p.locker_id = l.id
+        WHERE p.tenant_id = ? AND p.status = 'Paid' ORDER BY p.paid_on DESC LIMIT 1`).get(tenant_id);
+      if (!payment) return res.status(400).json({ error: 'No paid payment found for this tenant' });
+      const pTenant = { name: payment.tenant_name, phone: payment.tenant_phone, locker_number: payment.locker_number };
+      const pLocker = { number: payment.locker_number, size: payment.locker_size };
+      pdfBuffer = await generateReceiptBuffer(payment, pTenant, branch || {}, pLocker || {});
+      fileName = `Receipt_${(payment.receipt_no || 'receipt').replace(/[^a-zA-Z0-9-]/g, '_')}.pdf`;
+    } else {
+      // Agreement / allotment form
+      const payments = db.prepare('SELECT * FROM payments WHERE tenant_id = ? ORDER BY created_at ASC').all(tenant_id);
+      const paidDeposit = payments.find(p => p.type === 'deposit' && p.status === 'Paid');
+      const paidRent = payments.find(p => p.type === 'rent' && p.status === 'Paid');
+      tenant.deposit_amount = paidDeposit ? paidDeposit.amount : 0;
+      tenant.rent_amount = paidRent ? paidRent.amount : 0;
+      const branchShort = (branch && branch.name ? branch.name.replace(/\s+/g, '').substring(0, 4).toUpperCase() : 'HQ');
+      const year = new Date(tenant.lease_start || tenant.created_at || Date.now()).getFullYear();
+      const tenantSeq = db.prepare('SELECT COUNT(*) as cnt FROM tenants WHERE branch_id = ? AND created_at <= ?').get(tenant.branch_id, tenant.created_at || new Date().toISOString());
+      tenant.agreement_no = `DFIN/${branchShort}/${year}/${String((tenantSeq ? tenantSeq.cnt : 1)).padStart(4, '0')}`;
+      tenant.allotment_date = tenant.lease_start || new Date().toISOString().split('T')[0];
+      pdfBuffer = await generatePdfBuffer(tenant, branch || {}, locker || {});
+      fileName = `Agreement_${(tenant.name || 'tenant').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+    }
+
+    // Determine signer identifier (phone or email)
+    const signerIdentifier = tenant.phone || tenant.email;
+    if (!signerIdentifier) return res.status(400).json({ error: 'Tenant has no phone or email for signing' });
+
+    // Call Digio API to upload PDF and create sign request
+    const fileBase64 = pdfBuffer.toString('base64');
+    const digioPayload = {
+      signers: [{
+        identifier: signerIdentifier,
+        name: tenant.name,
+        sign_type: 'aadhaar',
+        reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
+      }],
+      expire_in_days: 10,
+      display_on_page: 'all',
+      notify_signers: false,
+      send_sign_link: false,
+      include_authentication_url: 'true',
+      file_name: fileName,
+      file_data: fileBase64
+    };
+
+    const digioResp = await digioRequest('POST', '/v2/client/document/uploadpdf', digioPayload);
+
+    // Extract auth URL from response
+    let authUrl = '';
+    if (digioResp.signing_parties && digioResp.signing_parties.length > 0) {
+      authUrl = digioResp.signing_parties[0].authentication_url || '';
+    }
+
+    // Save to DB
+    const id = genId();
+    db.prepare(`INSERT INTO esign_requests (id, branch_id, tenant_id, document_type, file_name, signer_name, signer_identifier, sign_type, status, digio_doc_id, auth_url, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, tenant.branch_id, tenant_id, document_type, fileName, tenant.name, signerIdentifier, 'aadhaar',
+      digioResp.status || 'requested', digioResp.id || '', authUrl, ''
+    );
+
+    logInfo('E-sign initiated', { id, tenant: tenant.name, type: document_type, digioId: digioResp.id });
+
+    res.json({
+      success: true,
+      esign_id: id,
+      digio_doc_id: digioResp.id,
+      auth_url: authUrl,
+      status: digioResp.status,
+      signing_parties: digioResp.signing_parties
+    });
+  } catch (err) {
+    logError('E-sign initiation failed', { error: err.message || JSON.stringify(err) });
+    res.status(500).json({ error: err.message || 'E-sign initiation failed', details: err });
+  }
+});
+
+// Upload custom PDF for e-sign
+app.post('/api/esign/upload', express.raw({ type: 'application/pdf', limit: '20mb' }), async (req, res) => {
+  // This endpoint is handled via multipart — let's use a different approach
+  res.status(501).json({ error: 'Use /api/esign/initiate for auto-generated documents' });
+});
+
+// Check e-sign status from Digio
+app.get('/api/esign/:id/status', async (req, res) => {
+  try {
+    const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
+    if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
+    if (!esign.digio_doc_id) return res.status(400).json({ error: 'No Digio document ID found' });
+
+    const digioResp = await digioRequest('GET', `/v2/client/document/${esign.digio_doc_id}`, null);
+
+    // Update local status
+    const newStatus = digioResp.status || esign.status;
+    db.prepare('UPDATE esign_requests SET status = ?, updated_at = datetime(?) WHERE id = ?')
+      .run(newStatus, new Date().toISOString(), req.params.id);
+
+    res.json({ ...digioResp, local_id: esign.id });
+  } catch (err) {
+    logError('E-sign status check failed', { error: err.message || JSON.stringify(err) });
+    res.status(500).json({ error: err.message || 'Status check failed' });
+  }
+});
+
+// Download signed document from Digio
+app.get('/api/esign/:id/download', async (req, res) => {
+  try {
+    const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
+    if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
+    if (!esign.digio_doc_id) return res.status(400).json({ error: 'No Digio document ID found' });
+
+    const pdfBuffer = await digioDownload(`/v2/client/document/download?document_id=${esign.digio_doc_id}`);
+
+    const safeName = (esign.file_name || 'signed_document').replace(/\.pdf$/i, '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=Signed_${safeName}.pdf`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    logError('E-sign download failed', { error: err.message || JSON.stringify(err) });
+    res.status(500).json({ error: err.message || 'Download failed' });
+  }
+});
+
+// Cancel e-sign request
+app.post('/api/esign/:id/cancel', async (req, res) => {
+  try {
+    const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
+    if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
+    if (!esign.digio_doc_id) return res.status(400).json({ error: 'No Digio document ID found' });
+
+    const digioResp = await digioRequest('GET', `/v2/client/document/${esign.digio_doc_id}/cancel`, null);
+
+    db.prepare('UPDATE esign_requests SET status = ?, updated_at = datetime(?) WHERE id = ?')
+      .run('cancelled', new Date().toISOString(), req.params.id);
+
+    logInfo('E-sign cancelled', { id: req.params.id, digioId: esign.digio_doc_id });
+    res.json({ success: true, ...digioResp });
+  } catch (err) {
+    logError('E-sign cancel failed', { error: err.message || JSON.stringify(err) });
+    res.status(500).json({ error: err.message || 'Cancel failed' });
+  }
+});
+
+// Webhook endpoint for Digio status updates
+app.post('/api/esign/webhook', (req, res) => {
+  try {
+    const { document_id, status } = req.body;
+    if (document_id) {
+      const esign = db.prepare('SELECT * FROM esign_requests WHERE digio_doc_id = ?').get(document_id);
+      if (esign) {
+        db.prepare('UPDATE esign_requests SET status = ?, updated_at = datetime(?) WHERE digio_doc_id = ?')
+          .run(status || 'updated', new Date().toISOString(), document_id);
+        logInfo('E-sign webhook received', { digioId: document_id, status });
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    logError('E-sign webhook error', { error: err.message });
+    res.json({ success: true }); // Always return 200 to Digio
+  }
 });
 
 // ============================

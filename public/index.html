@@ -1489,6 +1489,7 @@
                 <li id="navPayments" style="display: none;"><a onclick="switchSection('payments')" class="nav-link" data-section="payments">Rent & Payments</a></li>
                 <li><a onclick="switchSection('visits')" class="nav-link" data-section="visits">Visit Log</a></li>
                 <li id="navBgChecks" style="display: none;"><a onclick="switchSection('bgchecks')" class="nav-link" data-section="bgchecks">Background Checks</a></li>
+                <li id="navEsign" style="display: none;"><a onclick="switchSection('esign')" class="nav-link" data-section="esign">E-Sign</a></li>
                 <li id="navReports" style="display: none;"><a onclick="switchSection('reports')" class="nav-link" data-section="reports">Reports (Excel)</a></li>
                 <li id="navBackup" style="display: none;"><a onclick="switchSection('backup')" class="nav-link" data-section="backup">Data & Backup</a></li>
                 <li id="branchMgmt" style="display: none;"><a onclick="switchSection('branches')" class="nav-link" data-section="branches">Manage Branches</a></li>
@@ -1677,6 +1678,95 @@
                                 <tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <!-- E-Sign Screen -->
+                <div id="esignScreen" class="screen">
+                    <div class="section-title">E-Sign (Aadhaar eSign via Digio)</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openEsignModal()">+ New E-Sign Request</button>
+                        <button class="btn btn-secondary" onclick="loadEsign()">Refresh</button>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Tenant</th>
+                                    <th>Branch</th>
+                                    <th>Document</th>
+                                    <th>File</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="esignTable">
+                                <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- E-Sign Initiate Modal -->
+                <div id="esignModal" class="modal-overlay">
+                    <div class="modal" style="max-width: 500px;">
+                        <div class="modal-header">
+                            <h2>Initiate E-Sign</h2>
+                            <button class="modal-close" onclick="closeModal('esignModal')">×</button>
+                        </div>
+                        <div class="modal-body">
+                            <form id="esignForm">
+                                <div class="form-group">
+                                    <label for="esignTenant">Select Tenant</label>
+                                    <select id="esignTenant" required onchange="onEsignTenantChange()">
+                                        <option value="">-- Select tenant --</option>
+                                    </select>
+                                </div>
+                                <div id="esignTenantInfo" style="display:none; margin-bottom:16px; padding:12px; background:#f5ede0; border-radius:8px; font-size:13px;">
+                                    <div><strong id="esignTenantName"></strong></div>
+                                    <div style="color:#7a6b5e;" id="esignTenantDetails"></div>
+                                </div>
+                                <div class="form-group">
+                                    <label for="esignDocType">Document to Sign</label>
+                                    <select id="esignDocType" required>
+                                        <option value="agreement">Locker Agreement</option>
+                                        <option value="receipt">Latest Payment Receipt</option>
+                                    </select>
+                                </div>
+                                <div style="margin-top:12px; padding:10px; background:#fef3cd; border-radius:8px; font-size:12px; color:#856404;">
+                                    The tenant will receive an Aadhaar OTP-based e-sign link. Once signed, the document will be available for download.
+                                </div>
+                            </form>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeModal('esignModal')">Cancel</button>
+                            <button class="btn btn-primary" onclick="initiateEsign()">Send for E-Sign</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- E-Sign Auth URL Modal -->
+                <div id="esignAuthModal" class="modal-overlay">
+                    <div class="modal" style="max-width: 550px;">
+                        <div class="modal-header">
+                            <h2>E-Sign Request Created</h2>
+                            <button class="modal-close" onclick="closeModal('esignAuthModal')">×</button>
+                        </div>
+                        <div class="modal-body" style="text-align:center;">
+                            <div style="margin-bottom:16px;">
+                                <span class="badge badge-success" style="font-size:14px; padding:8px 16px;">Request Sent Successfully</span>
+                            </div>
+                            <p style="margin-bottom:12px; color:#7a6b5e;">Share the signing link below with the customer:</p>
+                            <div style="background:#f5ede0; padding:12px; border-radius:8px; word-break:break-all; font-size:13px; margin-bottom:16px;">
+                                <span id="esignAuthUrl" style="color:#2563eb;"></span>
+                            </div>
+                            <button class="btn btn-primary" onclick="copyEsignLink()" style="width:100%;">Copy Signing Link</button>
+                            <p id="esignCopyConfirm" style="color:#16a34a; font-size:12px; margin-top:8px; display:none;">Link copied to clipboard!</p>
+                        </div>
+                        <div class="modal-footer">
+                            <button class="btn btn-secondary" onclick="closeModal('esignAuthModal')">Close</button>
+                        </div>
                     </div>
                 </div>
 
@@ -2890,6 +2980,7 @@
                 document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navPayments').style.display = 'block';
                 document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navEsign').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navAppointments').style.display = 'block';
@@ -2989,6 +3080,7 @@
                 payments: 'Rent & Payments',
                 visits: 'Visit Log',
                 bgchecks: 'Background Checks',
+                esign: 'E-Sign',
                 reports: 'Reports',
                 backup: 'Data & Backup',
                 branches: 'Manage Branches',
@@ -3009,6 +3101,7 @@
             else if (section === 'payments') await loadPayments();
             else if (section === 'visits') await loadVisits();
             else if (section === 'bgchecks') await loadBGChecks();
+            else if (section === 'esign') await loadEsign();
             else if (section === 'reports') await loadReports();
             else if (section === 'branches') await loadBranches();
             else if (section === 'users') await loadUsers();
@@ -3502,6 +3595,7 @@
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
                             <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
+                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="quickEsign('${t.id}', '${t.branch_id}', 'agreement')" style="font-size:11px;padding:4px 8px;background:#6366f1;">E-Sign</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openSetPasswordModal('${t.id}', '${(t.name||'').replace(/'/g, "\\'")}', '${t.phone||''}')" style="font-size:11px;padding:4px 8px;">🔑 Login</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
                         </div>
@@ -5614,6 +5708,208 @@
                 alert(result.message || 'Password set successfully');
             } catch (err) {
                 alert('Error: ' + err.message);
+            }
+        }
+
+        // ===== E-Sign (Digio Integration) =====
+        async function loadEsign() {
+            try {
+                const branchId = currentBranchId || 'all';
+                const requests = await api('GET', `/api/esign?branch_id=${branchId}`);
+                renderEsignTable(requests);
+            } catch (error) {
+                console.error('Failed to load e-sign requests:', error);
+                document.getElementById('esignTable').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:#991b1b;">Failed to load e-sign requests</td></tr>';
+            }
+        }
+
+        function getEsignStatusBadge(status) {
+            const s = (status || '').toLowerCase();
+            if (s === 'signed' || s === 'completed') return '<span class="badge badge-success">Signed</span>';
+            if (s === 'cancelled' || s === 'expired') return `<span class="badge badge-danger">${status}</span>`;
+            if (s === 'requested' || s === 'pending') return '<span class="badge badge-warning">Pending</span>';
+            return `<span class="badge">${status || 'Unknown'}</span>`;
+        }
+
+        function renderEsignTable(requests) {
+            if (!requests || requests.length === 0) {
+                document.getElementById('esignTable').innerHTML = '<tr><td colspan="7" style="text-align:center; padding:40px; color:#888;">No e-sign requests yet</td></tr>';
+                return;
+            }
+            document.getElementById('esignTable').innerHTML = requests.map(r => {
+                const date = r.created_at ? r.created_at.split('T')[0] : '-';
+                const docLabel = r.document_type === 'receipt' ? 'Payment Receipt' : 'Locker Agreement';
+                const status = getEsignStatusBadge(r.status);
+                const isSigned = (r.status || '').toLowerCase() === 'signed' || (r.status || '').toLowerCase() === 'completed';
+                const isPending = (r.status || '').toLowerCase() === 'requested' || (r.status || '').toLowerCase() === 'pending';
+
+                let actions = '';
+                if (isPending && r.auth_url) {
+                    actions += `<button class="btn btn-primary" onclick="showEsignLink('${r.auth_url}')" style="font-size:11px;padding:3px 8px;">Copy Link</button> `;
+                }
+                if (isPending) {
+                    actions += `<button class="btn btn-secondary" onclick="refreshEsignStatus('${r.id}')" style="font-size:11px;padding:3px 8px;">Check Status</button> `;
+                    actions += `<button class="btn btn-danger" onclick="cancelEsign('${r.id}')" style="font-size:11px;padding:3px 8px;">Cancel</button>`;
+                }
+                if (isSigned) {
+                    actions += `<button class="btn btn-primary" onclick="downloadSignedDoc('${r.id}')" style="font-size:11px;padding:3px 8px;">Download Signed</button>`;
+                }
+
+                return `<tr>
+                    <td>${date}</td>
+                    <td><strong>${r.tenant_name || r.signer_name || '-'}</strong><br><span style="font-size:11px;color:#888;">${r.signer_identifier || ''}</span></td>
+                    <td>${r.branch_name || '-'}</td>
+                    <td>${docLabel}</td>
+                    <td style="font-size:12px;">${r.file_name || '-'}</td>
+                    <td>${status}</td>
+                    <td><div class="action-buttons">${actions}</div></td>
+                </tr>`;
+            }).join('');
+        }
+
+        async function openEsignModal() {
+            document.getElementById('esignForm').reset();
+            document.getElementById('esignTenantInfo').style.display = 'none';
+            // Load tenants into dropdown
+            try {
+                const branchId = currentBranchId || 'all';
+                const url = branchId === 'all' ? '/api/tenants' : `/api/tenants?branch_id=${branchId}`;
+                const tenants = await api('GET', url);
+                const sel = document.getElementById('esignTenant');
+                sel.innerHTML = '<option value="">-- Select tenant --</option>' +
+                    tenants.map(t => `<option value="${t.id}" data-name="${t.name}" data-phone="${t.phone || ''}" data-email="${t.email || ''}" data-locker="${t.locker_number || ''}" data-branch="${t.branch_id}">${t.name} — ${t.locker_number || 'No locker'} (${t.phone || t.email || ''})</option>`).join('');
+            } catch (e) {
+                console.error('Failed to load tenants for e-sign:', e);
+            }
+            document.getElementById('esignModal').classList.add('active');
+        }
+
+        function onEsignTenantChange() {
+            const sel = document.getElementById('esignTenant');
+            const opt = sel.options[sel.selectedIndex];
+            if (!sel.value) {
+                document.getElementById('esignTenantInfo').style.display = 'none';
+                return;
+            }
+            document.getElementById('esignTenantName').textContent = opt.dataset.name;
+            document.getElementById('esignTenantDetails').innerHTML =
+                `Phone: ${opt.dataset.phone || '-'} | Email: ${opt.dataset.email || '-'} | Locker: ${opt.dataset.locker || '-'}`;
+            document.getElementById('esignTenantInfo').style.display = 'block';
+        }
+
+        async function initiateEsign() {
+            const tenantId = document.getElementById('esignTenant').value;
+            const docType = document.getElementById('esignDocType').value;
+            if (!tenantId) { alert('Please select a tenant'); return; }
+
+            const sel = document.getElementById('esignTenant');
+            const opt = sel.options[sel.selectedIndex];
+            const branchId = opt.dataset.branch || currentBranchId;
+
+            try {
+                showLoading('Sending document to Digio for e-sign...');
+                const result = await api('POST', '/api/esign/initiate', {
+                    tenant_id: tenantId,
+                    document_type: docType,
+                    branch_id: branchId
+                });
+                hideLoading();
+                closeModal('esignModal');
+
+                if (result.auth_url) {
+                    showEsignLink(result.auth_url);
+                } else {
+                    alert('E-Sign request created but no signing link was returned. Check the E-Sign table for status.');
+                }
+                await loadEsign();
+            } catch (error) {
+                hideLoading();
+                console.error('E-sign initiation failed:', error);
+                alert('Failed to initiate e-sign: ' + (error.message || error.error || 'Unknown error'));
+            }
+        }
+
+        function showEsignLink(url) {
+            document.getElementById('esignAuthUrl').textContent = url;
+            document.getElementById('esignCopyConfirm').style.display = 'none';
+            document.getElementById('esignAuthModal').classList.add('active');
+        }
+
+        function copyEsignLink() {
+            const url = document.getElementById('esignAuthUrl').textContent;
+            navigator.clipboard.writeText(url).then(() => {
+                document.getElementById('esignCopyConfirm').style.display = 'block';
+                setTimeout(() => { document.getElementById('esignCopyConfirm').style.display = 'none'; }, 3000);
+            }).catch(() => {
+                // Fallback for older browsers
+                const ta = document.createElement('textarea');
+                ta.value = url;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                document.getElementById('esignCopyConfirm').style.display = 'block';
+            });
+        }
+
+        async function refreshEsignStatus(esignId) {
+            try {
+                showLoading('Checking status...');
+                const result = await api('GET', `/api/esign/${esignId}/status`);
+                hideLoading();
+                await loadEsign();
+                if (result.status) {
+                    alert(`Status: ${result.status}`);
+                }
+            } catch (error) {
+                hideLoading();
+                alert('Failed to check status: ' + (error.message || 'Unknown error'));
+            }
+        }
+
+        async function cancelEsign(esignId) {
+            if (!confirm('Are you sure you want to cancel this e-sign request?')) return;
+            try {
+                showLoading('Cancelling...');
+                await api('POST', `/api/esign/${esignId}/cancel`);
+                hideLoading();
+                await loadEsign();
+            } catch (error) {
+                hideLoading();
+                alert('Failed to cancel: ' + (error.message || 'Unknown error'));
+            }
+        }
+
+        function downloadSignedDoc(esignId) {
+            showLoading('Downloading signed document...');
+            const a = document.createElement('a');
+            a.href = `/api/esign/${esignId}/download`;
+            a.download = '';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            setTimeout(() => hideLoading(), 2000);
+        }
+
+        // Quick e-sign from tenant/payment action buttons
+        async function quickEsign(tenantId, branchId, docType) {
+            if (!confirm(`Send ${docType === 'receipt' ? 'latest payment receipt' : 'locker agreement'} for Aadhaar e-sign?`)) return;
+            try {
+                showLoading('Sending to Digio for e-sign...');
+                const result = await api('POST', '/api/esign/initiate', {
+                    tenant_id: tenantId,
+                    document_type: docType,
+                    branch_id: branchId
+                });
+                hideLoading();
+                if (result.auth_url) {
+                    showEsignLink(result.auth_url);
+                } else {
+                    alert('E-Sign request created! Check the E-Sign tab for status.');
+                }
+            } catch (error) {
+                hideLoading();
+                alert('E-sign failed: ' + (error.message || error.error || 'Unknown error'));
             }
         }
 
