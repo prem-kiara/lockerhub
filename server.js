@@ -1934,14 +1934,15 @@ app.post('/api/esign/initiate', async (req, res) => {
     const digioIdentifier = tenant.email || tenant.phone;
     if (!digioIdentifier) return res.status(400).json({ error: 'Tenant has no email or phone for signing' });
 
-    // Calculate sign coordinates — last page for agreement, page 1 for receipt
+    // Sign coordinates: bottom-right of every page with margin from edges
+    // A4 = 595.28 x 841.89 pts, PDF origin = bottom-left
+    // Box: ~200 x 90 pts, ~40pt from right edge, ~40pt from bottom edge
     const pageCount = (pdfBuffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
-    const signPage = document_type === 'receipt' ? '1' : String(pageCount || 8);
-    const signCoords = {
-      [digioIdentifier]: {
-        [signPage]: [{ llx: 70, lly: 640, urx: 280, ury: 720 }]
-      }
-    };
+    const signerPages = {};
+    for (let p = 1; p <= (pageCount || 1); p++) {
+      signerPages[String(p)] = [{ llx: 355, lly: 40, urx: 555, ury: 130 }];
+    }
+    const signCoords = { [digioIdentifier]: signerPages };
 
     const digioPayload = {
       signers: [{
