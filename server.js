@@ -1926,53 +1926,61 @@ app.post('/api/esign/initiate', async (req, res) => {
       fileName = `Agreement_${(tenant.name || 'tenant').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
     }
 
-    // Determine signer identifier (phone or email)
-    const signerIdentifier = tenant.phone || tenant.email;
-    if (!signerIdentifier) return res.status(400).json({ error: 'Tenant has no phone or email for signing' });
-
     // Call Digio API to upload PDF and create sign request
     const fileBase64 = pdfBuffer.toString('base64');
+
+    // Prefer email as identifier for Digio (their sign_coordinates examples use email)
+    // Fall back to phone if no email
+    const digioIdentifier = tenant.email || tenant.phone;
+    if (!digioIdentifier) return res.status(400).json({ error: 'Tenant has no email or phone for signing' });
 
     // Calculate sign coordinates — last page for agreement, page 1 for receipt
     const pageCount = (pdfBuffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
     const signPage = document_type === 'receipt' ? '1' : String(pageCount || 8);
     const signCoords = {
-      [signerIdentifier]: {
+      [digioIdentifier]: {
         [signPage]: [{ llx: 70, lly: 640, urx: 280, ury: 720 }]
       }
     };
 
     const digioPayload = {
       signers: [{
-        identifier: signerIdentifier,
+        identifier: digioIdentifier,
         name: tenant.name,
         sign_type: 'aadhaar',
         reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
       }],
       expire_in_days: 10,
       display_on_page: 'custom',
-      sign_coordinates: signCoords,
-      notify_signers: false,
-      send_sign_link: false,
-      generate_access_token: true,
-      include_authentication_url: 'true',
+      notify_signers: true,
+      send_sign_link: true,
       file_name: fileName,
-      file_data: fileBase64
+      generate_access_token: true,
+      file_data: fileBase64,
+      sign_coordinates: signCoords
     };
+
+    // Log payload for debugging (without file_data)
+    const debugPayload = { ...digioPayload, file_data: `[${fileBase64.length} chars base64, ${pageCount} pages]` };
+    logInfo('Digio upload payload', debugPayload);
 
     const digioResp = await digioRequest('POST', '/v2/client/document/uploadpdf', digioPayload);
 
-    // Extract auth URL from response
+    // Extract auth URL from response (check multiple possible fields)
     let authUrl = '';
     if (digioResp.signing_parties && digioResp.signing_parties.length > 0) {
-      authUrl = digioResp.signing_parties[0].authentication_url || '';
+      authUrl = digioResp.signing_parties[0].authentication_url || digioResp.signing_parties[0].sign_url || '';
+    }
+    // generate_access_token may return access_token with a different URL pattern
+    if (!authUrl && digioResp.access_token) {
+      authUrl = `https://${digio.baseUrl}${digio.port !== 443 ? ':' + digio.port : ''}/public/sign/${digioResp.id}?access_token=${digioResp.access_token.id}`;
     }
 
     // Save to DB
     const id = genId();
     db.prepare(`INSERT INTO esign_requests (id, branch_id, tenant_id, document_type, file_name, signer_name, signer_identifier, sign_type, status, digio_doc_id, auth_url, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, tenant.branch_id, tenant_id, document_type, fileName, tenant.name, signerIdentifier, 'aadhaar',
+      id, tenant.branch_id, tenant_id, document_type, fileName, tenant.name, digioIdentifier, 'aadhaar',
       digioResp.status || 'requested', digioResp.id || '', authUrl, ''
     );
 
