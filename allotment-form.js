@@ -157,6 +157,17 @@ function newPage(doc) {
   doc.addPage({ size: 'A4', margin: 0 });
 }
 
+// Draw hirer signature box at bottom-right (matches Digio e-sign stamp position)
+function bottomRightSign(doc, label) {
+  const bx = 355, by = 715, bw = 200, bh = 85;
+  doc.save().strokeColor(LGREY).lineWidth(0.5).rect(bx, by, bw, bh).stroke().restore();
+  doc.font('Helvetica-Bold').fontSize(7).fillColor(GOLD);
+  tx(doc, label || 'Hirer Signature', bx + 5, by + 5);
+  doc.font('Helvetica').fontSize(6).fillColor(GREY);
+  tx(doc, '(E-Sign)', bx + 5, by + 16);
+  doc.fillColor('black');
+}
+
 // ================================================================
 // PAGE 1: SPECIMEN SIGNATURE CARD
 // ================================================================
@@ -206,6 +217,7 @@ function page1(doc, t, branch) {
   y = field(doc, 'Verified by:', M, y, '', 180, 70);
   y = field(doc, 'Date:', M, y, '', 120, 35);
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/01/Ver 1.0');
 }
 
@@ -298,6 +310,7 @@ function page2(doc, t, branch) {
   tx(doc, 'Branch Manager: ___________________', M, y);
   tx(doc, 'Date: ___________________', W / 2 + 80, y);
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/02/Ver 1.0');
 }
 
@@ -389,6 +402,7 @@ function page3(doc, t, branch) {
   tx(doc, phTxt, (W - doc.widthOfString(phTxt)) / 2, y);
   doc.fillColor('black');
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/02/Ver 1.0');
 }
 
@@ -464,6 +478,7 @@ function pageTerms(doc) {
     y = doc.y + 3;
   });
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/02/Ver 1.0');
 }
 
@@ -554,6 +569,7 @@ function pageHirerInfo(doc, t) {
   y = field(doc, 'State:', M, y, '', 170, 38);
   field(doc, 'Country:', M + 270, y - 16, '', 75, 55);
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/03/Ver 1.0');
 }
 
@@ -685,6 +701,7 @@ function pageKYC(doc, t) {
     cx3 = checkbox(doc, inc, cx3, y) + 4;
   });
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/04/Ver 1.0');
 }
 
@@ -721,12 +738,7 @@ function pageDeclaration(doc, t) {
     y = doc.y + 3;
   });
 
-  y += 2;
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(GOLD);
-  tx(doc, 'Signature:', M, y);
-  doc.fillColor('black');
-  labeledBox(doc, 'Hirer Signature', M + 60, y + 2, 110, 35);
-  y += 42;
+  y += 4;
 
   // Nomination
   y = sectionTitle(doc, 'NOMINATION', y);
@@ -770,6 +782,7 @@ function pageDeclaration(doc, t) {
 
   y += 6;
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/05/Ver 1.0');
 }
 
@@ -787,11 +800,7 @@ function pageAcknowledgement(doc, t, branch, locker) {
   tx(doc, `I/We hereby acknowledge receipt of Locker No. ${t.locker_number || '__________'}  Key No. __________`, M, y);
   y += 25;
 
-  doc.font('Helvetica-Bold').fontSize(8).fillColor(GOLD);
-  tx(doc, 'Signature:', M, y);
-  doc.fillColor('black');
-  labeledBox(doc, 'Hirer', M + 60, y + 3, 120, 40);
-  y += 55;
+  y += 10;
 
   // Divider
   doc.save().strokeColor(GOLD).lineWidth(1).dash(6, { space: 3 }).moveTo(M, y).lineTo(W - M, y).stroke().undash().restore();
@@ -839,6 +848,7 @@ function pageAcknowledgement(doc, t, branch, locker) {
   tx(doc, 'Customer Service Officer', M, y);
   tx(doc, 'Branch Manager', mid + 20, y);
 
+  bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/06/Ver 1.0');
 }
 

@@ -64,9 +64,11 @@ function numberToWords(num) {
 
 function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
-function renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, startY) {
+function renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, startY, renderOpts) {
+  const rOpts = renderOpts || {};
   let y2 = startY;
   const isFullPage = startY < 100; // Full-page mode (customer-only download)
+  const isEsign = !!rOpts.forEsign;
 
   // Header
   if (HAS_LOGO) {
@@ -178,21 +180,35 @@ function renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, star
     y2 += 18;
   }
 
-  // Signatures
-  y2 += isFullPage ? 30 : 15;
-  const sigW = isFullPage ? 160 : 140;
-  doc.save().strokeColor(LGREY).lineWidth(0.5)
-    .moveTo(M, y2).lineTo(M + sigW, y2).stroke()
-    .moveTo(W - M - sigW, y2).lineTo(W - M, y2).stroke().restore();
-  y2 += isFullPage ? 5 : 4;
-  doc.font('Helvetica').fontSize(isFullPage ? 8 : 7).fillColor(GREY);
-  tx(doc, "Customer's Signature", M, y2);
-  tx(doc, 'Authorised Signatory', W - M - sigW, y2);
+  // Signatures — only show manual sig lines if NOT an e-sign copy
+  if (!isEsign) {
+    y2 += isFullPage ? 30 : 15;
+    const sigW = isFullPage ? 160 : 140;
+    doc.save().strokeColor(LGREY).lineWidth(0.5)
+      .moveTo(M, y2).lineTo(M + sigW, y2).stroke()
+      .moveTo(W - M - sigW, y2).lineTo(W - M, y2).stroke().restore();
+    y2 += isFullPage ? 5 : 4;
+    doc.font('Helvetica').fontSize(isFullPage ? 8 : 7).fillColor(GREY);
+    tx(doc, "Customer's Signature", M, y2);
+    tx(doc, 'Authorised Signatory', W - M - sigW, y2);
 
-  if (isFullPage) {
-    y2 += 12;
-    doc.font('Helvetica-Bold').fontSize(7).fillColor(DARK);
-    tx(doc, `For ${COMPANY_FULL}`, W - M - sigW, y2);
+    if (isFullPage) {
+      y2 += 12;
+      doc.font('Helvetica-Bold').fontSize(7).fillColor(DARK);
+      tx(doc, `For ${COMPANY_FULL}`, W - M - sigW, y2);
+    }
+  }
+
+  // Bottom-right e-sign placeholder box (matches Digio sign_coordinates: llx:355, lly:40 in PDF coords)
+  // In PDFKit coords (top-left origin): x=355, y = 841.89 - 130 = ~712
+  if (isEsign) {
+    const bx = 355, by = 712, bw = 200, bh = 90;
+    doc.save().strokeColor(LGREY).lineWidth(0.5).rect(bx, by, bw, bh).stroke().restore();
+    doc.font('Helvetica-Bold').fontSize(7).fillColor(GOLD);
+    tx(doc, 'Hirer Signature', bx + 5, by + 5);
+    doc.font('Helvetica').fontSize(6).fillColor(GREY);
+    tx(doc, '(E-Sign)', bx + 5, by + 16);
+    doc.fillColor('black');
   }
 
   // Bottom footer
@@ -213,6 +229,18 @@ function generateReceiptBuffer(payment, tenant, branch, locker, options) {
 
       const contentW = W - 2 * M;
 
+      // Helper: draw bottom-right e-sign placeholder matching Digio coords (llx:355, lly:40, urx:555, ury:130)
+      // PDFKit coords (top-left origin): x=355, y=841.89-130 = ~712
+      function drawEsignBox(doc) {
+        const bx = 355, by = 712, bw = 200, bh = 90;
+        doc.save().strokeColor(LGREY).lineWidth(0.5).rect(bx, by, bw, bh).stroke().restore();
+        doc.font('Helvetica-Bold').fontSize(7).fillColor(GOLD);
+        tx(doc, 'Hirer Signature', bx + 5, by + 5);
+        doc.font('Helvetica').fontSize(6).fillColor(GREY);
+        tx(doc, '(E-Sign)', bx + 5, by + 16);
+        doc.fillColor('black');
+      }
+
       // If customer copy only, skip the company copy and render customer copy full-page
       if (opts.customerOnly) {
         renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, 50);
@@ -220,6 +248,10 @@ function generateReceiptBuffer(payment, tenant, branch, locker, options) {
         return;
       }
 
+      // For e-sign: render full-page company copy on page 1, full-page customer copy on page 2, both with sign boxes
+      const isEsign = !!opts.forEsign;
+
+      // ===== PAGE 1: COMPANY COPY =====
       // ===== HEADER =====
       let y = 62;
       const logoH = 52;
@@ -258,7 +290,7 @@ function generateReceiptBuffer(payment, tenant, branch, locker, options) {
       // ===== RECEIPT TITLE =====
       doc.save().fillColor(GOLD).rect(M, y, contentW, 28).fill().restore();
       doc.font('Helvetica-Bold').fontSize(16).fillColor('white');
-      const titleText = 'PAYMENT RECEIPT';
+      const titleText = isEsign ? 'PAYMENT RECEIPT — COMPANY COPY' : 'PAYMENT RECEIPT';
       const titleW = doc.widthOfString(titleText);
       tx(doc, titleText, (W - titleW) / 2, y + 6);
       doc.fillColor('black');
@@ -360,33 +392,47 @@ function generateReceiptBuffer(payment, tenant, branch, locker, options) {
         y += 18;
       }
 
-      y += 25;
+      if (isEsign) {
+        // E-Sign mode: sign box at bottom-right of page 1, then full customer copy on page 2
+        drawEsignBox(doc);
 
-      // ===== SIGNATURES =====
-      const sigLineW = 160;
-      doc.save().strokeColor(LGREY).lineWidth(0.5)
-        .moveTo(M, y).lineTo(M + sigLineW, y).stroke()
-        .moveTo(W - M - sigLineW, y).lineTo(W - M, y).stroke().restore();
-      y += 5;
-      doc.font('Helvetica').fontSize(8).fillColor(GREY);
-      tx(doc, "Customer's Signature", M, y);
-      tx(doc, 'Authorised Signatory', W - M - sigLineW, y);
-      y += 12;
-      doc.font('Helvetica-Bold').fontSize(7).fillColor(DARK);
-      tx(doc, `For ${COMPANY_FULL}`, W - M - sigLineW, y);
+        // Page 1 footer
+        doc.font('Helvetica').fontSize(5).fillColor('#aaaaaa');
+        tx(doc, `© ${COMPANY_FULL}. This is a computer-generated receipt.`, M, H - 20);
 
-      // ===== FOOTER =====
-      // Dashed cut line — positioned dynamically below company copy content
-      const cutY = Math.max(y + 25, H / 2 + 10);
-      doc.save().strokeColor('#cccccc').lineWidth(0.5).dash(5, { space: 3 })
-        .moveTo(M, cutY).lineTo(W - M, cutY).stroke().undash().restore();
-      doc.font('Helvetica').fontSize(6).fillColor('#aaaaaa');
-      const cutText = '✂ Customer Copy (Below) — Company Copy (Above)';
-      const cutW = doc.widthOfString(cutText);
-      tx(doc, cutText, (W - cutW) / 2, cutY - 8);
+        // ===== PAGE 2: CUSTOMER COPY (full-page with sign box) =====
+        doc.addPage({ size: 'A4', margin: 0 });
+        renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, 50, { forEsign: true });
+      } else {
+        // Normal print mode: company copy + cut line + compact customer copy on same page
+        y += 25;
 
-      // ===== DUPLICATE COPY (customer copy — compact) =====
-      renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, cutY + 15);
+        // ===== SIGNATURES =====
+        const sigLineW = 160;
+        doc.save().strokeColor(LGREY).lineWidth(0.5)
+          .moveTo(M, y).lineTo(M + sigLineW, y).stroke()
+          .moveTo(W - M - sigLineW, y).lineTo(W - M, y).stroke().restore();
+        y += 5;
+        doc.font('Helvetica').fontSize(8).fillColor(GREY);
+        tx(doc, "Customer's Signature", M, y);
+        tx(doc, 'Authorised Signatory', W - M - sigLineW, y);
+        y += 12;
+        doc.font('Helvetica-Bold').fontSize(7).fillColor(DARK);
+        tx(doc, `For ${COMPANY_FULL}`, W - M - sigLineW, y);
+
+        // ===== FOOTER =====
+        // Dashed cut line — positioned dynamically below company copy content
+        const cutY = Math.max(y + 25, H / 2 + 10);
+        doc.save().strokeColor('#cccccc').lineWidth(0.5).dash(5, { space: 3 })
+          .moveTo(M, cutY).lineTo(W - M, cutY).stroke().undash().restore();
+        doc.font('Helvetica').fontSize(6).fillColor('#aaaaaa');
+        const cutText = '✂ Customer Copy (Below) — Company Copy (Above)';
+        const cutW = doc.widthOfString(cutText);
+        tx(doc, cutText, (W - cutW) / 2, cutY - 8);
+
+        // ===== DUPLICATE COPY (customer copy — compact) =====
+        renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, cutY + 15);
+      }
 
       doc.end();
     } catch (err) {

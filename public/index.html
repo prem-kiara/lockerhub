@@ -359,6 +359,15 @@
             background: #b91c1c;
         }
 
+        .btn-success {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #236b30;
+        }
+
         .search-box {
             padding: 10px 16px;
             border: 1px solid var(--border);
@@ -880,30 +889,43 @@
         }
 
         .sidebar-overlay {
-            display: none;
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0);
             z-index: 999;
+            pointer-events: none;
+            transition: background 0.3s ease;
         }
 
         .sidebar-overlay.active {
-            display: block;
+            background: rgba(0, 0, 0, 0.45);
+            pointer-events: auto;
+            backdrop-filter: blur(2px);
+            -webkit-backdrop-filter: blur(2px);
         }
 
-        /* ===== RESPONSIVE: TABLET (768px) ===== */
+        /* Smooth scroll for main content */
+        .content-area {
+            scroll-behavior: smooth;
+        }
+
+        /* ================================================================
+           RESPONSIVE: TABLET (768px)
+           ================================================================ */
         @media (max-width: 768px) {
             .sidebar {
-                width: 250px;
+                width: 280px;
                 transform: translateX(-100%);
-                transition: transform 0.3s ease;
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                box-shadow: none;
             }
 
             .sidebar.open {
                 transform: translateX(0);
+                box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
             }
 
             .hamburger-btn {
@@ -923,7 +945,7 @@
             }
 
             .content-area {
-                padding: 16px;
+                padding: 20px 16px;
             }
 
             .stat-cards {
@@ -932,7 +954,7 @@
             }
 
             .stat-card {
-                padding: 14px;
+                padding: 16px;
             }
 
             .stat-card-value {
@@ -965,7 +987,7 @@
 
             .action-buttons {
                 flex-wrap: wrap;
-                gap: 8px;
+                gap: 6px;
             }
 
             .action-buttons .btn,
@@ -974,22 +996,55 @@
                 min-width: 44px;
             }
 
-            /* Touch targets for nav links */
             .sidebar-nav a {
                 padding: 14px 20px;
-                min-height: 44px;
+                min-height: 48px;
+                display: flex;
+                align-items: center;
             }
 
-            /* Branch selector in topbar */
             .branch-selector {
                 max-width: 180px;
                 font-size: 13px;
             }
 
+            /* Table scroll indicator */
+            .table-container {
+                position: relative;
+            }
+
+            .table-container::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                right: 0;
+                bottom: 0;
+                width: 24px;
+                background: linear-gradient(to left, rgba(255,252,247,0.9), transparent);
+                pointer-events: none;
+                border-radius: 0 8px 8px 0;
+                opacity: 1;
+                transition: opacity 0.3s;
+            }
+
+            .table-container.scrolled-end::after {
+                opacity: 0;
+            }
         }
 
-        /* ===== RESPONSIVE: MOBILE (480px) ===== */
+        /* ================================================================
+           RESPONSIVE: MOBILE (480px)
+           ================================================================ */
         @media (max-width: 480px) {
+            body {
+                overflow-x: hidden;
+                -webkit-text-size-adjust: 100%;
+            }
+
+            .main-content {
+                overflow-x: hidden;
+            }
+
             .topbar {
                 padding: 10px 12px;
                 flex-wrap: nowrap;
@@ -1012,6 +1067,7 @@
 
             .topbar-right {
                 font-size: 12px;
+                flex-shrink: 0;
             }
 
             .topbar-right #userInfo {
@@ -1023,20 +1079,23 @@
             }
 
             .content-area {
-                padding: 12px;
+                padding: 14px 12px;
             }
 
+            /* Stat cards — 2-col grid, tighter */
             .stat-cards {
                 grid-template-columns: 1fr 1fr;
-                gap: 8px;
+                gap: 10px;
             }
 
             .stat-card {
-                padding: 12px;
+                padding: 14px;
+                border-radius: 10px;
             }
 
             .stat-card-label {
-                font-size: 11px;
+                font-size: 10px;
+                letter-spacing: 0.6px;
             }
 
             .stat-card-value {
@@ -1049,9 +1108,10 @@
 
             .section-title {
                 font-size: 18px;
-                margin-bottom: 16px;
+                margin-bottom: 14px;
             }
 
+            /* Toolbar: stack vertically */
             .section-toolbar {
                 gap: 8px;
                 flex-direction: column;
@@ -1062,6 +1122,7 @@
                 width: 100%;
             }
 
+            /* Buttons: proper touch targets */
             .btn {
                 padding: 10px 14px;
                 font-size: 13px;
@@ -1069,30 +1130,64 @@
                 display: inline-flex;
                 align-items: center;
                 justify-content: center;
+                border-radius: 8px;
             }
 
             .search-box {
                 width: 100%;
-                font-size: 14px;
+                font-size: 16px;
+                border-radius: 8px;
             }
 
-            /* Tables: make scrollable */
+            /* ===== TABLES: smooth horizontal scroll ===== */
             .table-container {
-                border-radius: 6px;
-                font-size: 13px;
+                border-radius: 10px;
+                -webkit-overflow-scrolling: touch;
+                overflow-x: auto;
+                overflow-y: visible;
+                /* Subtle inset shadow to hint at scrollability */
+                box-shadow: inset -12px 0 8px -12px rgba(0,0,0,0.06),
+                            0 1px 3px rgba(0,0,0,0.05);
+            }
+
+            .table-container::-webkit-scrollbar {
+                height: 4px;
+            }
+
+            .table-container::-webkit-scrollbar-track {
+                background: var(--bg);
+                border-radius: 2px;
+            }
+
+            .table-container::-webkit-scrollbar-thumb {
+                background: var(--border);
+                border-radius: 2px;
             }
 
             table {
                 font-size: 12px;
-                min-width: 600px;
+                min-width: 640px;
             }
 
-            th, td {
-                padding: 8px 10px;
+            th {
+                padding: 10px 12px;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.4px;
+                color: var(--text-light);
+                white-space: nowrap;
+                position: sticky;
+                top: 0;
+                background: var(--bg);
+                z-index: 2;
+            }
+
+            td {
+                padding: 10px 12px;
                 white-space: nowrap;
             }
 
-            /* Modals: full-screen on mobile */
+            /* ===== MODALS: bottom sheet style ===== */
             .modal-overlay {
                 align-items: flex-end;
             }
@@ -1100,17 +1195,36 @@
             .modal {
                 width: 100%;
                 max-width: 100%;
-                max-height: 95vh;
-                border-radius: 16px 16px 0 0;
+                max-height: 92vh;
+                border-radius: 20px 20px 0 0;
                 margin: 0;
+                border-top: 3px solid var(--gold);
+                animation: slideUpMobile 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            @keyframes slideUpMobile {
+                from { transform: translateY(100%); }
+                to { transform: translateY(0); }
+            }
+
+            /* Drag handle indicator */
+            .modal::before {
+                content: '';
+                display: block;
+                width: 36px;
+                height: 4px;
+                background: var(--border);
+                border-radius: 2px;
+                margin: 8px auto 0;
             }
 
             .modal-header {
-                padding: 16px;
+                padding: 12px 16px 16px;
                 position: sticky;
                 top: 0;
                 background: var(--card-bg);
                 z-index: 10;
+                border-bottom: 1px solid var(--border);
             }
 
             .modal-header h2 {
@@ -1119,6 +1233,9 @@
 
             .modal-body {
                 padding: 16px;
+                max-height: calc(92vh - 140px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
             }
 
             .modal-footer {
@@ -1127,29 +1244,49 @@
                 bottom: 0;
                 background: var(--card-bg);
                 z-index: 10;
+                border-top: 1px solid var(--border);
+                box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
             }
 
+            /* Prevent iOS zoom on form focus */
             .form-group input,
             .form-group select,
             .form-group textarea {
-                font-size: 16px; /* Prevents iOS zoom on focus */
+                font-size: 16px;
                 padding: 12px;
+                border-radius: 8px;
             }
 
             .form-group label {
                 font-size: 13px;
+                margin-bottom: 5px;
             }
 
-            /* Units grid */
+            /* Units grid — 2 cols on mobile */
             .units-grid {
-                grid-template-columns: 1fr;
-                gap: 12px;
-                padding: 12px 0;
+                grid-template-columns: 1fr 1fr;
+                gap: 10px;
+                padding: 10px 0;
+            }
+
+            .unit-card {
+                padding: 10px;
+                border-radius: 8px;
+            }
+
+            .unit-card-number {
+                font-size: 14px;
+            }
+
+            .unit-card-actions button {
+                min-height: 36px;
+                font-size: 11px;
             }
 
             /* Branch cards */
             .branch-card {
-                padding: 14px;
+                padding: 16px;
+                border-radius: 10px;
             }
 
             .branch-stats {
@@ -1161,19 +1298,27 @@
                 font-size: 15px;
             }
 
-            /* Tabs */
+            /* ===== TABS: horizontal scroll ===== */
             .tabs {
                 overflow-x: auto;
                 -webkit-overflow-scrolling: touch;
                 flex-wrap: nowrap;
                 gap: 0;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+                padding-bottom: 1px;
+            }
+
+            .tabs::-webkit-scrollbar {
+                display: none;
             }
 
             .tab {
-                padding: 10px 14px;
+                padding: 11px 16px;
                 font-size: 13px;
                 white-space: nowrap;
                 flex-shrink: 0;
+                border-bottom-width: 2px;
             }
 
             /* Login page */
@@ -1182,86 +1327,108 @@
             }
 
             .login-box {
-                padding: 24px 20px;
+                padding: 28px 20px;
+                border-radius: 14px;
             }
 
             .login-box h1 {
                 font-size: 20px;
             }
 
-            /* Action buttons in tables */
+            /* ===== ACTION BUTTONS: inline scroll ===== */
             .action-buttons {
-                flex-direction: column;
+                display: flex;
+                flex-wrap: nowrap;
                 gap: 4px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                padding-bottom: 2px;
             }
 
-            .action-buttons button {
-                width: 100%;
-                text-align: center;
+            .action-buttons::-webkit-scrollbar {
+                display: none;
             }
 
-            /* Backup & toolbar buttons */
+            .action-buttons button,
+            .action-buttons .btn {
+                flex-shrink: 0;
+                white-space: nowrap;
+                font-size: 11px;
+                padding: 6px 10px;
+                min-height: 32px;
+                border-radius: 6px;
+            }
+
+            /* Toolbar buttons */
             .section-toolbar .btn-primary,
             .section-toolbar .btn-secondary,
-            .section-toolbar .btn-danger {
+            .section-toolbar .btn-danger,
+            .section-toolbar .btn-success {
                 width: 100%;
                 justify-content: center;
                 min-height: 44px;
             }
 
-            /* Branch selector */
+            /* Branch selector in topbar */
+            #branchSelectorContainer {
+                max-width: 130px;
+            }
+
+            #branchSelectorContainer .branch-selector {
+                font-size: 12px;
+                padding: 7px 8px;
+                border-radius: 6px;
+            }
+
             .branch-selector {
                 width: 100%;
                 font-size: 14px;
                 min-height: 44px;
             }
 
-            /* Checkbox groups */
             .checkbox-group {
                 flex-direction: column;
                 gap: 10px;
             }
 
-            /* Interest summary */
             .interest-summary {
                 font-size: 12px;
                 padding: 10px 12px;
+                border-radius: 8px;
             }
 
-            /* Compact branch selector on very small screens */
-            #branchSelectorContainer {
-                max-width: 120px;
-            }
-
-            #branchSelectorContainer .branch-selector {
-                font-size: 12px;
-                padding: 6px 8px;
-            }
-
-            /* Ensure dropdowns don't overflow viewport */
             .user-dropdown {
                 right: 0;
                 left: auto;
             }
 
-            /* Better modal scrolling on small screens */
-            .modal-body {
-                max-height: calc(95vh - 130px);
-                overflow-y: auto;
-                -webkit-overflow-scrolling: touch;
+            /* Better empty states */
+            .empty-state {
+                padding: 40px 20px;
             }
 
-            /* Prevent horizontal overflow on body */
-            body {
-                overflow-x: hidden;
+            .empty-state p {
+                font-size: 14px;
             }
 
-            .main-content {
-                overflow-x: hidden;
+            /* Badges */
+            .badge {
+                font-size: 11px;
+                padding: 3px 10px;
+            }
+
+            /* Alerts */
+            .alert {
+                font-size: 13px;
+                padding: 12px;
+                border-radius: 8px;
             }
         }
 
-        /* ===== RESPONSIVE: TINY PHONES (360px) ===== */
+        /* ================================================================
+           RESPONSIVE: SMALL PHONES (360px)
+           ================================================================ */
         @media (max-width: 360px) {
             .stat-cards {
                 grid-template-columns: 1fr;
@@ -1282,6 +1449,14 @@
             .section-title {
                 font-size: 16px;
             }
+
+            .units-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .content-area {
+                padding: 10px 8px;
+            }
         }
 
         /* ===== SAFE AREA (notched phones) ===== */
@@ -1293,6 +1468,39 @@
             .sidebar {
                 padding-bottom: env(safe-area-inset-bottom);
             }
+
+            @media (max-width: 480px) {
+                .content-area {
+                    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+                }
+            }
+        }
+
+        /* ===== GLOBAL POLISH ===== */
+        /* Smooth all transitions */
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        /* Better focus states for accessibility */
+        button:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        a:focus-visible {
+            outline: 2px solid var(--gold);
+            outline-offset: 2px;
+        }
+
+        /* Prevent text selection on buttons */
+        .btn, .tab, .sidebar-nav a {
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        /* Smoother font rendering */
+        body {
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
         }
 
         .units-grid {
@@ -2830,6 +3038,19 @@
             if (overlay) overlay.classList.remove('active');
             if (hamburger) hamburger.classList.remove('active');
         }
+
+        // ===== Table scroll detection (removes fade hint when scrolled to end) =====
+        function initTableScrollHints() {
+            document.querySelectorAll('.table-container').forEach(tc => {
+                tc.addEventListener('scroll', function() {
+                    const atEnd = this.scrollLeft + this.clientWidth >= this.scrollWidth - 4;
+                    this.classList.toggle('scrolled-end', atEnd);
+                });
+            });
+        }
+        // Re-run after content loads
+        const _origMutObs = new MutationObserver(() => initTableScrollHints());
+        _origMutObs.observe(document.body, { childList: true, subtree: true });
 
         // ===== Global State =====
         let currentUser = null;
@@ -5749,7 +5970,13 @@
 
                 let actions = '';
                 if (isSigned) {
-                    actions += `<button class="btn btn-primary" onclick="downloadSignedDoc('${r.id}')" style="font-size:11px;padding:4px 12px;">⬇ Download Signed</button>`;
+                    actions += `<button class="btn btn-primary" onclick="previewSignedDoc('${r.id}')" style="font-size:11px;padding:4px 10px;">👁 Preview</button> `;
+                    actions += `<button class="btn btn-secondary" onclick="downloadSignedDoc('${r.id}')" style="font-size:11px;padding:4px 10px;">⬇ Download</button> `;
+                    if (r.onedrive_url) {
+                        actions += `<button class="btn btn-success" onclick="window.open('${r.onedrive_url}','_blank')" style="font-size:11px;padding:4px 10px;background:#0078d4;border-color:#0078d4;" title="Open in SharePoint">📂 Repo</button>`;
+                    } else {
+                        actions += `<button class="btn btn-success" onclick="saveToRepo('${r.id}')" style="font-size:11px;padding:4px 10px;background:#0078d4;border-color:#0078d4;">📤 Save to Repo</button>`;
+                    }
                 } else if (isPending) {
                     if (r.auth_url) {
                         actions += `<button class="btn btn-primary" onclick="showEsignLink('${r.auth_url}')" style="font-size:11px;padding:3px 8px;">Copy Link</button> `;
@@ -5934,6 +6161,30 @@
             a.click();
             document.body.removeChild(a);
             setTimeout(() => hideLoading(), 2000);
+        }
+
+        function previewSignedDoc(esignId) {
+            window.open(`/api/esign/${esignId}/preview`, '_blank');
+        }
+
+        async function saveToRepo(esignId) {
+            if (!confirm('Upload this signed document to Dhanam Repository (SharePoint)?')) return;
+            try {
+                showLoading('Uploading to SharePoint...');
+                const result = await api('POST', `/api/esign/${esignId}/save-to-repo`, null, 30000);
+                hideLoading();
+                if (result.onedrive_url) {
+                    alert('Saved to Dhanam Repository successfully!');
+                    await loadEsign(); // Refresh to show "Repo" button instead of "Save to Repo"
+                } else {
+                    alert('Upload completed but no URL returned. Check SharePoint.');
+                    await loadEsign();
+                }
+            } catch (error) {
+                hideLoading();
+                console.error('Save to repo error:', error);
+                alert('Failed to save to repository: ' + (error.message || error.error || 'Unknown error'));
+            }
         }
 
         // Quick e-sign from tenant/payment action buttons

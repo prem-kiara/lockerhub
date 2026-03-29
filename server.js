@@ -4,6 +4,24 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+
+// Load .env file if present (no dependency needed)
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith('#')) {
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx > 0) {
+          const key = trimmed.substring(0, eqIdx).trim();
+          const val = trimmed.substring(eqIdx + 1).trim();
+          if (!process.env[key]) process.env[key] = val;
+        }
+      }
+    });
+  }
+} catch (e) { /* .env loading is optional */ }
 const { generatePdfBuffer } = require('./allotment-form');
 const { generateReceiptBuffer } = require('./receipt-generator');
 
@@ -324,6 +342,9 @@ addColumnIfMissing('branches', 'manager_name', "TEXT DEFAULT ''");
 // Locker types table migrations (CHANGE 2)
 addColumnIfMissing('locker_types', 'annual_rent', 'REAL DEFAULT 0');
 addColumnIfMissing('locker_types', 'deposit', 'REAL DEFAULT 0');
+
+// E-sign table migrations
+addColumnIfMissing('esign_requests', 'onedrive_url', "TEXT DEFAULT ''");
 
 logInfo('Database migrations complete');
 
@@ -1838,6 +1859,142 @@ function digioRequest(method, apiPath, body) {
   });
 }
 
+// ============================
+//  SHAREPOINT / MICROSOFT GRAPH
+// ============================
+const SHAREPOINT_CONFIG = {
+  clientId: process.env.MS_CLIENT_ID || '',
+  clientSecret: process.env.MS_CLIENT_SECRET || '',
+  tenantId: process.env.MS_TENANT_ID || '',
+  baseFolder: 'LockerHub'                 // Target folder inside the Documents library
+  // Sub-folders: Application (agreements), Payment Receipt (receipts)
+};
+
+let _msTokenCache = { token: null, expiresAt: 0 };
+
+async function getMsGraphToken() {
+  if (_msTokenCache.token && Date.now() < _msTokenCache.expiresAt - 60000) {
+    return _msTokenCache.token;
+  }
+  const tokenUrl = `https://login.microsoftonline.com/${SHAREPOINT_CONFIG.tenantId}/oauth2/v2.0/token`;
+  const body = new URLSearchParams({
+    client_id: SHAREPOINT_CONFIG.clientId,
+    client_secret: SHAREPOINT_CONFIG.clientSecret,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials'
+  }).toString();
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(tokenUrl);
+    const req = https.request({
+      hostname: url.hostname,
+      path: url.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (json.access_token) {
+            _msTokenCache = { token: json.access_token, expiresAt: Date.now() + (json.expires_in * 1000) };
+            resolve(json.access_token);
+          } else {
+            reject(new Error(json.error_description || json.error || 'Token fetch failed'));
+          }
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+function msGraphRequest(method, apiPath, body) {
+  return new Promise(async (resolve, reject) => {
+    try {
+      const token = await getMsGraphToken();
+      const url = new URL(`https://graph.microsoft.com${apiPath}`);
+      const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+      const req = https.request({
+        hostname: url.hostname,
+        path: url.pathname + url.search,
+        method,
+        headers
+      }, (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          try {
+            const json = JSON.parse(data);
+            if (res.statusCode >= 200 && res.statusCode < 300) resolve(json);
+            else reject({ status: res.statusCode, message: json.error?.message || data });
+          } catch (e) { reject(e); }
+        });
+      });
+      req.on('error', reject);
+      if (body) req.write(JSON.stringify(body));
+      req.end();
+    } catch (e) { reject(e); }
+  });
+}
+
+function msGraphUpload(apiPath, buffer, token) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(`https://graph.microsoft.com${apiPath}`);
+    const req = https.request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/pdf',
+        'Content-Length': buffer.length
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          if (res.statusCode >= 200 && res.statusCode < 300) resolve(json);
+          else reject({ status: res.statusCode, message: json.error?.message || data });
+        } catch (e) { reject(e); }
+      });
+    });
+    req.on('error', reject);
+    req.write(buffer);
+    req.end();
+  });
+}
+
+// SharePoint drive ID for "Dhanam Repository" → "Documents" library
+// Site: kiaramfi.sharepoint.com/sites/repo
+const SP_DRIVE_ID = process.env.SP_DRIVE_ID || 'b!fTFvCiz6zE-llOUnFj-hq13WSlu_wi9DhOZmzoXbbKHqXSKxXxhHSYHoWokQoP03';
+
+// Upload a signed PDF to SharePoint → Dhanam Repository → Locker Applications
+async function uploadToSharePoint(pdfBuffer, fileName, subfolder) {
+  try {
+    const token = await getMsGraphToken();
+
+    const folderPath = subfolder
+      ? `${SHAREPOINT_CONFIG.baseFolder}/${subfolder}`
+      : SHAREPOINT_CONFIG.baseFolder;
+    const safeName = fileName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+
+    // Simple upload (files < 4MB — our PDFs are well under)
+    const uploadPath = `/v1.0/drives/${SP_DRIVE_ID}/root:/${folderPath}/${safeName}:/content`;
+    const result = await msGraphUpload(uploadPath, pdfBuffer, token);
+    logInfo('SharePoint upload success', { fileName: safeName, webUrl: result.webUrl });
+    return result.webUrl || result.id || 'uploaded';
+  } catch (err) {
+    logError('SharePoint upload failed', { error: err.message || JSON.stringify(err), fileName });
+    throw err;
+  }
+}
+
 function digioDownload(apiPath) {
   return new Promise((resolve, reject) => {
     const options = {
@@ -1908,8 +2065,9 @@ app.post('/api/esign/initiate', async (req, res) => {
       if (!payment) return res.status(400).json({ error: 'No paid payment found for this tenant' });
       const pTenant = { name: payment.tenant_name, phone: payment.tenant_phone, locker_number: payment.locker_number };
       const pLocker = { number: payment.locker_number, size: payment.locker_size };
-      pdfBuffer = await generateReceiptBuffer(payment, pTenant, branch || {}, pLocker || {}, { customerOnly: true });
-      fileName = `Receipt_${(payment.receipt_no || 'receipt').replace(/[^a-zA-Z0-9-]/g, '_')}.pdf`;
+      pdfBuffer = await generateReceiptBuffer(payment, pTenant, branch || {}, pLocker || {}, { forEsign: true });
+      const custName = (payment.tenant_name || 'customer').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+      fileName = `Signed_Receipt_${custName}.pdf`;
     } else {
       // Agreement / allotment form
       const payments = db.prepare('SELECT * FROM payments WHERE tenant_id = ? ORDER BY created_at ASC').all(tenant_id);
@@ -1923,7 +2081,8 @@ app.post('/api/esign/initiate', async (req, res) => {
       tenant.agreement_no = `DFIN/${branchShort}/${year}/${String((tenantSeq ? tenantSeq.cnt : 1)).padStart(4, '0')}`;
       tenant.allotment_date = tenant.lease_start || new Date().toISOString().split('T')[0];
       pdfBuffer = await generatePdfBuffer(tenant, branch || {}, locker || {});
-      fileName = `Agreement_${(tenant.name || 'tenant').replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+      const custNameAg = (tenant.name || 'customer').replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_');
+      fileName = `Signed_Agreement_${custNameAg}.pdf`;
     }
 
     // Call Digio API to upload PDF and create sign request
@@ -1957,6 +2116,7 @@ app.post('/api/esign/initiate', async (req, res) => {
       send_sign_link: true,
       file_name: fileName,
       generate_access_token: true,
+      include_authentication_url: 'true',
       file_data: fileBase64,
       sign_coordinates: signCoords
     };
@@ -1967,14 +2127,10 @@ app.post('/api/esign/initiate', async (req, res) => {
 
     const digioResp = await digioRequest('POST', '/v2/client/document/uploadpdf', digioPayload);
 
-    // Extract auth URL from response (check multiple possible fields)
+    // Extract auth URL from response — prefer authentication_url (clickable link)
     let authUrl = '';
     if (digioResp.signing_parties && digioResp.signing_parties.length > 0) {
-      authUrl = digioResp.signing_parties[0].authentication_url || digioResp.signing_parties[0].sign_url || '';
-    }
-    // generate_access_token may return access_token with a different URL pattern
-    if (!authUrl && digioResp.access_token) {
-      authUrl = `https://${digio.baseUrl}${digio.port !== 443 ? ':' + digio.port : ''}/public/sign/${digioResp.id}?access_token=${digioResp.access_token.id}`;
+      authUrl = digioResp.signing_parties[0].authentication_url || '';
     }
 
     // Save to DB
@@ -2033,7 +2189,7 @@ app.get('/api/esign/:id/status', async (req, res) => {
     db.prepare('UPDATE esign_requests SET status = ?, updated_at = datetime(?) WHERE id = ?')
       .run(newStatus, new Date().toISOString(), req.params.id);
 
-    res.json({ status: newStatus, digio_status: digioResp.status, signing_parties: digioResp.signing_parties, local_id: esign.id, digio_doc_id: esign.digio_doc_id });
+    res.json({ status: newStatus, digio_status: digioResp.status, signing_parties: digioResp.signing_parties, local_id: esign.id, digio_doc_id: esign.digio_doc_id, onedrive_url: esign.onedrive_url || '' });
   } catch (err) {
     const errMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
     logError('E-sign status check failed', { id: req.params.id, error: errMsg, status: err.status });
@@ -2062,22 +2218,91 @@ app.get('/api/esign/:id/download', async (req, res) => {
   }
 });
 
-// Cancel e-sign request
-app.post('/api/esign/:id/cancel', async (req, res) => {
+// Preview signed document (inline in browser)
+app.get('/api/esign/:id/preview', async (req, res) => {
   try {
     const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
     if (!esign.digio_doc_id) return res.status(400).json({ error: 'No Digio document ID found' });
 
-    const digioResp = await digioRequest('GET', `/v2/client/document/${esign.digio_doc_id}/cancel`, null);
+    const pdfBuffer = await digioDownload(`/v2/client/document/download?document_id=${esign.digio_doc_id}`);
 
-    db.prepare('UPDATE esign_requests SET status = ?, updated_at = datetime(?) WHERE id = ?')
-      .run('cancelled', new Date().toISOString(), req.params.id);
-
-    logInfo('E-sign cancelled', { id: req.params.id, digioId: esign.digio_doc_id });
-    res.json({ success: true, ...digioResp });
+    const safeName = (esign.file_name || 'signed_document').replace(/\.pdf$/i, '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename=Signed_${safeName}.pdf`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
   } catch (err) {
-    logError('E-sign cancel failed', { error: err.message || JSON.stringify(err) });
+    logError('E-sign preview failed', { error: err.message || JSON.stringify(err) });
+    res.status(500).json({ error: err.message || 'Preview failed' });
+  }
+});
+
+// Save signed document to SharePoint (Dhanam Repository → Locker Applications)
+app.post('/api/esign/:id/save-to-repo', async (req, res) => {
+  try {
+    const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
+    if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
+    if (!esign.digio_doc_id) return res.status(400).json({ error: 'No Digio document ID found' });
+
+    // Check if already uploaded
+    if (esign.onedrive_url) {
+      return res.json({ success: true, onedrive_url: esign.onedrive_url, message: 'Already saved to repository' });
+    }
+
+    logInfo('Saving signed doc to SharePoint', { id: req.params.id, digio_doc_id: esign.digio_doc_id });
+
+    // Download from Digio
+    const signedPdf = await digioDownload(`/v2/client/document/download?document_id=${esign.digio_doc_id}`);
+
+    // Build subfolder: DocType/BranchName/TenantName
+    // Agreements → Application, Receipts → Payment Receipt
+    const branch = db.prepare('SELECT name FROM branches WHERE id = ?').get(esign.branch_id);
+    const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(esign.tenant_id);
+    const branchName = (branch?.name || 'Unknown').replace(/[^a-zA-Z0-9_ \-]/g, '');
+    const tenantName = (tenant?.name || 'Unknown').replace(/[^a-zA-Z0-9_ \-]/g, '');
+    const docTypeFolder = (esign.document_type === 'receipt') ? 'Payment Receipt' : 'Application';
+    const subfolder = `${docTypeFolder}/${branchName}/${tenantName}`;
+    const fileName = esign.file_name || 'Signed_document.pdf';
+
+    // Upload to SharePoint
+    const sharePointUrl = await uploadToSharePoint(signedPdf, fileName, subfolder);
+
+    // Save the URL
+    db.prepare('UPDATE esign_requests SET onedrive_url = ?, updated_at = datetime(?) WHERE id = ?')
+      .run(sharePointUrl, new Date().toISOString(), req.params.id);
+
+    logInfo('Signed doc saved to SharePoint', { id: req.params.id, url: sharePointUrl });
+    res.json({ success: true, onedrive_url: sharePointUrl });
+  } catch (err) {
+    logError('Save to repo failed', { id: req.params.id, error: err.message || JSON.stringify(err) });
+    res.status(500).json({ error: err.message || 'Failed to save to repository' });
+  }
+});
+
+// Cancel e-sign request
+app.post('/api/esign/:id/cancel', async (req, res) => {
+  try {
+    const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
+    if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
+
+    // Try to cancel on Digio (may fail for already signed/expired docs — that's ok)
+    let digioResult = {};
+    if (esign.digio_doc_id) {
+      try {
+        digioResult = await digioRequest('PATCH', `/v2/client/document/${esign.digio_doc_id}`, { status: 'cancelled' });
+      } catch (digioErr) {
+        logInfo('Digio cancel failed (proceeding with local delete)', { error: digioErr.message || JSON.stringify(digioErr) });
+      }
+    }
+
+    // Delete from local DB regardless
+    db.prepare('DELETE FROM esign_requests WHERE id = ?').run(req.params.id);
+
+    logInfo('E-sign deleted', { id: req.params.id, digioId: esign.digio_doc_id });
+    res.json({ success: true, deleted: true });
+  } catch (err) {
+    logError('E-sign cancel/delete failed', { error: err.message || JSON.stringify(err) });
     res.status(500).json({ error: err.message || 'Cancel failed' });
   }
 });
