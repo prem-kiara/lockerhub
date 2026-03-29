@@ -1706,6 +1706,7 @@
                 <li id="navCustDashboard" style="display: none;"><a onclick="switchSection('custDashboard')" class="nav-link" data-section="custDashboard">My Dashboard</a></li>
                 <li id="navCustAppointments" style="display: none;"><a onclick="switchSection('custAppointments')" class="nav-link" data-section="custAppointments">My Appointments</a></li>
                 <li id="navCustPayments" style="display: none;"><a onclick="switchSection('custPayments')" class="nav-link" data-section="custPayments">My Payments</a></li>
+                <li id="navFeedback" style="display:none;"><a onclick="switchSection('feedback')" class="nav-link" data-section="feedback">Feedback</a></li>
             </ul>
         </div>
 
@@ -2192,6 +2193,30 @@
                             </thead>
                             <tbody id="custPaymentsTable">
                                 <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Feedback Screen (HO/Branch) -->
+                <div id="feedbackScreen" class="screen">
+                    <div class="section-title">Customer Feedback</div>
+                    <div id="feedbackSummaryCards" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:16px; margin-bottom:24px;"></div>
+                    <div class="section-title" style="font-size:15px; margin-bottom:10px;">All Responses</div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Customer</th>
+                                    <th>Branch</th>
+                                    <th>Satisfaction</th>
+                                    <th>NPS</th>
+                                    <th>Details</th>
+                                </tr>
+                            </thead>
+                            <tbody id="feedbackTable">
+                                <tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3188,6 +3213,11 @@
                 document.getElementById('branchSelectorContainer').style.display = 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
                 await switchSection('custDashboard');
+                // Check if feedback needed (first login prompt)
+                try {
+                    const fbStatus = await api('GET', `/api/customer/${result.id}/feedback/status`);
+                    if (!fbStatus.submitted) showFeedbackModal(result);
+                } catch(e) { console.log('Feedback check skipped'); }
             } else {
                 const isHeadOffice = result.role === 'headoffice';
                 document.querySelectorAll('.sidebar-nav li').forEach(li => {
@@ -3205,6 +3235,7 @@
                 document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navAppointments').style.display = 'block';
+                document.getElementById('navFeedback').style.display = 'block';
                 document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
 
@@ -3311,6 +3342,7 @@
                 custDashboard: 'My Dashboard',
                 custAppointments: 'My Appointments',
                 custPayments: 'My Payments',
+                feedback: 'Customer Feedback',
             };
             document.getElementById('topbarTitle').textContent = titles[section];
 
@@ -3332,6 +3364,7 @@
             else if (section === 'custDashboard') await loadCustDashboard();
             else if (section === 'custAppointments') await loadCustAppointments();
             else if (section === 'custPayments') await loadCustPayments();
+            else if (section === 'feedback') await loadFeedback();
         }
 
         // ===== Dashboard =====
@@ -6376,6 +6409,234 @@
             } catch (err) {
                 console.error('Failed to load customer payments:', err);
             }
+        }
+
+        // ===== FEEDBACK SYSTEM =====
+
+        function showFeedbackModal(user) {
+            const tenantId = user.id;
+            const branchId = user.branch_id || '';
+            const questions = [
+                'I am satisfied with the time taken from enquiry to allotment',
+                'The Locker allotment procedures were explained to me clearly',
+                'The locker type suits my requirement',
+                'The Locker allotment procedure is simple',
+                'The safety aspects in the branch is adequate',
+                'The branch ambience is pleasant',
+                'The branch staff are customer oriented'
+            ];
+            const labels = ['Strongly Disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree'];
+
+            let questionsHtml = questions.map((q, i) => `
+                <div style="margin-bottom:18px;">
+                    <div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#333;">${i+1}. ${q}</div>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        ${[1,2,3,4,5].map(v => `
+                            <label style="display:flex; align-items:center; gap:4px; cursor:pointer; padding:6px 12px; border:1px solid #ddd; border-radius:20px; font-size:12px; transition:all 0.2s;" class="fb-option" data-q="${i+1}" data-v="${v}">
+                                <input type="radio" name="fbq${i+1}" value="${v}" style="display:none;" onchange="this.closest('.fb-option').style.background='#b8860b'; this.closest('.fb-option').style.color='#fff'; this.closest('.fb-option').style.borderColor='#b8860b'; document.querySelectorAll('.fb-option[data-q=\\'${i+1}\\']').forEach(el => { if(el !== this.closest('.fb-option')) { el.style.background='#fff'; el.style.color='#333'; el.style.borderColor='#ddd'; }});">
+                                ${labels[v-1]}
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+
+            let npsHtml = '<div style="margin-bottom:18px;"><div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#333;">How likely are you to recommend Dhanam Finance Lockers to others? (0-10)</div><div style="display:flex; gap:4px; flex-wrap:wrap;">';
+            for (let i = 0; i <= 10; i++) {
+                const color = i <= 6 ? '#e74c3c' : (i <= 8 ? '#f39c12' : '#27ae60');
+                npsHtml += `<label class="nps-btn" data-v="${i}" style="display:flex; align-items:center; justify-content:center; width:36px; height:36px; border:2px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px; transition:all 0.2s;" onclick="document.querySelectorAll('.nps-btn').forEach(b=>{b.style.background='#fff';b.style.color='#333';b.style.borderColor='#ddd'});this.style.background='${color}';this.style.color='#fff';this.style.borderColor='${color}';document.getElementById('npsValue').value=${i};">${i}</label>`;
+            }
+            npsHtml += '</div><input type="hidden" id="npsValue" value=""><div style="display:flex; justify-content:space-between; font-size:11px; color:#999; margin-top:4px;"><span>Not at all likely</span><span>Extremely likely</span></div></div>';
+
+            const modalHtml = `
+            <div id="feedbackModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;">
+                <div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                    <div style="padding:24px 24px 0;border-bottom:1px solid #eee;padding-bottom:16px;position:sticky;top:0;background:#fff;border-radius:16px 16px 0 0;z-index:1;">
+                        <h3 style="margin:0;font-size:18px;color:#2c1810;">We value your feedback!</h3>
+                        <p style="margin:6px 0 0;font-size:13px;color:#888;">Help us improve your locker experience at Dhanam Finance.</p>
+                    </div>
+                    <div style="padding:20px 24px;">
+                        ${questionsHtml}
+                        ${npsHtml}
+                        <div style="margin-bottom:18px;">
+                            <div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#333;">Why did you choose Dhanam Finance Lockers?</div>
+                            <textarea id="fbReasonChose" rows="3" style="width:100%;border:1px solid #ddd;border-radius:8px;padding:10px;font-size:13px;resize:vertical;font-family:inherit;" placeholder="Share your thoughts..."></textarea>
+                        </div>
+                    </div>
+                    <div style="padding:0 24px 24px;display:flex;gap:12px;justify-content:flex-end;position:sticky;bottom:0;background:#fff;padding-top:16px;border-top:1px solid #eee;border-radius:0 0 16px 16px;">
+                        <button class="btn btn-secondary" onclick="closeFeedbackModal()" style="padding:10px 24px;">Later</button>
+                        <button class="btn btn-primary" onclick="submitFeedback('${tenantId}','${branchId}')" style="padding:10px 24px;background:#b8860b;border-color:#b8860b;">Submit Feedback</button>
+                    </div>
+                </div>
+            </div>`;
+
+            // Remove existing modal if any
+            const existing = document.getElementById('feedbackModal');
+            if (existing) existing.remove();
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+        }
+
+        function closeFeedbackModal() {
+            const modal = document.getElementById('feedbackModal');
+            if (modal) modal.remove();
+        }
+
+        async function submitFeedback(tenantId, branchId) {
+            const vals = {};
+            for (let i = 1; i <= 7; i++) {
+                const checked = document.querySelector(`input[name="fbq${i}"]:checked`);
+                if (!checked) {
+                    alert(`Please answer question ${i}`);
+                    return;
+                }
+                vals[`q${i}`] = parseInt(checked.value);
+            }
+            const nps = document.getElementById('npsValue').value;
+            if (nps === '') {
+                alert('Please select an NPS score (0-10)');
+                return;
+            }
+            vals.nps_score = parseInt(nps);
+            vals.reason_chose = document.getElementById('fbReasonChose').value.trim();
+            vals.tenant_id = tenantId;
+            vals.branch_id = branchId;
+
+            try {
+                showLoading('Submitting feedback...');
+                await api('POST', '/api/feedback', vals);
+                hideLoading();
+                closeFeedbackModal();
+                alert('Thank you for your feedback!');
+            } catch (err) {
+                hideLoading();
+                if (err.message && err.message.includes('already')) {
+                    closeFeedbackModal();
+                    alert('You have already submitted feedback. Thank you!');
+                } else {
+                    alert('Failed to submit feedback: ' + err.message);
+                }
+            }
+        }
+
+        // ===== HO/Branch Feedback Tab =====
+        async function loadFeedback() {
+            try {
+                const branchId = currentBranchId || '';
+                const [rows, summary] = await Promise.all([
+                    api('GET', `/api/feedback${branchId ? '?branch_id=' + branchId : ''}`),
+                    api('GET', `/api/feedback/summary${branchId ? '?branch_id=' + branchId : ''}`)
+                ]);
+
+                // Summary cards
+                const npsScore = summary.total_responses > 0 ?
+                    Math.round(((summary.promoters - summary.detractors) / summary.total_responses) * 100) : 0;
+                const npsColor = npsScore >= 50 ? '#27ae60' : (npsScore >= 0 ? '#f39c12' : '#e74c3c');
+
+                document.getElementById('feedbackSummaryCards').innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-label">Total Responses</div>
+                        <div class="stat-value">${summary.total_responses || 0}</div>
+                    </div>
+                    <div class="stat-card" style="border-left:4px solid #b8860b;">
+                        <div class="stat-label">Avg Satisfaction</div>
+                        <div class="stat-value">${summary.avg_satisfaction || 0}%</div>
+                    </div>
+                    <div class="stat-card" style="border-left:4px solid ${npsColor};">
+                        <div class="stat-label">NPS Score</div>
+                        <div class="stat-value" style="color:${npsColor}">${npsScore}</div>
+                        <div style="font-size:11px;color:#888;margin-top:4px;">
+                            P:${summary.promoters||0} / N:${summary.passives||0} / D:${summary.detractors||0}
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Avg NPS Rating</div>
+                        <div class="stat-value">${summary.avg_nps || 0}/10</div>
+                    </div>
+                `;
+
+                // Table
+                if (rows.length === 0) {
+                    document.getElementById('feedbackTable').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#888;">No feedback responses yet.</td></tr>';
+                    return;
+                }
+
+                document.getElementById('feedbackTable').innerHTML = rows.map(r => {
+                    const date = r.created_at ? r.created_at.split('T')[0] : '-';
+                    const satColor = r.satisfaction_pct >= 80 ? '#27ae60' : (r.satisfaction_pct >= 60 ? '#f39c12' : '#e74c3c');
+                    const nColor = r.nps_score >= 9 ? '#27ae60' : (r.nps_score >= 7 ? '#f39c12' : '#e74c3c');
+                    return `<tr>
+                        <td>${date}</td>
+                        <td><strong>${r.tenant_name || '-'}</strong><br><span style="font-size:11px;color:#888;">${r.tenant_phone || ''}</span></td>
+                        <td>${r.branch_name || '-'}</td>
+                        <td><span style="color:${satColor};font-weight:600;">${r.satisfaction_pct}%</span><br><span style="font-size:11px;color:#888;">${r.total_score}/35</span></td>
+                        <td><span style="color:${nColor};font-weight:700;font-size:16px;">${r.nps_score}</span>/10</td>
+                        <td><button class="btn btn-secondary" onclick="showFeedbackDetail(${JSON.stringify(r).replace(/"/g, '&quot;')})" style="font-size:11px;padding:3px 10px;">View</button></td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                console.error('Failed to load feedback:', err);
+                document.getElementById('feedbackTable').innerHTML = '<tr><td colspan="6" style="color:red;padding:20px;">Failed to load feedback data.</td></tr>';
+            }
+        }
+
+        function showFeedbackDetail(r) {
+            const questions = [
+                'Time taken (enquiry to allotment)',
+                'Procedures explained clearly',
+                'Locker type suits requirement',
+                'Allotment procedure is simple',
+                'Safety aspects adequate',
+                'Branch ambience pleasant',
+                'Staff are customer oriented'
+            ];
+            const scores = [r.q1_time_satisfaction, r.q2_procedure_explained, r.q3_locker_suits, r.q4_procedure_simple, r.q5_safety_adequate, r.q6_ambience_pleasant, r.q7_staff_oriented];
+            const labels = ['', 'Strongly Disagree', 'Disagree', 'Neutral', 'Agree', 'Strongly Agree'];
+
+            let detailHtml = questions.map((q, i) => {
+                const v = scores[i] || 0;
+                const barW = (v / 5) * 100;
+                const barColor = v >= 4 ? '#27ae60' : (v >= 3 ? '#f39c12' : '#e74c3c');
+                return `<div style="margin-bottom:10px;">
+                    <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;">
+                        <span>${q}</span><span style="font-weight:600;color:${barColor};">${labels[v]} (${v}/5)</span>
+                    </div>
+                    <div style="background:#f0f0f0;border-radius:4px;height:6px;overflow:hidden;">
+                        <div style="background:${barColor};width:${barW}%;height:100%;border-radius:4px;transition:width 0.3s;"></div>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const npsColor = r.nps_score >= 9 ? '#27ae60' : (r.nps_score >= 7 ? '#f39c12' : '#e74c3c');
+
+            const modal = `
+            <div id="feedbackDetailModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
+                <div style="background:#fff;border-radius:16px;max-width:500px;width:100%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:24px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                        <div>
+                            <h3 style="margin:0;font-size:16px;color:#2c1810;">${r.tenant_name || 'Customer'}</h3>
+                            <span style="font-size:12px;color:#888;">${r.branch_name || ''} — ${r.created_at ? r.created_at.split('T')[0] : ''}</span>
+                        </div>
+                        <div style="text-align:center;">
+                            <div style="font-size:24px;font-weight:700;color:${npsColor};">${r.nps_score}</div>
+                            <div style="font-size:10px;color:#888;">NPS</div>
+                        </div>
+                    </div>
+                    <div style="background:#f9f6f0;border-radius:10px;padding:16px;margin-bottom:16px;">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
+                            <span style="font-size:13px;font-weight:600;">Overall Satisfaction</span>
+                            <span style="font-size:15px;font-weight:700;color:#b8860b;">${r.satisfaction_pct}%</span>
+                        </div>
+                        ${detailHtml}
+                    </div>
+                    ${r.reason_chose ? `<div style="background:#f5f5f5;border-radius:10px;padding:14px;margin-bottom:16px;"><div style="font-size:12px;font-weight:600;color:#888;margin-bottom:6px;">Why they chose Dhanam</div><div style="font-size:13px;color:#333;">${r.reason_chose}</div></div>` : ''}
+                    <div style="text-align:right;">
+                        <button class="btn btn-secondary" onclick="document.getElementById('feedbackDetailModal').remove()" style="padding:8px 20px;">Close</button>
+                    </div>
+                </div>
+            </div>`;
+            const existing = document.getElementById('feedbackDetailModal');
+            if (existing) existing.remove();
+            document.body.insertAdjacentHTML('beforeend', modal);
         }
 
     </script>

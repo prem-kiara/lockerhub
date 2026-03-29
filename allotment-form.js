@@ -200,23 +200,6 @@ function page1(doc, t, branch) {
   y = field(doc, 'Verified by:', M, y, '', 180, 70);
   y = field(doc, 'Date:', M, y, '', 120, 35);
 
-  y += 10;
-  y = sectionTitle(doc, 'Authorized Person / Nominee (if applicable)', y);
-  y += 3;
-  y = field(doc, 'Name:', M, y, '', 200, 45);
-  y += 3;
-
-  labeledBox(doc, 'Photo', W - M - 95, y, 95, 110);
-
-  doc.font('Helvetica').fontSize(8);
-  tx(doc, 'Specimen Signature:', M, y);
-  y += 12;
-  labeledBox(doc, 'Sign Here', M, y, 190, 65);
-  y += 78;
-
-  y = field(doc, 'Verified by:', M, y, '', 180, 70);
-  y = field(doc, 'Date:', M, y, '', 120, 35);
-
   bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/01/Ver 1.0');
 }
@@ -870,7 +853,7 @@ function generatePdfBuffer(tenant, branch, locker) {
       });
 
       page1(doc, t, branch || {});
-      page2(doc, t, branch || {});
+      // page2 (feedback form) removed — feedback is now collected interactively in the customer portal
       page3(doc, t, branch || {});
       pageTerms(doc);
       pageHirerInfo(doc, t);

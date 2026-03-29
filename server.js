@@ -304,6 +304,26 @@ db.exec(`
     FOREIGN KEY (branch_id) REFERENCES branches(id),
     FOREIGN KEY (tenant_id) REFERENCES tenants(id)
   );
+
+  CREATE TABLE IF NOT EXISTS feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL,
+    branch_id TEXT DEFAULT '',
+    q1_time_satisfaction INTEGER DEFAULT 0,
+    q2_procedure_explained INTEGER DEFAULT 0,
+    q3_locker_suits INTEGER DEFAULT 0,
+    q4_procedure_simple INTEGER DEFAULT 0,
+    q5_safety_adequate INTEGER DEFAULT 0,
+    q6_ambience_pleasant INTEGER DEFAULT 0,
+    q7_staff_oriented INTEGER DEFAULT 0,
+    reason_chose TEXT DEFAULT '',
+    nps_score INTEGER DEFAULT 0,
+    total_score INTEGER DEFAULT 0,
+    satisfaction_pct REAL DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
+  );
 `);
 
 // ============================
@@ -2345,6 +2365,101 @@ process.on('uncaughtException', (err) => {
 
 process.on('unhandledRejection', (reason) => {
   logError('UNHANDLED REJECTION', { message: String(reason) });
+});
+
+// ============================
+//  FEEDBACK
+// ============================
+
+// Check if customer already submitted feedback
+app.get('/api/customer/:tenantId/feedback/status', (req, res) => {
+  try {
+    const row = db.prepare('SELECT id FROM feedback WHERE tenant_id = ?').get(req.params.tenantId);
+    res.json({ submitted: !!row });
+  } catch (err) {
+    logError('Feedback status check failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Submit feedback (customer)
+app.post('/api/feedback', (req, res) => {
+  try {
+    const { tenant_id, branch_id, q1, q2, q3, q4, q5, q6, q7, reason_chose, nps_score } = req.body;
+    if (!tenant_id) return res.status(400).json({ error: 'tenant_id is required' });
+
+    // Check if already submitted
+    const existing = db.prepare('SELECT id FROM feedback WHERE tenant_id = ?').get(tenant_id);
+    if (existing) return res.status(409).json({ error: 'Feedback already submitted' });
+
+    const total = (q1||0) + (q2||0) + (q3||0) + (q4||0) + (q5||0) + (q6||0) + (q7||0);
+    const maxScore = 35; // 7 questions × 5 max
+    const pct = Math.round((total / maxScore) * 100 * 100) / 100;
+
+    db.prepare(`INSERT INTO feedback (tenant_id, branch_id, q1_time_satisfaction, q2_procedure_explained, q3_locker_suits, q4_procedure_simple, q5_safety_adequate, q6_ambience_pleasant, q7_staff_oriented, reason_chose, nps_score, total_score, satisfaction_pct)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      tenant_id, branch_id || '', q1||0, q2||0, q3||0, q4||0, q5||0, q6||0, q7||0, reason_chose || '', nps_score||0, total, pct
+    );
+    logInfo('Feedback submitted', { tenant_id, total, pct });
+    res.json({ success: true, total_score: total, satisfaction_pct: pct });
+  } catch (err) {
+    logError('Feedback submit failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get all feedback (HO/Branch view)
+app.get('/api/feedback', (req, res) => {
+  try {
+    const branchId = req.query.branch_id;
+    let sql = `SELECT f.*, t.name as tenant_name, t.phone as tenant_phone, b.name as branch_name
+      FROM feedback f
+      LEFT JOIN tenants t ON f.tenant_id = t.id
+      LEFT JOIN branches b ON f.branch_id = b.id`;
+    const params = [];
+    if (branchId) {
+      sql += ' WHERE f.branch_id = ?';
+      params.push(branchId);
+    }
+    sql += ' ORDER BY f.created_at DESC';
+    const rows = db.prepare(sql).all(...params);
+    res.json(rows);
+  } catch (err) {
+    logError('Feedback list failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get feedback summary stats (HO/Branch)
+app.get('/api/feedback/summary', (req, res) => {
+  try {
+    const branchId = req.query.branch_id;
+    let where = '';
+    const params = [];
+    if (branchId) {
+      where = 'WHERE f.branch_id = ?';
+      params.push(branchId);
+    }
+    const summary = db.prepare(`SELECT
+      COUNT(*) as total_responses,
+      ROUND(AVG(f.satisfaction_pct), 1) as avg_satisfaction,
+      ROUND(AVG(f.nps_score), 1) as avg_nps,
+      ROUND(AVG(f.q1_time_satisfaction), 1) as avg_q1,
+      ROUND(AVG(f.q2_procedure_explained), 1) as avg_q2,
+      ROUND(AVG(f.q3_locker_suits), 1) as avg_q3,
+      ROUND(AVG(f.q4_procedure_simple), 1) as avg_q4,
+      ROUND(AVG(f.q5_safety_adequate), 1) as avg_q5,
+      ROUND(AVG(f.q6_ambience_pleasant), 1) as avg_q6,
+      ROUND(AVG(f.q7_staff_oriented), 1) as avg_q7,
+      SUM(CASE WHEN f.nps_score >= 9 THEN 1 ELSE 0 END) as promoters,
+      SUM(CASE WHEN f.nps_score >= 7 AND f.nps_score <= 8 THEN 1 ELSE 0 END) as passives,
+      SUM(CASE WHEN f.nps_score <= 6 THEN 1 ELSE 0 END) as detractors
+      FROM feedback f ${where}`).get(...params);
+    res.json(summary);
+  } catch (err) {
+    logError('Feedback summary failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ============================
