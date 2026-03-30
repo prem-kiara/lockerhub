@@ -1962,6 +1962,100 @@ app.get('/api/backup/list', requireAuth, requireRole('headoffice'), (req, res) =
 // ============================
 //  LEGAL: PRIVACY POLICY & TERMS
 // ============================
+// Public HTML pages for Play Store and Google review
+app.get('/privacy', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy - LockerHub by Dhanam</title>
+<style>body{font-family:-apple-system,sans-serif;max-width:720px;margin:0 auto;padding:24px;color:#2c1810;line-height:1.7;background:#fff8f0}
+h1{color:#b8860b;border-bottom:2px solid #b8860b;padding-bottom:12px}h2{color:#2c1810;margin-top:28px}
+.meta{color:#888;font-size:14px;margin-bottom:24px}footer{margin-top:40px;padding-top:16px;border-top:1px solid #ddd;font-size:13px;color:#888}</style></head>
+<body><h1>Privacy Policy</h1>
+<p class="meta">Last updated: 2026-03-30 | Dhanam Investment and Finance Private Limited</p>
+<h2>Information We Collect</h2>
+<p>We collect personal information including name, phone number, email address, physical address, Aadhaar number (for e-sign verification), PAN number, bank account details (for deposit refunds), and passport-size photographs. This information is necessary for locker rental agreements and identity verification.</p>
+<h2>How We Use Your Information</h2>
+<p>Your information is used to: manage your locker rental agreement, process payments and deposits, verify your identity for locker access, send appointment confirmations, generate lease agreements, and comply with regulatory requirements.</p>
+<h2>Data Storage and Security</h2>
+<p>All data is stored on secure servers with encryption. Passwords are hashed using industry-standard bcrypt. API communications are secured with JWT tokens and HTTPS. Sensitive documents are stored in encrypted SharePoint repositories.</p>
+<h2>Data Sharing</h2>
+<p>We do not sell or share your personal data with third parties except: Digio (for Aadhaar e-sign verification), payment processors, and as required by Indian law enforcement or regulatory authorities.</p>
+<h2>Data Retention</h2>
+<p>Your data is retained for the duration of your locker rental agreement plus 7 years as required by Indian financial regulations. You may request earlier deletion subject to regulatory requirements.</p>
+<h2>Your Rights</h2>
+<p>You have the right to: access your data, request corrections, export your data in portable format, and request deletion of your account. These can be done through the app or by contacting support.</p>
+<h2>Account Deletion</h2>
+<p>You can request deletion of your account and all associated data through the app (Settings → Delete My Account) or by visiting <a href="/delete-account">our account deletion page</a>. Upon request, we will delete your personal data within 30 days, subject to regulatory retention requirements.</p>
+<h2>Contact</h2>
+<p>For privacy concerns, contact us at: <strong>info@dhanamfinance.com</strong></p>
+<p>Dhanam Investment and Finance Private Limited<br>Door No. 22/3, Nehru Nagar, 2nd St, Behind CMS School,<br>Ganapathy, Coimbatore - 641 006, Tamil Nadu, India</p>
+<footer>© 2026 Dhanam Investment and Finance Private Limited. All rights reserved.</footer></body></html>`);
+});
+
+app.get('/terms', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Terms of Service - LockerHub by Dhanam</title>
+<style>body{font-family:-apple-system,sans-serif;max-width:720px;margin:0 auto;padding:24px;color:#2c1810;line-height:1.7;background:#fff8f0}
+h1{color:#b8860b;border-bottom:2px solid #b8860b;padding-bottom:12px}h2{color:#2c1810;margin-top:28px}
+.meta{color:#888;font-size:14px;margin-bottom:24px}footer{margin-top:40px;padding-top:16px;border-top:1px solid #ddd;font-size:13px;color:#888}</style></head>
+<body><h1>Terms of Service</h1>
+<p class="meta">Last updated: 2026-03-30 | Dhanam Investment and Finance Private Limited</p>
+<h2>Service Description</h2>
+<p>LockerHub provides safe deposit locker rental management services including locker allocation, payment processing, appointment booking, and document management.</p>
+<h2>User Responsibilities</h2>
+<p>Users must provide accurate personal information, maintain the security of their login credentials, use the locker only for lawful purposes, and comply with the terms of their rental agreement.</p>
+<h2>Payment Terms</h2>
+<p>Annual rent and security deposits are due as per your rental agreement. Overdue payments may result in access restrictions. Deposits are refundable upon lease termination subject to terms.</p>
+<h2>Liability</h2>
+<p>While we take reasonable measures to secure stored items, liability is limited to the terms specified in your locker rental agreement. We are not liable for items stored in violation of our policies.</p>
+<h2>Termination</h2>
+<p>Either party may terminate the agreement with 30 days notice. Upon termination, stored items must be removed and security deposits will be refunded minus any outstanding dues.</p>
+<h2>Governing Law</h2>
+<p>These terms are governed by the laws of India, with jurisdiction in Coimbatore, Tamil Nadu.</p>
+<footer>© 2026 Dhanam Investment and Finance Private Limited. All rights reserved.</footer></body></html>`);
+});
+
+// Account deletion page (publicly accessible for Play Store requirement)
+app.get('/delete-account', (req, res) => {
+  res.send(`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Delete Account - LockerHub by Dhanam</title>
+<style>body{font-family:-apple-system,sans-serif;max-width:720px;margin:0 auto;padding:24px;color:#2c1810;line-height:1.7;background:#fff8f0}
+h1{color:#b8860b;border-bottom:2px solid #b8860b;padding-bottom:12px}
+.meta{color:#888;font-size:14px;margin-bottom:24px}
+.card{background:#fff;border:1px solid #e0d5c3;border-radius:12px;padding:24px;margin:20px 0}
+label{display:block;font-weight:600;margin-top:16px;margin-bottom:4px}
+input{width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:15px;box-sizing:border-box}
+button{background:#e74c3c;color:#fff;border:none;padding:14px 32px;border-radius:8px;font-size:16px;cursor:pointer;margin-top:20px;width:100%}
+button:hover{background:#c0392b}
+.info{background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;margin:20px 0;font-size:14px}
+.success{background:#d4edda;border:1px solid #28a745;border-radius:8px;padding:16px;margin:20px 0;display:none}
+footer{margin-top:40px;padding-top:16px;border-top:1px solid #ddd;font-size:13px;color:#888}</style></head>
+<body><h1>Delete Your Account</h1>
+<p class="meta">Dhanam Investment and Finance Private Limited</p>
+<div class="info"><strong>What happens when you delete your account:</strong><br>
+Your personal data (name, phone, email, address, ID documents) will be permanently deleted within 30 days. Payment records may be retained for up to 7 years as required by Indian financial regulations.</div>
+<div class="card">
+<p>To request account deletion, please provide the phone number associated with your account:</p>
+<label for="phone">Registered Phone Number</label>
+<input type="tel" id="phone" placeholder="Enter your 10-digit phone number" maxlength="10" pattern="[0-9]{10}">
+<label for="reason">Reason for deletion (optional)</label>
+<input type="text" id="reason" placeholder="Why are you leaving?">
+<button onclick="requestDeletion()">Request Account Deletion</button>
+</div>
+<div class="success" id="successMsg">Your account deletion request has been submitted. We will process it within 30 days. You will receive a confirmation once completed.</div>
+<script>
+async function requestDeletion(){
+  const phone=document.getElementById('phone').value.trim();
+  if(!/^\\d{10}$/.test(phone)){alert('Please enter a valid 10-digit phone number');return;}
+  try{
+    const r=await fetch('/api/account/request-deletion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phone,reason:document.getElementById('reason').value})});
+    if(r.ok){document.getElementById('successMsg').style.display='block';}
+    else{const d=await r.json();alert(d.error||'Request failed. Please try again.');}
+  }catch(e){alert('Unable to connect. Please try again later.');}
+}
+</script>
+<footer>© 2026 Dhanam Investment and Finance Private Limited. All rights reserved.<br><a href="/privacy">Privacy Policy</a> | <a href="/terms">Terms of Service</a></footer></body></html>`);
+});
+
 app.get('/api/privacy-policy', (req, res) => {
   res.json({
     title: 'Privacy Policy',
@@ -1974,7 +2068,7 @@ app.get('/api/privacy-policy', (req, res) => {
       { heading: 'Data Sharing', content: 'We do not sell or share your personal data with third parties except: Digio (for Aadhaar e-sign verification), payment processors, and as required by Indian law enforcement or regulatory authorities.' },
       { heading: 'Data Retention', content: 'Your data is retained for the duration of your locker rental agreement plus 7 years as required by Indian financial regulations. You may request earlier deletion subject to regulatory requirements.' },
       { heading: 'Your Rights', content: 'You have the right to: access your data, request corrections, export your data in portable format, and request deletion of your account. These can be done through the app or by contacting support.' },
-      { heading: 'Contact', content: 'For privacy concerns, contact us at privacy@dhanamfinancials.com or through the app support feature.' }
+      { heading: 'Contact', content: 'For privacy concerns, contact us at info@dhanamfinance.com or through the app support feature.' }
     ]
   });
 });
@@ -2219,6 +2313,27 @@ app.post('/api/customer/:tenantId/request-deletion', requireAuth, (req, res) => 
     auditLog('DELETION_REQUESTED', 'tenant', req.params.tenantId, req, { name: tenant.name, phone: tenant.phone });
     logInfo('Data deletion requested', { tenantId: req.params.tenantId, name: tenant.name });
     res.json({ success: true, message: 'Deletion request received. Your data will be removed within 30 days as per our privacy policy.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Request failed' });
+  }
+});
+
+// Public account deletion request (no auth required — for Play Store compliance)
+app.post('/api/account/request-deletion', (req, res) => {
+  try {
+    const { phone, reason } = req.body;
+    if (!phone || !/^\d{10}$/.test(phone)) {
+      return res.status(400).json({ error: 'Please provide a valid 10-digit phone number' });
+    }
+    const tenants = db.prepare('SELECT id, name FROM tenants WHERE phone = ?').all(phone);
+    if (tenants.length === 0) {
+      return res.status(404).json({ error: 'No account found with this phone number' });
+    }
+    tenants.forEach(t => {
+      auditLog('DELETION_REQUESTED_WEB', 'tenant', t.id, req, { name: t.name, phone, reason: reason || '' });
+    });
+    logInfo('Public deletion request', { phone, tenants: tenants.length, reason: reason || '' });
+    res.json({ success: true, message: 'Deletion request received.' });
   } catch (err) {
     res.status(500).json({ error: 'Request failed' });
   }

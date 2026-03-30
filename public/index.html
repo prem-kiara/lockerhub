@@ -3458,14 +3458,9 @@
             try {
                 const response = await fetch(path, options);
                 clearTimeout(timer);
-                // Handle 401 Unauthorized - token may have expired
+                // Handle 401 Unauthorized
                 if (response.status === 401) {
                     clearTimeout(timer);
-                    // Don't auto-logout — just throw so the calling code can handle it
-                    // Only logout if the user explicitly takes an action that fails
-                    if (window._sessionRestored) {
-                        logout();
-                    }
                     throw new Error('Session expired. Please log in again.');
                 }
                 if (!response.ok) {
@@ -3591,8 +3586,7 @@
                 document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
                 const savedCustSection = localStorage.getItem('lockerhub_section');
                 const validCustSections = ['custDashboard', 'custAppointments', 'custPayments'];
-                await switchSection(validCustSections.includes(savedCustSection) ? savedCustSection : 'custDashboard');
-                // Check if feedback needed (first login prompt)
+                try { await switchSection(validCustSections.includes(savedCustSection) ? savedCustSection : 'custDashboard'); } catch(e) { console.warn('Section load failed:', e.message); }
                 try {
                     const fbStatus = await api('GET', `/api/customer/${result.id}/feedback/status`);
                     if (!fbStatus.submitted) showFeedbackModal(result);
@@ -3602,13 +3596,13 @@
                 document.getElementById('lockerAddBtns').style.display = 'none';
                 document.getElementById('branchSelectorContainer').style.display = 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (Lead Agent)`;
-                await switchSection('leadCapture');
+                try { await switchSection('leadCapture'); } catch(e) { console.warn('Section load failed:', e.message); }
             } else {
                 const isHeadOffice = result.role === 'headoffice';
                 document.querySelectorAll('.sidebar-nav li').forEach(li => {
                     if (!li.id || (!li.id.startsWith('navCust'))) li.style.display = 'block';
                 });
-                document.getElementById('navLockers').style.display = 'none'; // Lockers tab removed — use Units instead
+                document.getElementById('navLockers').style.display = 'none';
                 document.getElementById('branchMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
@@ -3626,19 +3620,17 @@
                 document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
 
-                // Hide leadCapture nav for non-lead_agent users
                 document.getElementById('navLeadCapture').style.display = 'none';
 
                 if (isHeadOffice) {
-                    currentBranchId = null; // HO sees all branches by default
-                    loadBranchSelector();
+                    currentBranchId = null;
+                    try { loadBranchSelector(); } catch(e) {}
                 }
-                // Restore last viewed section on refresh, or default to dashboard
                 const savedSection = localStorage.getItem('lockerhub_section');
                 const hoSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
                 const branchSections = ['dashboard','tenants','payments','visits','appointments','reminders','feedback','leads'];
                 const validSections = isHeadOffice ? hoSections : branchSections;
-                await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard');
+                try { await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard'); } catch(e) { console.warn('Section load failed:', e.message); }
             }
             resetInactivityTimer();
         }

@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Only allow HTTPS connections -->
+    <!-- HTTPS only — no cleartext traffic allowed -->
     <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
 
-    <!-- Allow cleartext for local development only -->
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">10.0.2.2</domain>
-        <domain includeSubdomains="true">localhost</domain>
+    <!-- Pin to dhanamfinance.com domain -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">dhanamfinance.com</domain>
     </domain-config>
 </network-security-config>

@@ -5,18 +5,11 @@
     android:layout_height="match_parent"
     android:background="@color/background">
 
-    <!-- SwipeRefreshLayout wrapping WebView -->
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
-        android:id="@+id/swipe_refresh"
+    <!-- WebView (no SwipeRefreshLayout — it conflicts with sidebar scroll) -->
+    <WebView
+        android:id="@+id/webview"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
-
-        <WebView
-            android:id="@+id/webview"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
-
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+        android:layout_height="match_parent" />
 
     <!-- Offline screen (hidden by default) -->
     <LinearLayout
@@ -29,7 +22,6 @@
         android:background="@color/background"
         android:visibility="gone">
 
-        <!-- Offline icon -->
         <ImageView
             android:layout_width="96dp"
             android:layout_height="96dp"
