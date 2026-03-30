@@ -2716,13 +2716,13 @@
                             </div>
                             <div class="form-group">
                                 <label for="tenantBankAccount">Account Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBankAccount" required>
+                                <input type="text" id="tenantBankAccount" maxlength="18" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,18)" placeholder="Account number (digits only)" required>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="tenantBankIfsc">IFSC Code <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBankIfsc" placeholder="e.g., SBIN0001234" style="text-transform:uppercase;" required>
+                                <input type="text" id="tenantBankIfsc" placeholder="e.g., SBIN0001234" maxlength="11" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,11)" style="text-transform:uppercase;" required>
                             </div>
                             <div class="form-group">
                                 <label for="tenantBankBranch">Bank Branch <span style="color:var(--danger);">*</span></label>
@@ -4445,8 +4445,8 @@
             if (!bankAccount) { alert('Bank account number is mandatory'); return; }
             if (!bankIfsc) { alert('IFSC code is mandatory'); return; }
             if (!bankBranch) { alert('Bank branch is mandatory'); return; }
-            if (!aadhaar) { alert('Aadhaar number is mandatory'); return; }
-            if (!pan) { alert('PAN number is mandatory'); return; }
+            if (!aadhaar || aadhaar.replace(/[^0-9]/g, '').length !== 12) { alert('Please enter a valid 12-digit Aadhaar number'); return; }
+            if (!pan || !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan.toUpperCase())) { alert('Please enter a valid PAN number (e.g., ABCDE1234F)'); return; }
 
             const tenantId = document.getElementById('tenantId').value;
             let branchId = isHO ? document.getElementById('tenantBranch').value : currentBranchId;
@@ -7432,9 +7432,10 @@
 
         async function submitLeadFromModal() {
             const name = document.getElementById('mlName').value.trim();
-            const phone = document.getElementById('mlPhone').value.trim();
+            const phone = document.getElementById('mlPhone').value.trim().replace(/[^0-9]/g, '').slice(0, 10);
             if (!name) return alert('Name is required');
-            if (!phone) return alert('Phone is required');
+            if (!phone || phone.length !== 10) return alert('Please enter a valid 10-digit phone number');
+            document.getElementById('mlPhone').value = phone;
             try {
                 await api('POST', '/api/leads', {
                     name, phone,
@@ -7498,11 +7499,13 @@
 
         async function submitLeadCapture() {
             const name = document.getElementById('lcName').value.trim();
-            const phone = document.getElementById('lcPhone').value.trim();
+            const phone = document.getElementById('lcPhone').value.trim().replace(/[^0-9]/g, '').slice(0, 10);
             const locker_size = document.getElementById('lcLockerSize').value;
             if (!name) return alert('Please enter the customer name');
-            if (!phone || phone.length < 10) return alert('Please enter a valid 10-digit phone number');
+            if (!phone || phone.length !== 10) return alert('Please enter a valid 10-digit phone number');
             if (!locker_size) return alert('Please select a locker size');
+            // Enforce cleaned value back into the field
+            document.getElementById('lcPhone').value = phone;
             try {
                 showLoading('Saving lead...');
                 await api('POST', '/api/leads', {

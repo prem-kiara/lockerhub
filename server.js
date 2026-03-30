@@ -938,6 +938,10 @@ app.get('/api/tenants', (req, res) => {
 app.post('/api/tenants', (req, res) => {
   try {
     const d = req.body;
+    // Sanitize phone, Aadhaar, PAN
+    if (d.phone) d.phone = d.phone.replace(/[^0-9]/g, '').slice(0, 10);
+    if (d.bg_aadhaar) d.bg_aadhaar = d.bg_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
+    if (d.bg_pan) d.bg_pan = d.bg_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
     const id = genId();
     // Auto-calculate lease_end (365 days from lease_start)
     let lease_end = d.lease_end || '';
@@ -2629,13 +2633,16 @@ app.get('/api/feedback/summary', (req, res) => {
 // Create a lead (lead_agent, branch, or HO)
 app.post('/api/leads', (req, res) => {
   try {
-    const { name, phone, email, locker_size, branch_id, notes } = req.body;
+    const { name, email, locker_size, branch_id, notes } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
+    // Sanitize phone: digits only, max 10
+    const phone = (req.body.phone || '').replace(/[^0-9]/g, '').slice(0, 10);
+    if (phone && phone.length !== 10) return res.status(400).json({ error: 'Phone must be exactly 10 digits' });
     const id = genId();
     const created_by = req.body.created_by || '';
     const created_by_name = req.body.created_by_name || '';
     db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, name, phone || '', email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name
+      id, name, phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name
     );
     logInfo('Lead created', { id, name, phone, created_by: created_by_name });
     res.json({ id, success: true });

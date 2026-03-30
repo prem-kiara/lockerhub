@@ -149,7 +149,13 @@ function checkbox(doc, label, x, y, checked) {
 function labeledBox(doc, label, x, y, w, h) {
   doc.save().strokeColor(LGREY).lineWidth(0.5).rect(x, y, w, h).stroke().restore();
   doc.font('Helvetica').fontSize(6).fillColor(GREY);
-  tx(doc, label, x + 3, y + h / 2 - 3);
+  const lines = label.split('\n');
+  const lineHeight = 8;
+  const totalHeight = lines.length * lineHeight;
+  const startY = y + (h - totalHeight) / 2;
+  lines.forEach((line, i) => {
+    doc.text(line.trim(), x + 3, startY + i * lineHeight, { width: w - 6, align: 'center' });
+  });
   doc.fillColor('black');
 }
 
@@ -184,9 +190,9 @@ function page1(doc, t, branch) {
   field(doc, 'Agreement No.:', W / 2 + 20, y - 16, t.agreement_no || 'Auto-generated', 140, 90);
   y += 3;
 
-  y = sectionTitle(doc, 'Hirer Details', y);
+  y = sectionTitle(doc, 'Nominee Details', y);
   y += 3;
-  y = field(doc, 'Full Name:', M, y, t.name || '', W - 2 * M - 100, 70);
+  y = field(doc, 'Full Name:', M, y, t.nominee_name || '', W - 2 * M - 100, 70);
   y += 3;
 
   labeledBox(doc, 'Paste Passport Size Photo', W - M - 95, y, 95, 110);
