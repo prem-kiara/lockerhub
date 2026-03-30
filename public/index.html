@@ -1918,7 +1918,7 @@
               <a href="#" onclick="showLegalPage('privacy')" style="color:#999; text-decoration:none;">Privacy</a>
               <span style="color:#666; margin:0 6px;">|</span>
               <a href="#" onclick="showLegalPage('terms')" style="color:#999; text-decoration:none;">Terms</a>
-              <br><span style="color:#666; margin-top:4px; display:inline-block;">v1.0.0 © Dhanam Financials</span>
+              <br><span style="color:#666; margin-top:4px; display:inline-block;">v1.0.0 © Dhanam Investment and Finance Private Limited</span>
             </div>
         </div>
 
@@ -6175,7 +6175,7 @@
                 // Create Excel with header info
                 const wb = XLSX.utils.book_new();
                 const headerRows = [
-                    ['Statement of Account - Dhanam Finance'],
+                    ['Statement of Account - Dhanam Investment and Finance'],
                     ['Tenant:', t.name, '', 'Phone:', '+91 ' + (t.phone || '')],
                     ['Locker:', t.locker_number || '-', '', 'Lease Start:', t.lease_start || '-'],
                     ['Interest:', t.interest_enabled ? ((t.interest_rate || 0) + '% ' + capitalize(t.interest_freq || '')) : 'Disabled'],
@@ -6983,7 +6983,7 @@
                 </div>
             `).join('');
 
-            let npsHtml = '<div style="margin-bottom:18px;"><div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#333;">How likely are you to recommend Dhanam Finance Lockers to others? (0-10)</div><div style="display:flex; gap:4px; flex-wrap:wrap;">';
+            let npsHtml = '<div style="margin-bottom:18px;"><div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#333;">How likely are you to recommend Dhanam Lockers to others? (0-10)</div><div style="display:flex; gap:4px; flex-wrap:wrap;">';
             for (let i = 0; i <= 10; i++) {
                 const color = i <= 6 ? '#e74c3c' : (i <= 8 ? '#f39c12' : '#27ae60');
                 npsHtml += `<label class="nps-btn" data-v="${i}" style="display:flex; align-items:center; justify-content:center; width:36px; height:36px; border:2px solid #ddd; border-radius:8px; cursor:pointer; font-weight:600; font-size:13px; transition:all 0.2s;" onclick="document.querySelectorAll('.nps-btn').forEach(b=>{b.style.background='#fff';b.style.color='#333';b.style.borderColor='#ddd'});this.style.background='${color}';this.style.color='#fff';this.style.borderColor='${color}';document.getElementById('npsValue').value=${i};">${i}</label>`;
@@ -6995,13 +6995,13 @@
                 <div style="background:#fff;border-radius:16px;max-width:600px;width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
                     <div style="padding:24px 24px 0;border-bottom:1px solid #eee;padding-bottom:16px;position:sticky;top:0;background:#fff;border-radius:16px 16px 0 0;z-index:1;">
                         <h3 style="margin:0;font-size:18px;color:#2c1810;">We value your feedback!</h3>
-                        <p style="margin:6px 0 0;font-size:13px;color:#888;">Help us improve your locker experience at Dhanam Finance.</p>
+                        <p style="margin:6px 0 0;font-size:13px;color:#888;">Help us improve your locker experience at Dhanam.</p>
                     </div>
                     <div style="padding:20px 24px;">
                         ${questionsHtml}
                         ${npsHtml}
                         <div style="margin-bottom:18px;">
-                            <div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#333;">Why did you choose Dhanam Finance Lockers?</div>
+                            <div style="font-weight:600; margin-bottom:8px; font-size:13px; color:#333;">Why did you choose Dhanam Lockers?</div>
                             <textarea id="fbReasonChose" rows="3" style="width:100%;border:1px solid #ddd;border-radius:8px;padding:10px;font-size:13px;resize:vertical;font-family:inherit;" placeholder="Share your thoughts..."></textarea>
                         </div>
                     </div>

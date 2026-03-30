@@ -15,7 +15,7 @@ const GOLD = '#b8860b';
 const DARK = '#2c1810';
 const GREY = '#999999';
 const LGREY = '#e3d5c3';
-const COMPANY_SHORT = 'Dhanam Finance';
+const COMPANY_SHORT = 'Dhanam Investment and Finance';
 const COMPANY_FULL = 'Dhanam Investment and Finance Private Limited';
 const CIN = 'U65900TZ2016PTC031308';
 const GST = '33AAGCK3310G1Z2';
@@ -214,7 +214,7 @@ function renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, star
   // Bottom footer
   doc.font('Helvetica').fontSize(5).fillColor('#aaaaaa');
   tx(doc, `© ${COMPANY_FULL}. This is a computer-generated receipt.`, M, H - 20);
-  tx(doc, 'Thank you for choosing Dhanam Finance Hi-Tech Lockers.', 0, H - 20, { width: W - M, align: 'right' });
+  tx(doc, 'Thank you for choosing Dhanam Hi-Tech Lockers.', 0, H - 20, { width: W - M, align: 'right' });
 }
 
 function generateReceiptBuffer(payment, tenant, branch, locker, options) {

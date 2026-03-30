@@ -1966,7 +1966,7 @@ app.get('/api/privacy-policy', (req, res) => {
   res.json({
     title: 'Privacy Policy',
     last_updated: '2026-03-30',
-    company: 'Dhanam Financials',
+    company: 'Dhanam Investment and Finance Private Limited',
     sections: [
       { heading: 'Information We Collect', content: 'We collect personal information including name, phone number, email address, physical address, Aadhaar number (for e-sign verification), PAN number, bank account details (for deposit refunds), and passport-size photographs. This information is necessary for locker rental agreements and identity verification.' },
       { heading: 'How We Use Your Information', content: 'Your information is used to: manage your locker rental agreement, process payments and deposits, verify your identity for locker access, send appointment confirmations, generate lease agreements, and comply with regulatory requirements.' },
@@ -1983,7 +1983,7 @@ app.get('/api/terms-of-service', (req, res) => {
   res.json({
     title: 'Terms of Service',
     last_updated: '2026-03-30',
-    company: 'Dhanam Financials',
+    company: 'Dhanam Investment and Finance Private Limited',
     sections: [
       { heading: 'Service Description', content: 'LockerHub provides safe deposit locker rental management services including locker allocation, payment processing, appointment booking, and document management.' },
       { heading: 'User Responsibilities', content: 'Users must provide accurate personal information, maintain the security of their login credentials, use the locker only for lawful purposes, and comply with the terms of their rental agreement.' },
