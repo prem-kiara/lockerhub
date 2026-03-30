@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="gold_primary">#B8860B</color>
+    <color name="gold_dark">#8B6508</color>
+    <color name="gold_light">#DAA520</color>
+    <color name="brown_dark">#2C1810</color>
+    <color name="background">#FFF8F0</color>
+    <color name="background_dark">#1A1A1A</color>
+    <color name="text_primary">#2C1810</color>
+    <color name="text_secondary">#8B7355</color>
+    <color name="white">#FFFFFF</color>
+    <color name="splash_background">#2C1810</color>
+</resources>

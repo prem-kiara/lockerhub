@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/content_frame"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background">
+
+    <!-- SwipeRefreshLayout wrapping WebView -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <WebView
+            android:id="@+id/webview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <!-- Offline screen (hidden by default) -->
+    <LinearLayout
+        android:id="@+id/offline_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="48dp"
+        android:background="@color/background"
+        android:visibility="gone">
+
+        <!-- Offline icon -->
+        <ImageView
+            android:layout_width="96dp"
+            android:layout_height="96dp"
+            android:src="@drawable/ic_offline"
+            android:contentDescription="No internet"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="No Internet Connection"
+            android:textColor="@color/brown_dark"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Please check your connection and try again."
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp"
+            android:textAlignment="center"
+            android:layout_marginBottom="32dp" />
+
+        <Button
+            android:id="@+id/btn_retry"
+            android:layout_width="wrap_content"
+            android:layout_height="56dp"
+            android:text="  Retry  "
+            android:textSize="16sp"
+            android:textColor="@android:color/white"
+            android:backgroundTint="@color/gold_primary"
+            android:paddingStart="48dp"
+            android:paddingEnd="48dp" />
+
+    </LinearLayout>
+
+</FrameLayout>

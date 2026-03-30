@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Lock body -->
+    <path
+        android:pathData="M38,36h32c3.3,0 6,2.7 6,6v24c0,3.3 -2.7,6 -6,6h-32c-3.3,0 -6,-2.7 -6,-6v-24c0,-3.3 2.7,-6 6,-6z"
+        android:fillColor="#FFFFFF" />
+
+    <!-- Lock shackle (top arc) -->
+    <path
+        android:pathData="M42,36v-8c0,-6.6 5.4,-12 12,-12s12,5.4 12,12v8"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:fillColor="#00000000" />
+
+    <!-- Keyhole circle -->
+    <path
+        android:pathData="M54,52m-5,0a5,5 0,1 1,10 0a5,5 0,1 1,-10 0"
+        android:fillColor="#2C1810" />
+
+    <!-- Keyhole bottom -->
+    <path
+        android:pathData="M52,55l4,0 -1,7 -2,0z"
+        android:fillColor="#2C1810" />
+
+    <!-- "LH" text -->
+    <path
+        android:pathData="M39,76h3v-8h-3v-3h3v-3h3v11h5v3z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.9" />
+
+    <path
+        android:pathData="M56,62h3v5h4v-5h3v13h-3v-5h-4v5h-3z"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.9" />
+
+</vector>

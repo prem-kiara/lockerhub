@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash screen logo: Locker icon with "LH" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="144dp"
+    android:height="144dp"
+    android:viewportWidth="144"
+    android:viewportHeight="144">
+
+    <!-- Outer rounded rectangle (locker body) -->
+    <path
+        android:pathData="M32,16h80c8.8,0 16,7.2 16,16v80c0,8.8 -7.2,16 -16,16h-80c-8.8,0 -16,-7.2 -16,-16v-80c0,-8.8 7.2,-16 16,-16z"
+        android:fillColor="#B8860B" />
+
+    <!-- Inner panel -->
+    <path
+        android:pathData="M38,28h68c4.4,0 8,3.6 8,8v72c0,4.4 -3.6,8 -8,8h-68c-4.4,0 -8,-3.6 -8,-8v-72c0,-4.4 3.6,-8 8,-8z"
+        android:fillColor="#2C1810" />
+
+    <!-- Lock icon circle -->
+    <path
+        android:pathData="M72,52m-16,0a16,16 0,1 1,32 0a16,16 0,1 1,-32 0"
+        android:fillColor="#B8860B" />
+
+    <!-- Lock keyhole -->
+    <path
+        android:pathData="M72,48c-2.2,0 -4,1.8 -4,4c0,1.5 0.8,2.7 2,3.4v4.6c0,1.1 0.9,2 2,2s2,-0.9 2,-2v-4.6c1.2,-0.7 2,-1.9 2,-3.4c0,-2.2 -1.8,-4 -4,-4z"
+        android:fillColor="#2C1810" />
+
+    <!-- "L" letter -->
+    <path
+        android:pathData="M40,80h10v16h14v8h-24z"
+        android:fillColor="#B8860B" />
+
+    <!-- "H" letter -->
+    <path
+        android:pathData="M80,80h10v10h10v-10h10v24h-10v-8h-10v8h-10z"
+        android:fillColor="#B8860B" />
+
+    <!-- Handle on top -->
+    <path
+        android:pathData="M62,12h20v8c0,2.2 -1.8,4 -4,4h-12c-2.2,0 -4,-1.8 -4,-4z"
+        android:fillColor="#DAA520" />
+
+</vector>

@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base app theme -->
+    <style name="Theme.LockerHub" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">@color/gold_primary</item>
+        <item name="colorPrimaryDark">@color/gold_dark</item>
+        <item name="colorAccent">@color/gold_light</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:statusBarColor">@color/brown_dark</item>
+        <item name="android:navigationBarColor">@color/brown_dark</item>
+    </style>
+
+    <!-- Splash screen theme -->
+    <style name="Theme.LockerHub.Splash" parent="Theme.LockerHub">
+        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+    </style>
+</resources>

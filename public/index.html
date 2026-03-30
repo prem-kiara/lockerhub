@@ -7453,13 +7453,13 @@
                 const r = rows.find(l => l.id === leadId);
                 if (!r) return alert('Lead not found');
 
-                // Close lead modal
-                document.getElementById('leadDetailModal')?.remove();
-
-                // Use the latest values from the form
+                // Use the latest values from the form (before closing modal)
                 const name = document.getElementById('ldName')?.value?.trim() || r.name;
                 const phone = document.getElementById('ldPhone')?.value?.trim() || r.phone;
                 const email = document.getElementById('ldEmail')?.value?.trim() || r.email;
+
+                // Close lead modal
+                document.getElementById('leadDetailModal')?.remove();
 
                 // Switch to tenants section and open add form
                 await switchSection('tenants');
@@ -7470,15 +7470,18 @@
                 document.getElementById('tenantPhone').value = phone;
                 document.getElementById('tenantEmail').value = email || '';
 
-                // Set branch
+                // Set branch and trigger locker loading
                 if (r.branch_id) {
                     const branchSel = document.getElementById('tenantBranch');
-                    if (branchSel) branchSel.value = r.branch_id;
+                    if (branchSel) {
+                        branchSel.value = r.branch_id;
+                        // Trigger locker loading for the selected branch
+                        await loadLockerSelect(null, r.branch_id);
+                    }
                 }
 
                 // Mark lead as converted
                 await api('PUT', `/api/leads/${leadId}`, { status: 'Converted' });
-                await loadLeads();
             } catch (err) { alert('Failed: ' + err.message); }
         }
 
