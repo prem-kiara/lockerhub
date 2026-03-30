@@ -3,6 +3,6 @@
     <!-- Splash screen theme (Android 12+) -->
     <style name="Theme.LockerHub.Splash" parent="Theme.LockerHub">
         <item name="android:windowSplashScreenBackground">@color/splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_dhanam</item>
     </style>
 </resources>
