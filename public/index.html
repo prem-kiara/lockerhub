@@ -1354,6 +1354,8 @@
             /* Login page */
             .login-container {
                 padding: 20px;
+                align-items: flex-start;
+                padding-top: 40px;
             }
 
             .login-box {
@@ -1919,7 +1921,7 @@
                   </div>
                   <div class="form-group">
                       <label for="signupNotes">Additional Notes</label>
-                      <textarea id="signupNotes" placeholder="Any specific requirements..." rows="2" style="width:100%; padding:10px; background:var(--input-bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:14px; resize:vertical;"></textarea>
+                      <textarea id="signupNotes" placeholder="Any specific requirements..." rows="2" style="width:100%; padding:10px; background:var(--input-bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:16px; resize:vertical;"></textarea>
                   </div>
                   <button type="submit" class="btn btn-primary" style="width: 100%;">Submit Enquiry</button>
               </form>
@@ -4399,7 +4401,7 @@
                     <td>
                         <div class="action-buttons">
                             ${t.account_status === 'Closed' ? `
-                              <span style="font-size:11px;padding:3px 8px;background:#dc2626;color:#fff;border-radius:4px;">Closed</span>
+                              <span style="font-size:11px;padding:3px 8px;background:#dc2626;color:#fff;border-radius:4px;white-space:nowrap;flex-shrink:0;">Closed</span>
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="reopenAccount('${t.id}')" style="font-size:11px;padding:4px 8px;">Reopen</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')" style="font-size:11px;padding:4px 8px;">SOA</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
