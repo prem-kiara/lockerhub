@@ -73,6 +73,9 @@ setInterval(rotateLogIfNeeded, 60 * 60 * 1000);
 //  SECURITY MIDDLEWARE
 // ============================
 
+// Trust proxy (Nginx/Certbot reverse proxy sets X-Forwarded-For)
+app.set('trust proxy', 1);
+
 // Helmet - secure HTTP headers
 app.use(helmet({
   contentSecurityPolicy: false, // Allow inline scripts for SPA
@@ -1264,7 +1267,6 @@ app.delete('/api/tenants/:id', requireAuth, requireRole('headoffice'), (req, res
     const delAppointments = db.prepare('DELETE FROM appointments WHERE tenant_id = ?').run(req.params.id);
     const delEsign = db.prepare('DELETE FROM esign_requests WHERE tenant_id = ?').run(req.params.id);
     const delFeedback = db.prepare('DELETE FROM feedback WHERE tenant_id = ?').run(req.params.id);
-    db.prepare('DELETE FROM activities WHERE tenant_id = ?').run(req.params.id);
     db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
     logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes, appointments_removed: delAppointments.changes, esign_removed: delEsign.changes, feedback_removed: delFeedback.changes });
     res.json({ ok: true });
