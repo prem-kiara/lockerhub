@@ -1875,6 +1875,11 @@
                 </div>
                 <button type="submit" class="btn btn-primary" style="width: 100%;">Login</button>
             </form>
+            <div style="text-align:center; margin-top:16px; font-size:13px; color:#888;">
+              By logging in, you agree to our
+              <a href="#" onclick="showLegalPage('privacy')" style="color:#b8860b;">Privacy Policy</a> and
+              <a href="#" onclick="showLegalPage('terms')" style="color:#b8860b;">Terms of Service</a>
+            </div>
         </div>
     </div>
 
@@ -1904,10 +1909,17 @@
                 <li id="navCustDashboard" style="display: none;"><a onclick="switchSection('custDashboard')" class="nav-link" data-section="custDashboard">My Dashboard</a></li>
                 <li id="navCustAppointments" style="display: none;"><a onclick="switchSection('custAppointments')" class="nav-link" data-section="custAppointments">My Appointments</a></li>
                 <li id="navCustPayments" style="display: none;"><a onclick="switchSection('custPayments')" class="nav-link" data-section="custPayments">My Payments</a></li>
+                <li id="navCustDelete" style="display: none;"><a onclick="requestAccountDeletion()" class="nav-link" style="color:#e74c3c;">🗑️ Delete My Account</a></li>
                 <li id="navFeedback" style="display:none;"><a onclick="switchSection('feedback')" class="nav-link" data-section="feedback">Feedback</a></li>
                 <li id="navLeads" style="display:none;"><a onclick="switchSection('leads')" class="nav-link" data-section="leads">Leads</a></li>
                 <li id="navLeadCapture" style="display:none;"><a onclick="switchSection('leadCapture')" class="nav-link" data-section="leadCapture">Capture Lead</a></li>
             </ul>
+            <div style="position:absolute; bottom:0; left:0; right:0; padding:12px 16px; border-top:1px solid rgba(255,255,255,0.1); font-size:11px; text-align:center;">
+              <a href="#" onclick="showLegalPage('privacy')" style="color:#999; text-decoration:none;">Privacy</a>
+              <span style="color:#666; margin:0 6px;">|</span>
+              <a href="#" onclick="showLegalPage('terms')" style="color:#999; text-decoration:none;">Terms</a>
+              <br><span style="color:#666; margin-top:4px; display:inline-block;">v1.0.0 © Dhanam Financials</span>
+            </div>
         </div>
 
         <div class="main-content">
@@ -3434,12 +3446,23 @@
                 headers: { 'Content-Type': 'application/json' },
                 signal: controller.signal
             };
+            // Add JWT token to Authorization header if available
+            const token = localStorage.getItem('lockerhub_token');
+            if (token) {
+                options.headers['Authorization'] = `Bearer ${token}`;
+            }
             if (body) {
                 options.body = JSON.stringify(body);
             }
             try {
                 const response = await fetch(path, options);
                 clearTimeout(timer);
+                // Handle 401 Unauthorized - auto-logout
+                if (response.status === 401) {
+                    clearTimeout(timer);
+                    logout();
+                    throw new Error('Session expired. Please log in again.');
+                }
                 if (!response.ok) {
                     const errBody = await response.json().catch(() => ({}));
                     throw new Error(errBody.error || `Server error: ${response.status}`);
@@ -3452,6 +3475,35 @@
                 }
                 throw err;
             }
+        }
+
+        // ===== Data Masking Functions =====
+        function maskAadhaar(val) { return val && val.length >= 8 ? 'XXXX-XXXX-' + val.slice(-4) : val || ''; }
+        function maskPAN(val) { return val && val.length >= 6 ? val.slice(0, 2) + 'XXXXX' + val.slice(-3) : val || ''; }
+        function maskBankAccount(val) { return val && val.length > 4 ? 'XXXXX' + val.slice(-4) : val || ''; }
+
+        // ===== Legal Pages Modal =====
+        async function showLegalPage(type) {
+          const modal = document.getElementById('legalModal');
+          const title = document.getElementById('legalTitle');
+          const content = document.getElementById('legalContent');
+          modal.style.display = 'flex';
+          content.innerHTML = '<p>Loading...</p>';
+          try {
+            const endpoint = type === 'privacy' ? '/api/privacy-policy' : '/api/terms-of-service';
+            // Fetch without auth (public endpoints)
+            const resp = await fetch(endpoint);
+            const data = await resp.json();
+            title.textContent = data.title;
+            let html = '<p style="color:#888; font-size:12px; margin-bottom:16px;">Last updated: ' + data.last_updated + ' | ' + data.company + '</p>';
+            data.sections.forEach(s => {
+              html += '<h4 style="margin:16px 0 8px; color:#1B3A5C;">' + s.heading + '</h4>';
+              html += '<p style="margin:0 0 12px;">' + s.content + '</p>';
+            });
+            content.innerHTML = html;
+          } catch (e) {
+            content.innerHTML = '<p>Unable to load. Please try again later.</p>';
+          }
         }
 
         // ===== Session Persistence & Inactivity Timeout =====
@@ -3528,6 +3580,7 @@
                 document.getElementById('navCustDashboard').style.display = 'block';
                 document.getElementById('navCustAppointments').style.display = 'block';
                 document.getElementById('navCustPayments').style.display = 'block';
+                document.getElementById('navCustDelete').style.display = 'block';
                 document.getElementById('lockerAddBtns').style.display = 'none';
                 document.getElementById('branchSelectorContainer').style.display = 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
@@ -3589,8 +3642,15 @@
         (async function restoreSession() {
             try {
                 const session = getSession();
-                if (session && session.user) {
+                const token = localStorage.getItem('lockerhub_token');
+                // Require both session and token to restore
+                if (session && session.user && token) {
                     await applySession(session.user);
+                } else {
+                    // Force re-login if token is missing
+                    localStorage.removeItem('lockerhub_session');
+                    document.getElementById('loginScreen').style.display = 'flex';
+                    document.getElementById('appContainer').style.display = 'none';
                 }
             } catch (error) {
                 console.error('Session restore failed:', error);
@@ -3616,6 +3676,10 @@
                     result = await api('POST', '/api/login', { username, password }, 45000);
                 }
                 hideLoading();
+                // Save JWT token if returned by server
+                if (result.token) {
+                    localStorage.setItem('lockerhub_token', result.token);
+                }
                 saveSession(result);
                 await applySession(result);
             } catch (error) {
@@ -3644,11 +3708,24 @@
             currentBranchId = null;
             clearSession();
             try { localStorage.removeItem('lockerhub_section'); } catch(e) {}
+            try { localStorage.removeItem('lockerhub_token'); } catch(e) {}
             if (inactivityTimer) clearTimeout(inactivityTimer);
             document.getElementById('loginScreen').style.display = 'flex';
             document.getElementById('appContainer').style.display = 'none';
             document.getElementById('username').value = '';
             document.getElementById('password').value = '';
+        }
+
+        // ===== Account Deletion =====
+        async function requestAccountDeletion() {
+          if (!confirm('Are you sure you want to request account deletion? This action cannot be undone. Your data will be removed within 30 days.')) return;
+          if (!confirm('This will permanently delete all your data including payment history, appointments, and locker records. Continue?')) return;
+          try {
+            const result = await api('POST', '/api/customer/' + currentUser.id + '/request-deletion');
+            alert(result.message || 'Deletion request submitted successfully.');
+          } catch (e) {
+            alert('Failed to submit deletion request. Please contact support.');
+          }
         }
 
         // ===== Navigation =====
@@ -4989,8 +5066,8 @@
             const html = tenants.map(t => `
                 <tr>
                     <td><strong>${t.name}</strong></td>
-                    <td>${t.bg_aadhaar || '-'}</td>
-                    <td>${t.bg_pan || '-'}</td>
+                    <td>${maskAadhaar(t.bg_aadhaar) || '-'}</td>
+                    <td>${maskPAN(t.bg_pan) || '-'}</td>
                     <td><span class="badge ${t.bg_photos_collected ? 'badge-success' : 'badge-warning'}">${t.bg_photos_collected ? 'Yes' : 'No'}</span></td>
                     <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status)}</span></td>
                     <td>
@@ -5970,8 +6047,8 @@
             return tenants.map(t => ({
                 ...(isHeadOffice && { Branch: t.branch_name }),
                 Name: t.name,
-                'Aadhaar': t.bg_aadhaar || '-',
-                'PAN': t.bg_pan || '-',
+                'Aadhaar': maskAadhaar(t.bg_aadhaar) || '-',
+                'PAN': maskPAN(t.bg_pan) || '-',
                 'Photos Collected': t.bg_photos_collected ? 'Yes' : 'No',
                 Status: capitalize(t.bg_status)
             }));
@@ -7535,5 +7612,19 @@
         }
 
     </script>
+
+    <!-- Legal Modal -->
+    <div id="legalModal" class="modal-overlay" style="display:none">
+      <div class="modal" style="max-width:700px; max-height:85vh; overflow-y:auto;">
+        <div class="modal-header">
+          <h3 id="legalTitle">Privacy Policy</h3>
+          <button onclick="document.getElementById('legalModal').style.display='none'" style="background:none;border:none;font-size:22px;cursor:pointer;color:#888;">&times;</button>
+        </div>
+        <div class="modal-body" id="legalContent" style="padding:20px; line-height:1.7; font-size:14px; color:#444;">
+          Loading...
+        </div>
+      </div>
+    </div>
+
 </body>
 </html>

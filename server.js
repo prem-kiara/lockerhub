@@ -4,24 +4,24 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 
-// Load .env file if present (no dependency needed)
-try {
-  const envPath = path.join(__dirname, '.env');
-  if (fs.existsSync(envPath)) {
-    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
-      const trimmed = line.trim();
-      if (trimmed && !trimmed.startsWith('#')) {
-        const eqIdx = trimmed.indexOf('=');
-        if (eqIdx > 0) {
-          const key = trimmed.substring(0, eqIdx).trim();
-          const val = trimmed.substring(eqIdx + 1).trim();
-          if (!process.env[key]) process.env[key] = val;
-        }
-      }
-    });
-  }
-} catch (e) { /* .env loading is optional */ }
+// Load .env file
+require('dotenv').config();
+
+// ============================
+//  SECURITY CONFIGURATION
+// ============================
+const JWT_SECRET = process.env.JWT_SECRET || 'CHANGE-THIS-IN-PRODUCTION-' + require('crypto').randomBytes(32).toString('hex');
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
+const BCRYPT_ROUNDS = 10;
+
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.includes('change')) {
+  console.warn('  ⚠️  WARNING: Using default JWT_SECRET. Set JWT_SECRET in .env for production!');
+}
 const { generatePdfBuffer } = require('./allotment-form');
 const { generateReceiptBuffer } = require('./receipt-generator');
 
@@ -69,9 +69,118 @@ function rotateLogIfNeeded() {
 // Check rotation every hour
 setInterval(rotateLogIfNeeded, 60 * 60 * 1000);
 
-// Middleware
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+// ============================
+//  SECURITY MIDDLEWARE
+// ============================
+
+// Helmet - secure HTTP headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow inline scripts for SPA
+  crossOriginEmbedderPolicy: false
+}));
+
+// HTTPS redirect in production
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect(301, 'https://' + req.headers.host + req.url);
+    }
+    next();
+  });
+}
+
+// CORS - restrict origins in production
+const corsOrigins = process.env.CORS_ORIGINS || '*';
+app.use(cors({
+  origin: corsOrigins === '*' ? true : corsOrigins.split(',').map(s => s.trim()),
+  credentials: true
+}));
+
+// Body parser with reasonable limit
+app.use(express.json({ limit: '10mb' }));
+
+// General API rate limiting
+const apiLimiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 min
+  max: parseInt(process.env.RATE_LIMIT_MAX) || 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later' }
+});
+
+// Strict rate limiting for login endpoints
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 min
+  max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX) || 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts, please try again in 15 minutes' }
+});
+
+// Apply general rate limit to all API routes
+app.use('/api/', apiLimiter);
+
+// ============================
+//  JWT AUTH MIDDLEWARE
+// ============================
+function generateToken(payload) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+
+function verifyToken(token) {
+  return jwt.verify(token, JWT_SECRET);
+}
+
+// Middleware: require valid JWT token
+function requireAuth(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+  try {
+    const token = authHeader.split(' ')[1];
+    const decoded = verifyToken(token);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired, please login again' });
+    }
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+
+// Middleware: require specific roles
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (!roles.includes(req.user.role)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    next();
+  };
+}
+
+// Middleware: enforce branch scoping (branch staff can only access their own branch)
+function enforceBranchScope(req, res, next) {
+  if (!req.user) return next();
+  if (req.user.role === 'headoffice') return next(); // HO can access all
+  // For branch staff, override branch_id to their own
+  if (req.user.role === 'branch' && req.user.branch_id) {
+    if (req.query.branch_id && req.query.branch_id !== req.user.branch_id && req.query.branch_id !== 'all') {
+      return res.status(403).json({ error: 'Access denied: cannot access other branches' });
+    }
+    // Force their branch_id in queries
+    if (req.query.branch_id === 'all') {
+      req.query.branch_id = req.user.branch_id;
+    }
+    // Force in body for POST/PUT
+    if (req.body && req.body.branch_id && req.body.branch_id !== req.user.branch_id) {
+      req.body.branch_id = req.user.branch_id;
+    }
+  }
+  next();
+}
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -396,6 +505,21 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
   );
+
+  -- Audit log for compliance
+  CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT DEFAULT '',
+    user_id TEXT DEFAULT '',
+    user_name TEXT DEFAULT '',
+    details TEXT DEFAULT '',
+    ip_address TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
+  CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
 `);
 
 // Migration: Update locker type rates (L10 Large: 20k/3L, L6 Medium: 10k/2L)
@@ -415,6 +539,26 @@ db.exec(`
     });
   });
 })();
+
+// Performance indexes
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_tenants_phone ON tenants(phone);
+  CREATE INDEX IF NOT EXISTS idx_tenants_branch ON tenants(branch_id);
+  CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_payments_branch ON payments(branch_id);
+  CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+  CREATE INDEX IF NOT EXISTS idx_lockers_branch ON lockers(branch_id);
+  CREATE INDEX IF NOT EXISTS idx_lockers_status ON lockers(status);
+  CREATE INDEX IF NOT EXISTS idx_lockers_unit ON lockers(unit_id);
+  CREATE INDEX IF NOT EXISTS idx_visits_branch ON visits(branch_id);
+  CREATE INDEX IF NOT EXISTS idx_appointments_branch ON appointments(branch_id);
+  CREATE INDEX IF NOT EXISTS idx_appointments_tenant ON appointments(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_esign_digio ON esign_requests(digio_doc_id);
+  CREATE INDEX IF NOT EXISTS idx_leads_status ON leads(status);
+  CREATE INDEX IF NOT EXISTS idx_leads_created_by ON leads(created_by);
+  CREATE INDEX IF NOT EXISTS idx_feedback_tenant ON feedback(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_lead_notes_lead ON lead_notes(lead_id);
+`);
 
 logInfo('Database migrations complete');
 
@@ -522,29 +666,85 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
+// Audit logging for compliance
+function auditLog(action, entityType, entityId, req, details = '') {
+  try {
+    const userId = req.user ? req.user.id : '';
+    const userName = req.user ? req.user.name : '';
+    const ip = req.ip || req.connection?.remoteAddress || '';
+    db.prepare('INSERT INTO audit_log (action, entity_type, entity_id, user_id, user_name, details, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      action, entityType, entityId, userId, userName, typeof details === 'object' ? JSON.stringify(details) : details, ip
+    );
+  } catch (e) { logError('Audit log failed', { error: e.message }); }
+}
+
 // ============================
 //  AUTH & LOGIN
 // ============================
-app.post('/api/login', (req, res) => {
-  const { username, password } = req.body;
-  const user = db.prepare('SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE LOWER(u.username) = LOWER(?)').get(username);
-  if (!user || user.password !== password) {
-    logWarn('Login failed', { username, ip: req.ip });
-    return res.status(401).json({ error: 'Invalid username or password' });
+app.post('/api/login', loginLimiter, async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+    const user = db.prepare('SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE LOWER(u.username) = LOWER(?)').get(username);
+    if (!user) {
+      logWarn('Login failed - user not found', { username, ip: req.ip });
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    // Support both bcrypt hashed and legacy plaintext passwords
+    let passwordValid = false;
+    if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
+      passwordValid = await bcrypt.compare(password, user.password);
+    } else {
+      // Legacy plaintext comparison - auto-upgrade to bcrypt on successful login
+      passwordValid = (user.password === password);
+      if (passwordValid) {
+        const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
+        db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashed, user.id);
+        logInfo('Password auto-upgraded to bcrypt', { username });
+      }
+    }
+
+    if (!passwordValid) {
+      logWarn('Login failed - wrong password', { username, ip: req.ip });
+      return res.status(401).json({ error: 'Invalid username or password' });
+    }
+
+    // Generate JWT token
+    const tokenPayload = { id: user.id, username: user.username, name: user.name, role: user.role, branch_id: user.branch_id };
+    const token = generateToken(tokenPayload);
+
+    logInfo('Login success', { username, role: user.role, branch: user.branch_name });
+    res.json({
+      token,
+      id: user.id, name: user.name, role: user.role,
+      branch_id: user.branch_id, branch_name: user.branch_name
+    });
+  } catch (err) {
+    logError('Login error', { error: err.message });
+    res.status(500).json({ error: 'Login failed' });
   }
-  logInfo('Login success', { username, role: user.role, branch: user.branch_name });
-  res.json({ id: user.id, name: user.name, role: user.role, branch_id: user.branch_id, branch_name: user.branch_name });
+});
+
+// ============================
+//  TOKEN REFRESH
+// ============================
+app.post('/api/refresh-token', requireAuth, (req, res) => {
+  const tokenPayload = { id: req.user.id, username: req.user.username, name: req.user.name, role: req.user.role, branch_id: req.user.branch_id };
+  const token = generateToken(tokenPayload);
+  res.json({ token });
 });
 
 // ============================
 //  BRANCHES
 // ============================
-app.get('/api/branches', (req, res) => {
+app.get('/api/branches', requireAuth, (req, res) => {
   const branches = db.prepare('SELECT * FROM branches ORDER BY name').all();
   res.json(branches);
 });
 
-app.post('/api/branches', (req, res) => {
+app.post('/api/branches', requireAuth, requireRole('headoffice'), (req, res) => {
   const { name, address, phone, location, manager_name } = req.body;
   const id = genId();
   db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, address || '', phone || '', location || '', manager_name || '');
@@ -554,7 +754,7 @@ app.post('/api/branches', (req, res) => {
 });
 
 // CHANGE 1: Branch Setup Wizard - Create branch + config + user + units + lockers
-app.post('/api/branches/setup', (req, res) => {
+app.post('/api/branches/setup', requireAuth, requireRole('headoffice'), async (req, res) => {
   const { name, address, phone, location, manager_name, type_units } = req.body;
 
   try {
@@ -573,8 +773,9 @@ app.post('/api/branches/setup', (req, res) => {
     const staffUserId = genId();
     const staffUsername = name.toLowerCase().replace(/\s+/g, '');
     const staffPassword = 'admin@123';
+    const hashedStaffPassword = await bcrypt.hash(staffPassword, BCRYPT_ROUNDS);
     db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-      staffUserId, staffUsername, staffPassword, name + ' Manager', 'branch', branchId
+      staffUserId, staffUsername, hashedStaffPassword, name + ' Manager', 'branch', branchId
     );
 
     let totalLockers = 0;
@@ -617,14 +818,14 @@ app.post('/api/branches/setup', (req, res) => {
     }
 
     logInfo('Branch setup complete', { id: branchId, name, totalLockers, staffUser: staffUsername });
-    res.json({ id: branchId, name, totalLockers, staffUserId, staffUsername, staffPassword });
+    res.json({ id: branchId, name, totalLockers, staffUserId, staffUsername, passwordNote: 'Default password is admin@123 — change immediately via Users management' });
   } catch (error) {
     logError('Branch setup failed', { error: error.message });
     res.status(400).json({ error: error.message });
   }
 });
 
-app.put('/api/branches/:id', (req, res) => {
+app.put('/api/branches/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   const { name, address, phone, location, manager_name } = req.body;
   const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id);
   if (!branch) return res.status(404).json({ error: 'Branch not found' });
@@ -634,7 +835,7 @@ app.put('/api/branches/:id', (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/branches/:id', (req, res) => {
+app.delete('/api/branches/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   const branch = db.prepare('SELECT * FROM branches WHERE id = ?').get(req.params.id);
   if (!branch) return res.status(404).json({ error: 'Branch not found' });
   // Check for linked data
@@ -664,12 +865,12 @@ function classifySize(h, w, d) {
 // ============================
 //  LOCKER TYPES
 // ============================
-app.get('/api/locker-types', (req, res) => {
+app.get('/api/locker-types', requireAuth, (req, res) => {
   const types = db.prepare('SELECT * FROM locker_types ORDER BY is_upcoming, name, variant').all();
   res.json(types);
 });
 
-app.post('/api/locker-types', (req, res) => {
+app.post('/api/locker-types', requireAuth, requireRole('headoffice'), (req, res) => {
   const d = req.body;
   const id = genId();
   const autoSize = classifySize(d.locker_height_mm || 0, d.locker_width_mm || 0, d.locker_depth_mm || 0);
@@ -684,7 +885,7 @@ app.post('/api/locker-types', (req, res) => {
   res.json({ id, auto_size: autoSize });
 });
 
-app.put('/api/locker-types/:id', (req, res) => {
+app.put('/api/locker-types/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   const d = req.body;
   const fields = []; const vals = [];
   for (const [k, v] of Object.entries(d)) {
@@ -703,7 +904,7 @@ app.put('/api/locker-types/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/locker-types/:id', (req, res) => {
+app.delete('/api/locker-types/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   db.prepare('DELETE FROM locker_types WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -711,7 +912,7 @@ app.delete('/api/locker-types/:id', (req, res) => {
 // ============================
 //  UNITS (Physical cabinets)
 // ============================
-app.get('/api/units', (req, res) => {
+app.get('/api/units', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let units;
   if (branch_id && branch_id !== 'all') {
@@ -764,7 +965,7 @@ function getNextReceiptNo() {
 }
 
 // GET next available unit number
-app.get('/api/units/next-number', (req, res) => {
+app.get('/api/units/next-number', requireAuth, (req, res) => {
   const { branch_id, locker_type_id } = req.query;
   if (!branch_id || !locker_type_id) return res.status(400).json({ error: 'branch_id and locker_type_id required' });
   const lt = db.prepare('SELECT * FROM locker_types WHERE id = ?').get(locker_type_id);
@@ -778,7 +979,7 @@ app.get('/api/units/next-number', (req, res) => {
   res.json({ unit_number: unitNumber, lockers_per_unit: lt.lockers_per_unit, locker_names: lockers });
 });
 
-app.post('/api/units', (req, res) => {
+app.post('/api/units', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const { branch_id, locker_type_id, unit_number: providedNumber, location, notes } = req.body;
   const id = genId();
   const lt = db.prepare('SELECT * FROM locker_types WHERE id = ?').get(locker_type_id);
@@ -808,7 +1009,7 @@ app.post('/api/units', (req, res) => {
   res.json({ id, unit_number, lockers_created: lt.lockers_per_unit });
 });
 
-app.put('/api/units/:id', (req, res) => {
+app.put('/api/units/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const fields = []; const vals = [];
   for (const [k, v] of Object.entries(d)) { if (k === 'id') continue; fields.push(`${k} = ?`); vals.push(v); }
@@ -821,7 +1022,7 @@ app.put('/api/units/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/units/:id', (req, res) => {
+app.delete('/api/units/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   db.prepare('DELETE FROM lockers WHERE unit_id = ?').run(req.params.id);
   db.prepare('DELETE FROM units WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
@@ -830,7 +1031,7 @@ app.delete('/api/units/:id', (req, res) => {
 // ============================
 //  LOCKERS
 // ============================
-app.get('/api/lockers', (req, res) => {
+app.get('/api/lockers', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let lockers;
   if (branch_id && branch_id !== 'all') {
@@ -862,7 +1063,7 @@ app.get('/api/lockers', (req, res) => {
 });
 
 // Get lockers for a specific unit (with tenant details)
-app.get('/api/units/:id/lockers', (req, res) => {
+app.get('/api/units/:id/lockers', requireAuth, (req, res) => {
   const lockers = db.prepare(`SELECT l.*,
     t.name as tenant_name, t.phone as tenant_phone, t.email as tenant_email,
     t.annual_rent as tenant_annual_rent, t.deposit as tenant_deposit,
@@ -876,14 +1077,14 @@ app.get('/api/units/:id/lockers', (req, res) => {
   res.json(lockers);
 });
 
-app.post('/api/lockers', (req, res) => {
+app.post('/api/lockers', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const { branch_id, number, size, location, rent, notes } = req.body;
   const id = genId();
   db.prepare('INSERT INTO lockers (id, branch_id, number, size, location, rent, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, branch_id, number, size || 'Large', location || '', rent || 0, 'vacant', notes || '');
   res.json({ id });
 });
 
-app.post('/api/lockers/bulk', (req, res) => {
+app.post('/api/lockers/bulk', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const { branch_id, prefix, count, size, rent, location } = req.body;
   const insert = db.prepare('INSERT INTO lockers (id, branch_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const existing = db.prepare('SELECT number FROM lockers WHERE branch_id = ? AND number = ?');
@@ -901,7 +1102,7 @@ app.post('/api/lockers/bulk', (req, res) => {
   res.json({ added });
 });
 
-app.put('/api/lockers/:id', (req, res) => {
+app.put('/api/lockers/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const fields = [];
   const vals = [];
@@ -916,7 +1117,7 @@ app.put('/api/lockers/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/lockers/:id', (req, res) => {
+app.delete('/api/lockers/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   db.prepare('DELETE FROM lockers WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -924,7 +1125,7 @@ app.delete('/api/lockers/:id', (req, res) => {
 // ============================
 //  TENANTS
 // ============================
-app.get('/api/tenants', (req, res) => {
+app.get('/api/tenants', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let tenants;
   if (branch_id && branch_id !== 'all') {
@@ -935,59 +1136,64 @@ app.get('/api/tenants', (req, res) => {
   res.json(tenants);
 });
 
-app.post('/api/tenants', (req, res) => {
+app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     const d = req.body;
     // Sanitize phone, Aadhaar, PAN
     if (d.phone) d.phone = d.phone.replace(/[^0-9]/g, '').slice(0, 10);
     if (d.bg_aadhaar) d.bg_aadhaar = d.bg_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
     if (d.bg_pan) d.bg_pan = d.bg_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
-    const id = genId();
-    // Auto-calculate lease_end (365 days from lease_start)
-    let lease_end = d.lease_end || '';
-    if (!lease_end && d.lease_start) {
-      const start = new Date(d.lease_start);
-      start.setFullYear(start.getFullYear() + 1);
-      lease_end = start.toISOString().split('T')[0];
-    }
-    db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end,
-      annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch,
-      bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency_name || '', d.emergency || '', d.locker_id || '', d.lease_start || '', lease_end,
-      d.annual_rent || 0, d.deposit || 0, d.bank_name || '', d.bank_account || '', d.bank_ifsc || '', d.bank_branch || '',
-      d.bg_aadhaar || '', d.bg_pan || '', d.bg_photos_collected ? 1 : 0, d.bg_status || 'Pending', d.bg_notes || ''
-    );
-    // Mark locker as occupied
-    if (d.locker_id) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('occupied', d.locker_id);
 
-    // Auto-generate pending deposit payment if deposit > 0
-    if (d.deposit && parseFloat(d.deposit) > 0) {
-      const depId = genId();
-      const depReceipt = getNextReceiptNo();
-      db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        depId, d.branch_id, id, d.locker_id || '', 'deposit', '', parseFloat(d.deposit), d.lease_start || new Date().toISOString().split('T')[0], 'Pending', '', '', '', depReceipt, 'Auto-generated on tenant creation'
+    const txResult = db.transaction(() => {
+      const id = genId();
+      // Auto-calculate lease_end (365 days from lease_start)
+      let lease_end = d.lease_end || '';
+      if (!lease_end && d.lease_start) {
+        const start = new Date(d.lease_start);
+        start.setFullYear(start.getFullYear() + 1);
+        lease_end = start.toISOString().split('T')[0];
+      }
+      db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end,
+        annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch,
+        bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency_name || '', d.emergency || '', d.locker_id || '', d.lease_start || '', lease_end,
+        d.annual_rent || 0, d.deposit || 0, d.bank_name || '', d.bank_account || '', d.bank_ifsc || '', d.bank_branch || '',
+        d.bg_aadhaar || '', d.bg_pan || '', d.bg_photos_collected ? 1 : 0, d.bg_status || 'Pending', d.bg_notes || ''
       );
-      logInfo('Auto-created deposit payment', { paymentId: depId, tenantId: id, amount: d.deposit });
-    }
+      // Mark locker as occupied
+      if (d.locker_id) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('occupied', d.locker_id);
 
-    // Auto-generate pending annual rent payment if annual_rent > 0
-    if (d.annual_rent && parseFloat(d.annual_rent) > 0) {
-      const rentId = genId();
-      const rentReceipt = getNextReceiptNo();
-      const startDate = d.lease_start || new Date().toISOString().split('T')[0];
-      // Calculate period as FY year
-      const startDt = new Date(startDate);
-      const fy = startDt.getMonth() >= 3 ? startDt.getFullYear() : startDt.getFullYear() - 1;
-      const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
-      db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        rentId, d.branch_id, id, d.locker_id || '', 'rent', period, parseFloat(d.annual_rent), startDate, 'Pending', '', '', '', rentReceipt, 'Auto-generated on tenant creation'
-      );
-      logInfo('Auto-created rent payment', { paymentId: rentId, tenantId: id, amount: d.annual_rent, period });
-    }
+      // Auto-generate pending deposit payment if deposit > 0
+      if (d.deposit && parseFloat(d.deposit) > 0) {
+        const depId = genId();
+        const depReceipt = getNextReceiptNo();
+        db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+          depId, d.branch_id, id, d.locker_id || '', 'deposit', '', parseFloat(d.deposit), d.lease_start || new Date().toISOString().split('T')[0], 'Pending', '', '', '', depReceipt, 'Auto-generated on tenant creation'
+        );
+        logInfo('Auto-created deposit payment', { paymentId: depId, tenantId: id, amount: d.deposit });
+      }
 
-    logInfo('Tenant created', { id, name: d.name, locker: d.locker_id, branch: d.branch_id, deposit: d.deposit, annual_rent: d.annual_rent });
-    res.json({ id, lease_end, annual_rent: d.annual_rent || 0, deposit: d.deposit || 0 });
+      // Auto-generate pending annual rent payment if annual_rent > 0
+      if (d.annual_rent && parseFloat(d.annual_rent) > 0) {
+        const rentId = genId();
+        const rentReceipt = getNextReceiptNo();
+        const startDate = d.lease_start || new Date().toISOString().split('T')[0];
+        // Calculate period as FY year
+        const startDt = new Date(startDate);
+        const fy = startDt.getMonth() >= 3 ? startDt.getFullYear() : startDt.getFullYear() - 1;
+        const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
+        db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+          rentId, d.branch_id, id, d.locker_id || '', 'rent', period, parseFloat(d.annual_rent), startDate, 'Pending', '', '', '', rentReceipt, 'Auto-generated on tenant creation'
+        );
+        logInfo('Auto-created rent payment', { paymentId: rentId, tenantId: id, amount: d.annual_rent, period });
+      }
+
+      logInfo('Tenant created', { id, name: d.name, locker: d.locker_id, branch: d.branch_id, deposit: d.deposit, annual_rent: d.annual_rent });
+      return { id, lease_end, annual_rent: d.annual_rent || 0, deposit: d.deposit || 0 };
+    })();
+
+    res.json(txResult);
   } catch (err) {
     logError('Error creating tenant', { error: err.message, name: req.body.name });
     res.status(500).json({ error: err.message });
@@ -995,7 +1201,7 @@ app.post('/api/tenants', (req, res) => {
 });
 
 // Lookup tenant by phone (for staff booking) — MUST be before /:id route
-app.get('/api/tenants/by-phone/:phone', (req, res) => {
+app.get('/api/tenants/by-phone/:phone', requireAuth, (req, res) => {
   const tenant = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
     FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
     LEFT JOIN branches b ON t.branch_id = b.id
@@ -1004,13 +1210,13 @@ app.get('/api/tenants/by-phone/:phone', (req, res) => {
   res.json(tenant);
 });
 
-app.get('/api/tenants/:id', (req, res) => {
+app.get('/api/tenants/:id', requireAuth, (req, res) => {
   const tenant = db.prepare(`SELECT t.*, l.number as locker_number FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id WHERE t.id = ?`).get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
   res.json(tenant);
 });
 
-app.put('/api/tenants/:id', (req, res) => {
+app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     const d = req.body;
     // Handle locker status changes
@@ -1045,7 +1251,7 @@ app.put('/api/tenants/:id', (req, res) => {
   }
 });
 
-app.delete('/api/tenants/:id', (req, res) => {
+app.delete('/api/tenants/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   try {
     const tenant = db.prepare('SELECT locker_id, name FROM tenants WHERE id = ?').get(req.params.id);
     if (tenant && tenant.locker_id) {
@@ -1071,7 +1277,7 @@ app.delete('/api/tenants/:id', (req, res) => {
 // ============================
 //  STATEMENT OF ACCOUNT (SOA)
 // ============================
-app.get('/api/soa/:id', (req, res) => {
+app.get('/api/soa/:id', requireAuth, (req, res) => {
   try {
     const tenant = db.prepare(`
       SELECT t.*, l.number as locker_number
@@ -1102,7 +1308,7 @@ app.get('/api/soa/:id', (req, res) => {
 // ============================
 //  ALLOTMENT FORM PDF
 // ============================
-app.get('/api/allotment-form/:id', async (req, res) => {
+app.get('/api/allotment-form/:id', requireAuth, async (req, res) => {
   try {
     const tenant = db.prepare(`
       SELECT t.*, l.number as locker_number, l.size as locker_size
@@ -1154,7 +1360,7 @@ app.get('/api/allotment-form/:id', async (req, res) => {
 // ============================
 //  PAYMENT RECEIPT PDF
 // ============================
-app.get('/api/receipt/:paymentId', async (req, res) => {
+app.get('/api/receipt/:paymentId', requireAuth, async (req, res) => {
   try {
     const payment = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone,
       l.number as locker_number, l.size as locker_size
@@ -1186,7 +1392,7 @@ app.get('/api/receipt/:paymentId', async (req, res) => {
 // ============================
 //  PAYMENTS
 // ============================
-app.get('/api/payments', (req, res) => {
+app.get('/api/payments', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let payments;
   if (branch_id && branch_id !== 'all') {
@@ -1201,7 +1407,7 @@ app.get('/api/payments', (req, res) => {
   res.json(payments);
 });
 
-app.get('/api/payments/:id', (req, res) => {
+app.get('/api/payments/:id', requireAuth, (req, res) => {
   const payment = db.prepare(`SELECT p.*, t.name as tenant_name, l.number as locker_number
     FROM payments p LEFT JOIN tenants t ON p.tenant_id = t.id LEFT JOIN lockers l ON p.locker_id = l.id
     WHERE p.id = ?`).get(req.params.id);
@@ -1209,7 +1415,7 @@ app.get('/api/payments/:id', (req, res) => {
   res.json(payment);
 });
 
-app.post('/api/payments', (req, res) => {
+app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const type = d.type || 'rent';
 
@@ -1244,7 +1450,7 @@ app.post('/api/payments', (req, res) => {
   }
 });
 
-app.put('/api/payments/:id', (req, res) => {
+app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const fields = []; const vals = [];
   for (const [k, v] of Object.entries(d)) { if (k === 'id' || k === 'branch_id') continue; fields.push(`${k} = ?`); vals.push(v); }
@@ -1252,7 +1458,7 @@ app.put('/api/payments/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.delete('/api/payments/:id', (req, res) => {
+app.delete('/api/payments/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
   db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
   logWarn('Payment deleted', { id: req.params.id, receipt: payment ? payment.receipt_no : '', amount: payment ? payment.amount : 0 });
@@ -1262,7 +1468,7 @@ app.delete('/api/payments/:id', (req, res) => {
 // ============================
 //  RENT SCHEDULE GENERATION
 // Mark overdue payments automatically (annual rent: overdue if due_date passed)
-app.post('/api/payments/check-overdue', (req, res) => {
+app.post('/api/payments/check-overdue', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     const result = db.prepare("UPDATE payments SET status = 'Overdue' WHERE status = 'Pending' AND due_date != '' AND due_date < ?").run(today);
@@ -1277,7 +1483,7 @@ app.post('/api/payments/check-overdue', (req, res) => {
 // ============================
 //  RENEWAL REMINDERS
 // ============================
-app.get('/api/renewals', (req, res) => {
+app.get('/api/renewals', requireAuth, enforceBranchScope, (req, res) => {
   try {
     const { branch_id } = req.query;
     const today = new Date().toISOString().split('T')[0];
@@ -1314,7 +1520,7 @@ app.get('/api/renewals', (req, res) => {
 });
 
 // Customer-facing lease reminder
-app.get('/api/customer/:tenantId/reminders', (req, res) => {
+app.get('/api/customer/:tenantId/reminders', requireAuth, (req, res) => {
   try {
     const tenants = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
       FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
@@ -1348,7 +1554,7 @@ app.get('/api/customer/:tenantId/reminders', (req, res) => {
 });
 
 // Renew a tenant's lease (extend by 1 year)
-app.post('/api/renewals/:id/renew', (req, res) => {
+app.post('/api/renewals/:id/renew', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
     if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
@@ -1387,7 +1593,7 @@ app.post('/api/renewals/:id/renew', (req, res) => {
 // ============================
 //  PAYOUTS (INTEREST)
 // ============================
-app.get('/api/payouts', (req, res) => {
+app.get('/api/payouts', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let payouts;
   if (branch_id && branch_id !== 'all') {
@@ -1402,7 +1608,7 @@ app.get('/api/payouts', (req, res) => {
   res.json(payouts);
 });
 
-app.post('/api/payouts', (req, res) => {
+app.post('/api/payouts', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const id = genId();
   db.prepare('INSERT INTO payouts (id, branch_id, tenant_id, locker_id, period, rate, principal, amount, due_date, status, paid_on, method, ref_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
@@ -1411,7 +1617,7 @@ app.post('/api/payouts', (req, res) => {
   res.json({ id });
 });
 
-app.put('/api/payouts/:id', (req, res) => {
+app.put('/api/payouts/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const fields = []; const vals = [];
   for (const [k, v] of Object.entries(d)) { if (k === 'id' || k === 'branch_id') continue; fields.push(`${k} = ?`); vals.push(v); }
@@ -1422,7 +1628,7 @@ app.put('/api/payouts/:id', (req, res) => {
 // ============================
 //  VISITS
 // ============================
-app.get('/api/visits', (req, res) => {
+app.get('/api/visits', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let visits;
   if (branch_id && branch_id !== 'all') {
@@ -1437,7 +1643,7 @@ app.get('/api/visits', (req, res) => {
   res.json(visits);
 });
 
-app.post('/api/visits', (req, res) => {
+app.post('/api/visits', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const id = genId();
   db.prepare('INSERT INTO visits (id, branch_id, tenant_id, locker_id, datetime, purpose, duration, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
@@ -1449,7 +1655,7 @@ app.post('/api/visits', (req, res) => {
 // ============================
 //  ACTIVITY LOG
 // ============================
-app.get('/api/activities', (req, res) => {
+app.get('/api/activities', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let activities;
   if (branch_id && branch_id !== 'all') {
@@ -1460,7 +1666,7 @@ app.get('/api/activities', (req, res) => {
   res.json(activities);
 });
 
-app.post('/api/activities', (req, res) => {
+app.post('/api/activities', requireAuth, (req, res) => {
   const { branch_id, message } = req.body;
   db.prepare('INSERT INTO activities (branch_id, message) VALUES (?, ?)').run(branch_id, message);
   res.json({ ok: true });
@@ -1469,13 +1675,13 @@ app.post('/api/activities', (req, res) => {
 // ============================
 //  CONFIG
 // ============================
-app.get('/api/config/:branch_id', (req, res) => {
+app.get('/api/config/:branch_id', requireAuth, (req, res) => {
   let config = db.prepare('SELECT * FROM config WHERE branch_id = ?').get(req.params.branch_id);
   if (!config) config = { rate: 8, freq: 'monthly', calc_on: 'rent_paid' };
   res.json(config);
 });
 
-app.put('/api/config/:branch_id', (req, res) => {
+app.put('/api/config/:branch_id', requireAuth, requireRole('headoffice'), (req, res) => {
   const { rate, freq, calc_on } = req.body;
   const exists = db.prepare('SELECT 1 FROM config WHERE branch_id = ?').get(req.params.branch_id);
   if (exists) {
@@ -1489,7 +1695,7 @@ app.put('/api/config/:branch_id', (req, res) => {
 // ============================
 //  SINGLE BRANCH STATS
 // ============================
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   if (!branch_id) return res.status(400).json({ error: 'branch_id required' });
   const lockers = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) as occupied, SUM(CASE WHEN status='vacant' THEN 1 ELSE 0 END) as vacant FROM lockers WHERE branch_id = ?`).get(branch_id);
@@ -1538,7 +1744,7 @@ app.get('/api/stats', (req, res) => {
 // ============================
 //  HEAD OFFICE: AGGREGATED STATS
 // ============================
-app.get('/api/stats/all', (req, res) => {
+app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => {
   const branches = db.prepare('SELECT * FROM branches ORDER BY name').all();
   const now = new Date();
   const yearMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
@@ -1577,16 +1783,16 @@ app.get('/api/stats/all', (req, res) => {
 // ============================
 //  BACKUP & RESTORE
 // ============================
-app.get('/api/backup', (req, res) => {
+app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
   const backup = {
     version: 5,
     export_date: new Date().toISOString(),
     branches: db.prepare('SELECT * FROM branches').all(),
-    users: db.prepare('SELECT * FROM users').all(),
+    users: db.prepare('SELECT id, username, name, role, branch_id, created_at FROM users').all(),
     locker_types: db.prepare('SELECT * FROM locker_types').all(),
     units: db.prepare('SELECT * FROM units').all(),
     lockers: db.prepare('SELECT * FROM lockers').all(),
-    tenants: db.prepare('SELECT * FROM tenants').all(),
+    tenants: db.prepare('SELECT id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end, annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch, bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes, created_at FROM tenants').all(),
     payments: db.prepare('SELECT * FROM payments').all(),
     payouts: db.prepare('SELECT * FROM payouts').all(),
     appointments: db.prepare('SELECT * FROM appointments').all(),
@@ -1604,34 +1810,39 @@ app.get('/api/backup', (req, res) => {
 // ============================
 //  USERS MANAGEMENT
 // ============================
-app.get('/api/users', (req, res) => {
+app.get('/api/users', requireAuth, requireRole('headoffice'), (req, res) => {
   const users = db.prepare('SELECT u.id, u.username, u.name, u.role, u.branch_id, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id ORDER BY u.role, u.name').all();
   res.json(users);
 });
 
-app.post('/api/users', (req, res) => {
+app.post('/api/users', requireAuth, requireRole('headoffice'), async (req, res) => {
   const { username, password, name, role, branch_id } = req.body;
+  if (!username || !password || !name) return res.status(400).json({ error: 'Username, password, and name are required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const id = genId();
   try {
-    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, username, password, name, role || 'branch', branch_id || null);
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, username, hashedPassword, name, role || 'branch', branch_id || null);
+    logInfo('User created', { id, username, role: role || 'branch' });
     res.json({ id });
   } catch (e) {
     res.status(400).json({ error: 'Username already exists' });
   }
 });
 
-app.delete('/api/users/:id', (req, res) => {
+app.delete('/api/users/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-// CHANGE 3: Change Password for Branch Staff
-app.put('/api/users/:id/password', (req, res) => {
+// Change Password for Branch Staff
+app.put('/api/users/:id/password', requireAuth, requireRole('headoffice'), async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required' });
-  if (req.params.id === 'admin001') return res.status(403).json({ error: 'Cannot change root user password' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
 
-  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(password, req.params.id);
+  const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedPassword, req.params.id);
   logInfo('User password changed', { userId: req.params.id });
   res.json({ ok: true });
 });
@@ -1712,7 +1923,7 @@ autoSeed();
 const BACKUP_DIR = path.join(__dirname, 'data', 'backups');
 if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true });
 
-app.get('/api/backup/create', (req, res) => {
+app.get('/api/backup/create', requireAuth, requireRole('headoffice'), (req, res) => {
   try {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     const backupFile = path.join(BACKUP_DIR, `lockerhub_${timestamp}.db`);
@@ -1725,13 +1936,13 @@ app.get('/api/backup/create', (req, res) => {
   }
 });
 
-app.get('/api/backup/download', (req, res) => {
+app.get('/api/backup/download', requireAuth, requireRole('headoffice'), (req, res) => {
   const dbPath = path.join(DATA_DIR, 'lockerhub.db');
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   res.download(dbPath, `lockerhub_backup_${timestamp}.db`);
 });
 
-app.get('/api/backup/list', (req, res) => {
+app.get('/api/backup/list', requireAuth, requireRole('headoffice'), (req, res) => {
   try {
     const files = fs.readdirSync(BACKUP_DIR)
       .filter(f => f.endsWith('.db'))
@@ -1746,6 +1957,42 @@ app.get('/api/backup/list', (req, res) => {
 // ============================
 //  HEALTH CHECK
 // ============================
+// ============================
+//  LEGAL: PRIVACY POLICY & TERMS
+// ============================
+app.get('/api/privacy-policy', (req, res) => {
+  res.json({
+    title: 'Privacy Policy',
+    last_updated: '2026-03-30',
+    company: 'Dhanam Financials',
+    sections: [
+      { heading: 'Information We Collect', content: 'We collect personal information including name, phone number, email address, physical address, Aadhaar number (for e-sign verification), PAN number, bank account details (for deposit refunds), and passport-size photographs. This information is necessary for locker rental agreements and identity verification.' },
+      { heading: 'How We Use Your Information', content: 'Your information is used to: manage your locker rental agreement, process payments and deposits, verify your identity for locker access, send appointment confirmations, generate lease agreements, and comply with regulatory requirements.' },
+      { heading: 'Data Storage and Security', content: 'All data is stored on secure servers with encryption. Passwords are hashed using industry-standard bcrypt. API communications are secured with JWT tokens. Sensitive documents are stored in encrypted SharePoint repositories.' },
+      { heading: 'Data Sharing', content: 'We do not sell or share your personal data with third parties except: Digio (for Aadhaar e-sign verification), payment processors, and as required by Indian law enforcement or regulatory authorities.' },
+      { heading: 'Data Retention', content: 'Your data is retained for the duration of your locker rental agreement plus 7 years as required by Indian financial regulations. You may request earlier deletion subject to regulatory requirements.' },
+      { heading: 'Your Rights', content: 'You have the right to: access your data, request corrections, export your data in portable format, and request deletion of your account. These can be done through the app or by contacting support.' },
+      { heading: 'Contact', content: 'For privacy concerns, contact us at privacy@dhanamfinancials.com or through the app support feature.' }
+    ]
+  });
+});
+
+app.get('/api/terms-of-service', (req, res) => {
+  res.json({
+    title: 'Terms of Service',
+    last_updated: '2026-03-30',
+    company: 'Dhanam Financials',
+    sections: [
+      { heading: 'Service Description', content: 'LockerHub provides safe deposit locker rental management services including locker allocation, payment processing, appointment booking, and document management.' },
+      { heading: 'User Responsibilities', content: 'Users must provide accurate personal information, maintain the security of their login credentials, use the locker only for lawful purposes, and comply with the terms of their rental agreement.' },
+      { heading: 'Payment Terms', content: 'Annual rent and security deposits are due as per your rental agreement. Overdue payments may result in access restrictions. Deposits are refundable upon lease termination subject to terms.' },
+      { heading: 'Liability', content: 'While we take reasonable measures to secure stored items, liability is limited to the terms specified in your locker rental agreement. We are not liable for items stored in violation of our policies.' },
+      { heading: 'Termination', content: 'Either party may terminate the agreement with 30 days notice. Upon termination, stored items must be removed and security deposits will be refunded minus any outstanding dues.' },
+      { heading: 'Governing Law', content: 'These terms are governed by the laws of India, with jurisdiction in Coimbatore, Tamil Nadu.' }
+    ]
+  });
+});
+
 app.get('/api/health', (req, res) => {
   try {
     db.prepare('SELECT 1').get();
@@ -1758,7 +2005,7 @@ app.get('/api/health', (req, res) => {
 // ============================
 //  LOG VIEWER API
 // ============================
-app.get('/api/logs', (req, res) => {
+app.get('/api/logs', requireAuth, requireRole('headoffice'), (req, res) => {
   try {
     const lines = parseInt(req.query.lines) || 200;
     const level = req.query.level || ''; // filter: info, warn, error
@@ -1786,7 +2033,7 @@ app.get('/api/logs', (req, res) => {
 });
 
 // Pretty HTML log viewer (open in browser)
-app.get('/api/logs/view', (req, res) => {
+app.get('/api/logs/view', requireAuth, requireRole('headoffice'), (req, res) => {
   try {
     const lines = parseInt(req.query.lines) || 300;
     const level = req.query.level || '';
@@ -1828,56 +2075,90 @@ app.get('/api/logs/view', (req, res) => {
     </body></html>`;
     res.send(html);
   } catch (err) {
-    res.status(500).send('Error: ' + err.message);
+    res.status(500).send('Error loading logs');
   }
 });
 
 // ============================
 //  CUSTOMER LOGIN & PORTAL
 // ============================
-app.post('/api/customer-login', (req, res) => {
-  const { phone, password } = req.body;
-  if (!phone || !password) return res.status(400).json({ error: 'Phone and password required' });
-  // Check password against any tenant record with this phone
-  const firstMatch = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
-    FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
-    LEFT JOIN branches b ON t.branch_id = b.id
-    WHERE t.phone = ? AND t.customer_password = ?`).get(phone, password);
-  if (!firstMatch) {
-    logWarn('Customer login failed', { phone, ip: req.ip });
-    return res.status(401).json({ error: 'Invalid phone number or password' });
+app.post('/api/customer-login', loginLimiter, async (req, res) => {
+  try {
+    const { phone, password } = req.body;
+    if (!phone || !password) return res.status(400).json({ error: 'Phone and password required' });
+
+    // Get first tenant with this phone number
+    const firstMatch = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
+      FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+      LEFT JOIN branches b ON t.branch_id = b.id
+      WHERE t.phone = ?`).get(phone);
+
+    if (!firstMatch) {
+      logWarn('Customer login failed - phone not found', { phone, ip: req.ip });
+      return res.status(401).json({ error: 'Invalid phone number or password' });
+    }
+
+    // Support both bcrypt hashed and legacy plaintext passwords
+    let passwordValid = false;
+    if (firstMatch.customer_password.startsWith('$2a$') || firstMatch.customer_password.startsWith('$2b$')) {
+      passwordValid = await bcrypt.compare(password, firstMatch.customer_password);
+    } else {
+      passwordValid = (firstMatch.customer_password === password);
+      if (passwordValid) {
+        // Auto-upgrade to bcrypt for all records with this phone
+        const hashed = await bcrypt.hash(password, BCRYPT_ROUNDS);
+        db.prepare('UPDATE tenants SET customer_password = ? WHERE phone = ?').run(hashed, phone);
+        logInfo('Customer password auto-upgraded to bcrypt', { phone });
+      }
+    }
+
+    if (!passwordValid) {
+      logWarn('Customer login failed - wrong password', { phone, ip: req.ip });
+      return res.status(401).json({ error: 'Invalid phone number or password' });
+    }
+
+    // Fetch ALL tenant records for this phone (multi-branch / multi-locker)
+    const allTenants = db.prepare(`SELECT t.id, t.name, t.phone, t.branch_id, t.locker_id, t.lease_start, t.lease_end, t.annual_rent, t.deposit,
+      l.number as locker_number, b.name as branch_name
+      FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+      LEFT JOIN branches b ON t.branch_id = b.id
+      WHERE t.phone = ? ORDER BY b.name`).all(phone);
+
+    // Generate JWT token for customer
+    const tokenPayload = { id: firstMatch.id, name: firstMatch.name, role: 'customer', phone: firstMatch.phone, branch_id: firstMatch.branch_id };
+    const token = generateToken(tokenPayload);
+
+    logInfo('Customer login success', { phone, tenant: firstMatch.name, totalLockers: allTenants.length });
+    res.json({
+      token,
+      id: firstMatch.id, name: firstMatch.name, role: 'customer', phone: firstMatch.phone,
+      branch_id: firstMatch.branch_id, branch_name: firstMatch.branch_name,
+      locker_id: firstMatch.locker_id, locker_number: firstMatch.locker_number,
+      lease_start: firstMatch.lease_start, lease_end: firstMatch.lease_end,
+      annual_rent: firstMatch.annual_rent, deposit: firstMatch.deposit,
+      tenants: allTenants
+    });
+  } catch (err) {
+    logError('Customer login error', { error: err.message });
+    res.status(500).json({ error: 'Login failed' });
   }
-  // Fetch ALL tenant records for this phone (multi-branch / multi-locker)
-  const allTenants = db.prepare(`SELECT t.id, t.name, t.phone, t.branch_id, t.locker_id, t.lease_start, t.lease_end, t.annual_rent, t.deposit,
-    l.number as locker_number, b.name as branch_name
-    FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
-    LEFT JOIN branches b ON t.branch_id = b.id
-    WHERE t.phone = ? ORDER BY b.name`).all(phone);
-  logInfo('Customer login success', { phone, tenant: firstMatch.name, totalLockers: allTenants.length });
-  res.json({
-    id: firstMatch.id, name: firstMatch.name, role: 'customer', phone: firstMatch.phone,
-    branch_id: firstMatch.branch_id, branch_name: firstMatch.branch_name,
-    locker_id: firstMatch.locker_id, locker_number: firstMatch.locker_number,
-    lease_start: firstMatch.lease_start, lease_end: firstMatch.lease_end,
-    annual_rent: firstMatch.annual_rent, deposit: firstMatch.deposit,
-    tenants: allTenants
-  });
 });
 
 // Set/Reset customer password (HO only) — sets for ALL tenant records with same phone
-app.post('/api/tenants/:id/set-password', (req, res) => {
+app.post('/api/tenants/:id/set-password', requireAuth, requireRole('headoffice', 'branch'), async (req, res) => {
   const { password } = req.body;
-  if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const tenant = db.prepare('SELECT id, name, phone FROM tenants WHERE id = ?').get(req.params.id);
   if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
-  // Set password for ALL tenant records with same phone number (multi-branch support)
-  const result = db.prepare('UPDATE tenants SET customer_password = ? WHERE phone = ?').run(password, tenant.phone);
+  // Hash password and set for ALL tenant records with same phone number (multi-branch support)
+  const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+  const result = db.prepare('UPDATE tenants SET customer_password = ? WHERE phone = ?').run(hashedPassword, tenant.phone);
   logInfo('Customer password set', { tenant: tenant.name, phone: tenant.phone, recordsUpdated: result.changes });
   res.json({ success: true, message: `Password set for ${tenant.name} (${result.changes} locker record${result.changes > 1 ? 's' : ''})` });
 });
 
 // Customer payments (supports single tenant or all tenants by phone)
-app.get('/api/customer/:tenantId/payments', (req, res) => {
+app.get('/api/customer/:tenantId/payments', requireAuth, (req, res) => {
   const { phone } = req.query;
   if (phone) {
     // Multi-tenant: get all tenant IDs for this phone, then fetch all payments
@@ -1897,10 +2178,54 @@ app.get('/api/customer/:tenantId/payments', (req, res) => {
   res.json(payments);
 });
 
+// GDPR: Customer data export
+app.get('/api/customer/:tenantId/export-data', requireAuth, (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.tenantId);
+    if (!tenant) return res.status(404).json({ error: 'Not found' });
+    // Verify customer can only export their own data
+    if (req.user.role === 'customer' && req.user.id !== req.params.tenantId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const payments = db.prepare('SELECT id, type, period, amount, due_date, status, paid_on, method, receipt_no, created_at FROM payments WHERE tenant_id = ?').all(req.params.tenantId);
+    const visits = db.prepare('SELECT id, datetime, purpose, duration, notes, created_at FROM visits WHERE tenant_id = ?').all(req.params.tenantId);
+    const appointments = db.prepare('SELECT id, requested_date, requested_time, purpose, status, created_at FROM appointments WHERE tenant_id = ?').all(req.params.tenantId);
+    const feedback = db.prepare('SELECT * FROM feedback WHERE tenant_id = ?').all(req.params.tenantId);
+    // Strip sensitive fields
+    const exportData = {
+      personal: { name: tenant.name, phone: tenant.phone, email: tenant.email, address: tenant.address },
+      locker: { locker_id: tenant.locker_id, lease_start: tenant.lease_start, lease_end: tenant.lease_end, annual_rent: tenant.annual_rent, deposit: tenant.deposit },
+      payments, visits, appointments, feedback,
+      exported_at: new Date().toISOString()
+    };
+    auditLog('DATA_EXPORT', 'tenant', req.params.tenantId, req);
+    res.json(exportData);
+  } catch (err) {
+    res.status(500).json({ error: 'Export failed' });
+  }
+});
+
+// GDPR: Customer account deletion request
+app.post('/api/customer/:tenantId/request-deletion', requireAuth, (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT id, name, phone FROM tenants WHERE id = ?').get(req.params.tenantId);
+    if (!tenant) return res.status(404).json({ error: 'Not found' });
+    if (req.user.role === 'customer' && req.user.id !== req.params.tenantId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    // Log the deletion request (actual deletion handled by admin within 30 days per GDPR)
+    auditLog('DELETION_REQUESTED', 'tenant', req.params.tenantId, req, { name: tenant.name, phone: tenant.phone });
+    logInfo('Data deletion requested', { tenantId: req.params.tenantId, name: tenant.name });
+    res.json({ success: true, message: 'Deletion request received. Your data will be removed within 30 days as per our privacy policy.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Request failed' });
+  }
+});
+
 // ============================
 //  APPOINTMENTS
 // ============================
-app.get('/api/appointments', (req, res) => {
+app.get('/api/appointments', requireAuth, (req, res) => {
   const { branch_id, tenant_id, phone, status, from, to } = req.query;
   let sql = `SELECT a.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number, b.name as branch_name
     FROM appointments a
@@ -1928,7 +2253,7 @@ app.get('/api/appointments', (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
-app.post('/api/appointments', (req, res) => {
+app.post('/api/appointments', requireAuth, (req, res) => {
   const d = req.body;
   if (!d.branch_id || !d.tenant_id || !d.requested_date) {
     return res.status(400).json({ error: 'Branch, tenant, and date are required' });
@@ -1942,7 +2267,7 @@ app.post('/api/appointments', (req, res) => {
   res.json({ success: true, id, status });
 });
 
-app.put('/api/appointments/:id/status', (req, res) => {
+app.put('/api/appointments/:id/status', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const { status, admin_notes } = req.body;
   if (!['Approved', 'Rejected', 'Completed', 'Cancelled'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status' });
@@ -1965,7 +2290,7 @@ app.put('/api/appointments/:id/status', (req, res) => {
   res.json({ success: true });
 });
 
-app.delete('/api/appointments/:id', (req, res) => {
+app.delete('/api/appointments/:id', requireAuth, (req, res) => {
   const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
   db.prepare('UPDATE appointments SET status = ? WHERE id = ?').run('Cancelled', req.params.id);
@@ -1980,8 +2305,8 @@ const DIGIO_CONFIG = {
   sandbox: {
     baseUrl: 'ext.digio.in',
     port: 444,
-    clientId: 'AI5DU7JP5MB7PJC9BJ7JOEY4O11XY798',
-    clientSecret: 'Y5USKG7QDN4VFJAUVACNLAAKMPQ55V4K'
+    clientId: process.env.DIGIO_CLIENT_ID || '',
+    clientSecret: process.env.DIGIO_CLIENT_SECRET || ''
   },
   production: {
     baseUrl: 'api.digio.in',
@@ -2009,7 +2334,7 @@ function digioRequest(method, apiPath, body) {
       path: apiPath,
       method: method,
       headers: headers,
-      rejectUnauthorized: false,
+      rejectUnauthorized: process.env.NODE_ENV !== 'development',
       timeout: 25000
     };
 
@@ -2189,7 +2514,7 @@ function digioDownload(apiPath) {
       headers: {
         'Authorization': `Basic ${DIGIO_AUTH}`
       },
-      rejectUnauthorized: false
+      rejectUnauthorized: process.env.NODE_ENV !== 'development'
     };
 
     const req = https.request(options, (res) => {
@@ -2210,7 +2535,7 @@ function digioDownload(apiPath) {
 }
 
 // List all e-sign requests
-app.get('/api/esign', (req, res) => {
+app.get('/api/esign', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const { branch_id } = req.query;
   let sql = `SELECT e.*, t.name as tenant_name, t.phone as tenant_phone, b.name as branch_name
     FROM esign_requests e
@@ -2226,7 +2551,7 @@ app.get('/api/esign', (req, res) => {
 });
 
 // Initiate e-sign: upload PDF to Digio and get auth URL
-app.post('/api/esign/initiate', async (req, res) => {
+app.post('/api/esign/initiate', requireAuth, requireRole('headoffice', 'branch'), async (req, res) => {
   try {
     const { tenant_id, document_type, branch_id } = req.body;
 
@@ -2348,7 +2673,7 @@ app.post('/api/esign/upload', express.raw({ type: 'application/pdf', limit: '20m
 });
 
 // Check e-sign status from Digio
-app.get('/api/esign/:id/status', async (req, res) => {
+app.get('/api/esign/:id/status', requireAuth, async (req, res) => {
   try {
     const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
@@ -2383,7 +2708,7 @@ app.get('/api/esign/:id/status', async (req, res) => {
 });
 
 // Download signed document from Digio
-app.get('/api/esign/:id/download', async (req, res) => {
+app.get('/api/esign/:id/download', requireAuth, async (req, res) => {
   try {
     const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
@@ -2403,7 +2728,7 @@ app.get('/api/esign/:id/download', async (req, res) => {
 });
 
 // Preview signed document (inline in browser)
-app.get('/api/esign/:id/preview', async (req, res) => {
+app.get('/api/esign/:id/preview', requireAuth, async (req, res) => {
   try {
     const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
@@ -2423,7 +2748,7 @@ app.get('/api/esign/:id/preview', async (req, res) => {
 });
 
 // Save signed document to SharePoint (Dhanam Repository → Locker Applications)
-app.post('/api/esign/:id/save-to-repo', async (req, res) => {
+app.post('/api/esign/:id/save-to-repo', requireAuth, requireRole('headoffice', 'branch'), async (req, res) => {
   try {
     const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
@@ -2465,7 +2790,7 @@ app.post('/api/esign/:id/save-to-repo', async (req, res) => {
 });
 
 // Cancel e-sign request
-app.post('/api/esign/:id/cancel', async (req, res) => {
+app.post('/api/esign/:id/cancel', requireAuth, requireRole('headoffice', 'branch'), async (req, res) => {
   try {
     const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
@@ -2536,18 +2861,18 @@ process.on('unhandledRejection', (reason) => {
 // ============================
 
 // Check if customer already submitted feedback
-app.get('/api/customer/:tenantId/feedback/status', (req, res) => {
+app.get('/api/customer/:tenantId/feedback/status', requireAuth, (req, res) => {
   try {
     const row = db.prepare('SELECT id FROM feedback WHERE tenant_id = ?').get(req.params.tenantId);
     res.json({ submitted: !!row });
   } catch (err) {
     logError('Feedback status check failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Submit feedback (customer)
-app.post('/api/feedback', (req, res) => {
+app.post('/api/feedback', requireAuth, (req, res) => {
   try {
     const { tenant_id, branch_id, q1, q2, q3, q4, q5, q6, q7, reason_chose, nps_score } = req.body;
     if (!tenant_id) return res.status(400).json({ error: 'tenant_id is required' });
@@ -2568,12 +2893,12 @@ app.post('/api/feedback', (req, res) => {
     res.json({ success: true, total_score: total, satisfaction_pct: pct });
   } catch (err) {
     logError('Feedback submit failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Get all feedback (HO/Branch view)
-app.get('/api/feedback', (req, res) => {
+app.get('/api/feedback', requireAuth, enforceBranchScope, (req, res) => {
   try {
     const branchId = req.query.branch_id;
     let sql = `SELECT f.*, t.name as tenant_name, t.phone as tenant_phone, b.name as branch_name
@@ -2590,12 +2915,12 @@ app.get('/api/feedback', (req, res) => {
     res.json(rows);
   } catch (err) {
     logError('Feedback list failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Get feedback summary stats (HO/Branch)
-app.get('/api/feedback/summary', (req, res) => {
+app.get('/api/feedback/summary', requireAuth, (req, res) => {
   try {
     const branchId = req.query.branch_id;
     let where = '';
@@ -2622,7 +2947,7 @@ app.get('/api/feedback/summary', (req, res) => {
     res.json(summary);
   } catch (err) {
     logError('Feedback summary failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -2631,7 +2956,7 @@ app.get('/api/feedback/summary', (req, res) => {
 // ============================
 
 // Create a lead (lead_agent, branch, or HO)
-app.post('/api/leads', (req, res) => {
+app.post('/api/leads', requireAuth, (req, res) => {
   try {
     const { name, email, locker_size, branch_id, notes } = req.body;
     if (!name) return res.status(400).json({ error: 'Name is required' });
@@ -2648,12 +2973,12 @@ app.post('/api/leads', (req, res) => {
     res.json({ id, success: true });
   } catch (err) {
     logError('Lead creation failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // List leads (HO sees all, branch sees own, lead_agent sees own)
-app.get('/api/leads', (req, res) => {
+app.get('/api/leads', requireAuth, (req, res) => {
   try {
     const { branch_id, created_by, status } = req.query;
     let sql = `SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id`;
@@ -2668,12 +2993,12 @@ app.get('/api/leads', (req, res) => {
     res.json(rows);
   } catch (err) {
     logError('Lead list failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Update lead (status, notes, visit_time, editable fields, converted_tenant_id)
-app.put('/api/leads/:id', (req, res) => {
+app.put('/api/leads/:id', requireAuth, (req, res) => {
   try {
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
@@ -2687,12 +3012,12 @@ app.put('/api/leads/:id', (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logError('Lead update failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Delete a lead
-app.delete('/api/leads/:id', (req, res) => {
+app.delete('/api/leads/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     db.prepare('DELETE FROM lead_notes WHERE lead_id = ?').run(req.params.id);
     db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
@@ -2700,19 +3025,19 @@ app.delete('/api/leads/:id', (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     logError('Lead delete failed', { error: err.message });
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
 // Lead telecalling notes
-app.get('/api/leads/:id/notes', (req, res) => {
+app.get('/api/leads/:id/notes', requireAuth, (req, res) => {
   try {
     const notes = db.prepare('SELECT * FROM lead_notes WHERE lead_id = ? ORDER BY created_at DESC').all(req.params.id);
     res.json(notes);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: 'Internal server error' }); }
 });
 
-app.post('/api/leads/:id/notes', (req, res) => {
+app.post('/api/leads/:id/notes', requireAuth, (req, res) => {
   try {
     const { note, created_by, created_by_name } = req.body;
     if (!note || !note.trim()) return res.status(400).json({ error: 'Note text is required' });
@@ -2722,11 +3047,11 @@ app.post('/api/leads/:id/notes', (req, res) => {
     );
     logInfo('Lead note added', { leadId: req.params.id, by: created_by_name });
     res.json({ id, ok: true });
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: 'Internal server error' }); }
 });
 
 // Lead summary stats
-app.get('/api/leads/summary', (req, res) => {
+app.get('/api/leads/summary', requireAuth, (req, res) => {
   try {
     const { branch_id } = req.query;
     let where = '';
