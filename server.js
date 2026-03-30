@@ -420,6 +420,41 @@ logInfo('Database migrations complete');
   });
 })();
 
+// Guarantee root admin always exists (even if lead agents were seeded first)
+(function ensureRootAdmin() {
+  const rootExists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'root'").get();
+  if (!rootExists) {
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'admin001', 'root', 'admin@123', 'Head Office Admin', 'headoffice', null
+    );
+    logInfo('Migration: created root admin user (guaranteed default)');
+  }
+})();
+
+// Guarantee RS Puram branch and staff user always exist
+(function ensureRSPuram() {
+  const branchExists = db.prepare("SELECT id FROM branches WHERE id = 'br_rspuram'").get();
+  if (!branchExists) {
+    db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(
+      'br_rspuram', 'RS Puram', 'RS Puram, Coimbatore', '', 'RS Puram, Coimbatore', ''
+    );
+    // Ensure config row exists for this branch
+    const configExists = db.prepare("SELECT branch_id FROM config WHERE branch_id = 'br_rspuram'").get();
+    if (!configExists) {
+      db.prepare('INSERT INTO config (branch_id) VALUES (?)').run('br_rspuram');
+    }
+    logInfo('Migration: created RS Puram branch (guaranteed default)');
+  }
+  const staffExists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'rspuram'").get();
+  if (!staffExists) {
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+      id, 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', 'br_rspuram'
+    );
+    logInfo('Migration: created RS Puram staff user (guaranteed default)');
+  }
+})();
+
 // ============================
 //  HELPER: Generate ID
 // ============================
