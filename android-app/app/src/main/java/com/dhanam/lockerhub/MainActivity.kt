@@ -73,7 +73,7 @@ class MainActivity : AppCompatActivity() {
             ActivityResultContracts.RequestPermission()
         ) { /* Permission result handled, file chooser will check again */ }
 
-        // Pull-to-refresh
+        // Pull-to-refresh — only when page is scrolled to top
         swipeRefresh.setColorSchemeColors(
             ContextCompat.getColor(this, R.color.gold_primary)
         )
@@ -84,6 +84,12 @@ class MainActivity : AppCompatActivity() {
                 swipeRefresh.isRefreshing = false
                 showOffline()
             }
+        }
+
+        // Disable pull-to-refresh when WebView content is not at the top
+        // This prevents SwipeRefreshLayout from stealing touch events from scrollable elements (sidebar, modals)
+        webView.setOnScrollChangeListener { _, _, scrollY, _, _ ->
+            swipeRefresh.isEnabled = scrollY == 0
         }
 
         // Offline retry button

@@ -78,12 +78,12 @@
         .sidebar-nav {
             padding: 12px 0 8px;
             list-style: none;
-            flex: 1;
+            flex: 1 1 0;
             min-height: 0;
-            overflow-y: auto;
+            overflow-y: scroll;
             overflow-x: hidden;
             -webkit-overflow-scrolling: touch;
-            overscroll-behavior: contain;
+            overscroll-behavior-y: contain;
             touch-action: pan-y;
             scrollbar-width: thin;
             scrollbar-color: rgba(255,255,255,0.2) transparent;
@@ -3458,10 +3458,14 @@
             try {
                 const response = await fetch(path, options);
                 clearTimeout(timer);
-                // Handle 401 Unauthorized - auto-logout
+                // Handle 401 Unauthorized - token may have expired
                 if (response.status === 401) {
                     clearTimeout(timer);
-                    logout();
+                    // Don't auto-logout — just throw so the calling code can handle it
+                    // Only logout if the user explicitly takes an action that fails
+                    if (window._sessionRestored) {
+                        logout();
+                    }
                     throw new Error('Session expired. Please log in again.');
                 }
                 if (!response.ok) {
@@ -3509,7 +3513,7 @@
 
         // ===== Session Persistence & Inactivity Timeout =====
         const SESSION_KEY = 'lockerhub_session';
-        const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes inactivity timeout
+        const SESSION_TIMEOUT_MS = 24 * 60 * 60 * 1000; // 24 hours — matches JWT expiry
         let inactivityTimer = null;
 
         function saveSession(userData) {
@@ -3640,6 +3644,7 @@
         }
 
         // Restore session on page load
+        window._sessionRestored = false;
         (async function restoreSession() {
             try {
                 const session = getSession();
@@ -3647,6 +3652,8 @@
                 // Require both session and token to restore
                 if (session && session.user && token) {
                     await applySession(session.user);
+                    // Mark session as fully restored — now 401s will trigger logout
+                    window._sessionRestored = true;
                 } else {
                     // Force re-login if token is missing
                     localStorage.removeItem('lockerhub_session');
@@ -3683,6 +3690,7 @@
                 }
                 saveSession(result);
                 await applySession(result);
+                window._sessionRestored = true;
             } catch (error) {
                 hideLoading();
                 const msg = error.message.includes('timed out') ? 'Server is starting up — please wait 30 seconds and try again.' : 'Invalid credentials';
