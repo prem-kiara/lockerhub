@@ -324,6 +324,21 @@ db.exec(`
     FOREIGN KEY (tenant_id) REFERENCES tenants(id),
     FOREIGN KEY (branch_id) REFERENCES branches(id)
   );
+
+  CREATE TABLE IF NOT EXISTS leads (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT DEFAULT '',
+    email TEXT DEFAULT '',
+    locker_size TEXT DEFAULT '',
+    branch_id TEXT DEFAULT '',
+    notes TEXT DEFAULT '',
+    status TEXT DEFAULT 'New',
+    created_by TEXT DEFAULT '',
+    created_by_name TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
 `);
 
 // ============================
@@ -366,7 +381,44 @@ addColumnIfMissing('locker_types', 'deposit', 'REAL DEFAULT 0');
 // E-sign table migrations
 addColumnIfMissing('esign_requests', 'onedrive_url', "TEXT DEFAULT ''");
 
+// Migration: Update locker type rates (L10 Large: 20k/3L, L6 Medium: 10k/2L)
+// Only updates the locker_types template — existing tenants keep their original rates
+(function updateLockerTypeRates() {
+  const rateUpdates = [
+    { prefix: 'lt_l6',  rent: 10000, dep: 200000 },
+    { prefix: 'lt_l10', rent: 20000, dep: 300000 }
+  ];
+  rateUpdates.forEach(({ prefix, rent, dep }) => {
+    const types = db.prepare("SELECT id, annual_rent, deposit FROM locker_types WHERE id LIKE ?").all(prefix + '%');
+    types.forEach(t => {
+      if (t.annual_rent !== rent || t.deposit !== dep) {
+        db.prepare('UPDATE locker_types SET annual_rent = ?, deposit = ? WHERE id = ?').run(rent, dep, t.id);
+        logInfo('Migration: updated locker type rates', { id: t.id, rent, deposit: dep });
+      }
+    });
+  });
+})();
+
 logInfo('Database migrations complete');
+
+// Migration: Seed lead agent users if not already present
+(function seedLeadAgents() {
+  const leadAgents = [
+    'Guna', 'Nambi', 'Suren', 'Eashwar', 'Pramoth', 'Gowtham', 'Selvakumar',
+    'Srinish', 'Harisudhan', 'Rithiesh', 'Gokul', 'Anbu', 'Karthik', 'Deepak',
+    'Vignesh', 'Arun', 'Praveen', 'Mohan', 'Rajesh', 'Dinesh'
+  ];
+  leadAgents.forEach(name => {
+    const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(name.toLowerCase());
+    if (!existing) {
+      const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+      db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+        id, name.toLowerCase(), 'lead@123', name, 'lead_agent', null
+      );
+      logInfo('Migration: created lead agent', { name, username: name.toLowerCase() });
+    }
+  });
+})();
 
 // ============================
 //  HELPER: Generate ID
@@ -380,7 +432,7 @@ function genId() {
 // ============================
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body;
-  const user = db.prepare('SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE u.username = ?').get(username);
+  const user = db.prepare('SELECT u.*, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id WHERE LOWER(u.username) = LOWER(?)').get(username);
   if (!user || user.password !== password) {
     logWarn('Login failed', { username, ip: req.ip });
     return res.status(401).json({ error: 'Invalid username or password' });
@@ -905,8 +957,11 @@ app.delete('/api/tenants/:id', (req, res) => {
     const delPayouts = db.prepare('DELETE FROM payouts WHERE tenant_id = ?').run(req.params.id);
     const delVisits = db.prepare('DELETE FROM visits WHERE tenant_id = ?').run(req.params.id);
     const delAppointments = db.prepare('DELETE FROM appointments WHERE tenant_id = ?').run(req.params.id);
+    const delEsign = db.prepare('DELETE FROM esign_requests WHERE tenant_id = ?').run(req.params.id);
+    const delFeedback = db.prepare('DELETE FROM feedback WHERE tenant_id = ?').run(req.params.id);
+    db.prepare('DELETE FROM activities WHERE tenant_id = ?').run(req.params.id);
     db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
-    logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes, appointments_removed: delAppointments.changes });
+    logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes, appointments_removed: delAppointments.changes, esign_removed: delEsign.changes, feedback_removed: delFeedback.changes });
     res.json({ ok: true });
   } catch (err) {
     logWarn('Tenant delete failed', { id: req.params.id, error: err.message });
@@ -1127,9 +1182,9 @@ app.get('/api/renewals', (req, res) => {
   try {
     const { branch_id } = req.query;
     const today = new Date().toISOString().split('T')[0];
-    // Get tenants whose lease_end is within 30 days or already past
+    // Get tenants whose lease_end is within 90 days or already past
     const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + 30);
+    futureDate.setDate(futureDate.getDate() + 90);
     const future30 = futureDate.toISOString().split('T')[0];
 
     let query, params;
@@ -1155,6 +1210,40 @@ app.get('/api/renewals', (req, res) => {
     res.json(renewals);
   } catch (err) {
     logError('Renewals error', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Customer-facing lease reminder
+app.get('/api/customer/:tenantId/reminders', (req, res) => {
+  try {
+    const tenants = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
+      FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+      LEFT JOIN branches b ON t.branch_id = b.id
+      WHERE t.id = ? AND t.lease_end != ''`).all(req.params.tenantId);
+
+    // Also check by phone for multi-branch customers
+    if (tenants.length === 0) {
+      const tenant = db.prepare('SELECT phone FROM tenants WHERE id = ?').get(req.params.tenantId);
+      if (tenant && tenant.phone) {
+        const byPhone = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name
+          FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id
+          LEFT JOIN branches b ON t.branch_id = b.id
+          WHERE t.phone = ? AND t.lease_end != ''`).all(tenant.phone);
+        tenants.push(...byPhone);
+      }
+    }
+
+    const today = new Date();
+    const reminders = tenants.map(t => {
+      const leaseEnd = new Date(t.lease_end);
+      const daysLeft = Math.ceil((leaseEnd - today) / (1000 * 60 * 60 * 24));
+      return { ...t, days_left: daysLeft, is_expired: daysLeft < 0 };
+    }).filter(t => t.days_left <= 90); // Only show if within 90 days or expired
+
+    res.json(reminders);
+  } catch (err) {
+    logError('Customer reminders error', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -1391,16 +1480,23 @@ app.get('/api/stats/all', (req, res) => {
 // ============================
 app.get('/api/backup', (req, res) => {
   const backup = {
-    version: 3,
+    version: 4,
     export_date: new Date().toISOString(),
     branches: db.prepare('SELECT * FROM branches').all(),
     users: db.prepare('SELECT * FROM users').all(),
+    locker_types: db.prepare('SELECT * FROM locker_types').all(),
+    units: db.prepare('SELECT * FROM units').all(),
     lockers: db.prepare('SELECT * FROM lockers').all(),
     tenants: db.prepare('SELECT * FROM tenants').all(),
     payments: db.prepare('SELECT * FROM payments').all(),
     payouts: db.prepare('SELECT * FROM payouts').all(),
+    appointments: db.prepare('SELECT * FROM appointments').all(),
     visits: db.prepare('SELECT * FROM visits').all(),
-    config: db.prepare('SELECT * FROM config').all()
+    activities: db.prepare('SELECT * FROM activities').all(),
+    config: db.prepare('SELECT * FROM config').all(),
+    esign_requests: db.prepare('SELECT * FROM esign_requests').all(),
+    feedback: db.prepare('SELECT * FROM feedback').all(),
+    leads: db.prepare('SELECT * FROM leads').all()
   };
   res.json(backup);
 });
@@ -1454,12 +1550,24 @@ function autoSeed() {
     'admin001', 'root', 'admin@123', 'Head Office Admin', 'headoffice', null
   );
 
-  // Locker types — Large (L6): 25k rent, 3L deposit | Medium (L10): 20k rent, 2.5L deposit
+  // Lead agent users (for branch opening lead capture)
+  const leadAgents = [
+    'Guna', 'Nambi', 'Suren', 'Eashwar', 'Pramoth', 'Gowtham', 'Selvakumar',
+    'Srinish', 'Harisudhan', 'Rithiesh', 'Gokul', 'Anbu', 'Karthik', 'Deepak',
+    'Vignesh', 'Arun', 'Praveen', 'Mohan', 'Rajesh', 'Dinesh'
+  ];
+  leadAgents.forEach(name => {
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+      genId(), name.toLowerCase(), 'lead@123', name, 'lead_agent', null
+    );
+  });
+
+  // Locker types — L10 Large: 20k rent, 3L deposit | L6 Medium: 10k rent, 2L deposit
   const types = [
-    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 25000, dep: 300000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 250000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 25000, dep: 300000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
-    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 250000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
+    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
+    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
   ];
   const insType = db.prepare(`INSERT INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming, annual_rent, deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   types.forEach(t => {
@@ -1494,51 +1602,7 @@ function autoSeed() {
   });
   txRS();
 
-  // ========== Hosur branch ==========
-  const brHR = 'br_hosur';
-  db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(brHR, 'Hosur', 'Hosur, Tamil Nadu', '', 'Hosur, Tamil Nadu', '');
-  db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(brHR);
-  db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-    genId(), 'hosur', 'admin@123', 'Hosur Staff', 'branch', brHR
-  );
-
-  // Hosur: 50 lockers assorted across L6, L10, L6 Ultra, L10 Ultra
-  // 2 x L6 Std units (12 lockers) + 1 x L10 Std unit (10 lockers) + 2 x L6 Ultra units (12 lockers) + 1 x L10 Ultra unit (10 lockers) + 1 x L6 Std unit (6 lockers) = 50 lockers
-  const txHR = db.transaction(() => {
-    // 2 x L6 Standard = 12 lockers
-    for (let i = 1; i <= 2; i++) {
-      const uid = 'unit_hr_l6s_' + i, unum = 'L6-' + String(i).padStart(2, '0');
-      insUnit.run(uid, brHR, 'lt_l6_std', unum, 'Hosur', 'active', '');
-      for (let j = 0; j < 6; j++) insLock.run(genId(), brHR, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'Hosur', 0, 'vacant');
-    }
-    // 1 x L10 Standard = 10 lockers
-    {
-      const uid = 'unit_hr_l10s_1', unum = 'L10-01';
-      insUnit.run(uid, brHR, 'lt_l10_std', unum, 'Hosur', 'active', '');
-      for (let j = 0; j < 10; j++) insLock.run(genId(), brHR, uid, 'lt_l10_std', unum + '-' + LETTERS[j], 'Medium', 'Hosur', 0, 'vacant');
-    }
-    // 2 x L6 Ultra = 12 lockers
-    for (let i = 1; i <= 2; i++) {
-      const uid = 'unit_hr_l6u_' + i, unum = 'L6U-' + String(i).padStart(2, '0');
-      insUnit.run(uid, brHR, 'lt_l6_ultra', unum, 'Hosur', 'active', '');
-      for (let j = 0; j < 6; j++) insLock.run(genId(), brHR, uid, 'lt_l6_ultra', unum + '-' + LETTERS[j], 'Large', 'Hosur', 0, 'vacant');
-    }
-    // 1 x L10 Ultra = 10 lockers
-    {
-      const uid = 'unit_hr_l10u_1', unum = 'L10U-01';
-      insUnit.run(uid, brHR, 'lt_l10_ultra', unum, 'Hosur', 'active', '');
-      for (let j = 0; j < 10; j++) insLock.run(genId(), brHR, uid, 'lt_l10_ultra', unum + '-' + LETTERS[j], 'Medium', 'Hosur', 0, 'vacant');
-    }
-    // 1 x L6 Standard = 6 lockers (to reach 50 total)
-    {
-      const uid = 'unit_hr_l6s_3', unum = 'L6-03';
-      insUnit.run(uid, brHR, 'lt_l6_std', unum, 'Hosur', 'active', '');
-      for (let j = 0; j < 6; j++) insLock.run(genId(), brHR, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'Hosur', 0, 'vacant');
-    }
-  });
-  txHR();
-
-  console.log('  ✅ Seeded: root/admin@123 (HO), rspuram/admin@123 (RS Puram, 88 lockers), hosur/admin@123 (Hosur, 50 lockers)');
+  console.log('  ✅ Seeded: root/admin@123 (HO), rspuram/admin@123 (RS Puram, 88 lockers), 20 lead agents');
 }
 autoSeed();
 
@@ -2458,6 +2522,96 @@ app.get('/api/feedback/summary', (req, res) => {
     res.json(summary);
   } catch (err) {
     logError('Feedback summary failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================
+//  LEADS
+// ============================
+
+// Create a lead (lead_agent, branch, or HO)
+app.post('/api/leads', (req, res) => {
+  try {
+    const { name, phone, email, locker_size, branch_id, notes } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    const id = genId();
+    const created_by = req.body.created_by || '';
+    const created_by_name = req.body.created_by_name || '';
+    db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, name, phone || '', email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name
+    );
+    logInfo('Lead created', { id, name, phone, created_by: created_by_name });
+    res.json({ id, success: true });
+  } catch (err) {
+    logError('Lead creation failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List leads (HO sees all, branch sees own, lead_agent sees own)
+app.get('/api/leads', (req, res) => {
+  try {
+    const { branch_id, created_by, status } = req.query;
+    let sql = `SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id`;
+    const conditions = [];
+    const params = [];
+    if (branch_id) { conditions.push('l.branch_id = ?'); params.push(branch_id); }
+    if (created_by) { conditions.push('l.created_by = ?'); params.push(created_by); }
+    if (status) { conditions.push('l.status = ?'); params.push(status); }
+    if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
+    sql += ' ORDER BY l.created_at DESC';
+    const rows = db.prepare(sql).all(...params);
+    res.json(rows);
+  } catch (err) {
+    logError('Lead list failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update lead status (HO/branch can convert, mark contacted, etc.)
+app.put('/api/leads/:id', (req, res) => {
+  try {
+    const { status, notes, branch_id } = req.body;
+    const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    if (status) db.prepare("UPDATE leads SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, req.params.id);
+    if (notes !== undefined) db.prepare("UPDATE leads SET notes = ?, updated_at = datetime('now') WHERE id = ?").run(notes, req.params.id);
+    if (branch_id) db.prepare("UPDATE leads SET branch_id = ?, updated_at = datetime('now') WHERE id = ?").run(branch_id, req.params.id);
+    logInfo('Lead updated', { id: req.params.id, status });
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Lead update failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete a lead
+app.delete('/api/leads/:id', (req, res) => {
+  try {
+    db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
+    logInfo('Lead deleted', { id: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Lead delete failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Lead summary stats
+app.get('/api/leads/summary', (req, res) => {
+  try {
+    const { branch_id } = req.query;
+    let where = '';
+    const params = [];
+    if (branch_id) { where = 'WHERE branch_id = ?'; params.push(branch_id); }
+    const total = db.prepare(`SELECT COUNT(*) as c FROM leads ${where}`).get(...params).c;
+    const byStatus = db.prepare(`SELECT status, COUNT(*) as c FROM leads ${where} GROUP BY status`).all(...params);
+    const byAgent = db.prepare(`SELECT created_by_name, COUNT(*) as c FROM leads ${where} GROUP BY created_by_name ORDER BY c DESC`).all(...params);
+    const bySize = db.prepare(`SELECT locker_size, COUNT(*) as c FROM leads ${where} GROUP BY locker_size ORDER BY c DESC`).all(...params);
+    res.json({ total, by_status: byStatus, by_agent: byAgent, by_size: bySize });
+  } catch (err) {
+    logError('Lead summary failed', { error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
