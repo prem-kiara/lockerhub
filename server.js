@@ -481,6 +481,9 @@ addColumnIfMissing('tenants', 'emergency_name', "TEXT DEFAULT ''");
 
 // Customer portal migrations
 addColumnIfMissing('tenants', 'customer_password', "TEXT DEFAULT ''");
+addColumnIfMissing('tenants', 'account_status', "TEXT DEFAULT 'Active'");
+addColumnIfMissing('tenants', 'closed_at', "TEXT DEFAULT ''");
+addColumnIfMissing('tenants', 'closed_reason', "TEXT DEFAULT ''");
 
 // Branches table migrations
 addColumnIfMissing('branches', 'location', "TEXT DEFAULT ''");
@@ -496,6 +499,7 @@ addColumnIfMissing('esign_requests', 'onedrive_url', "TEXT DEFAULT ''");
 // Leads table migrations
 addColumnIfMissing('leads', 'visit_time', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'converted_tenant_id', "TEXT DEFAULT ''");
+addColumnIfMissing('leads', 'source', "TEXT DEFAULT ''");
 
 // Lead telecalling notes table
 db.exec(`
@@ -1142,10 +1146,17 @@ app.get('/api/tenants', requireAuth, enforceBranchScope, (req, res) => {
 app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     const d = req.body;
+    if (!d.name || !d.name.trim()) return res.status(400).json({ error: 'Tenant name is required' });
+    if (!d.branch_id) return res.status(400).json({ error: 'Branch is required' });
     // Sanitize phone, Aadhaar, PAN
     if (d.phone) d.phone = d.phone.replace(/[^0-9]/g, '').slice(0, 10);
     if (d.bg_aadhaar) d.bg_aadhaar = d.bg_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
     if (d.bg_pan) d.bg_pan = d.bg_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+    // Check locker availability
+    if (d.locker_id) {
+      const existingTenant = db.prepare("SELECT id, name FROM tenants WHERE locker_id = ?").get(d.locker_id);
+      if (existingTenant) return res.status(400).json({ error: `Locker is already assigned to ${existingTenant.name}` });
+    }
 
     const txResult = db.transaction(() => {
       const id = genId();
@@ -1228,6 +1239,13 @@ app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (r
     const newLockerId = d.locker_id || '';
 
     if (oldLockerId !== newLockerId) {
+      // Check if new locker is already occupied by another tenant
+      if (newLockerId) {
+        const existingTenant = db.prepare("SELECT id, name FROM tenants WHERE locker_id = ? AND id != ?").get(newLockerId, req.params.id);
+        if (existingTenant) {
+          return res.status(400).json({ error: `Locker is already assigned to ${existingTenant.name}` });
+        }
+      }
       // Free old locker
       if (oldLockerId) db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(oldLockerId);
       // Occupy new locker
@@ -1235,10 +1253,11 @@ app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (r
       logInfo('Locker reassigned', { tenant: req.params.id, from: oldLockerId, to: newLockerId });
     }
 
+    const allowedFields = ['name', 'phone', 'email', 'address', 'emergency_name', 'emergency', 'locker_id', 'lease_start', 'lease_end', 'annual_rent', 'deposit', 'bank_name', 'bank_account', 'bank_ifsc', 'bank_branch', 'bg_aadhaar', 'bg_pan', 'bg_photos_collected', 'bg_status', 'bg_notes', 'customer_password', 'account_status'];
     const fields = [];
     const vals = [];
     for (const [k, v] of Object.entries(d)) {
-      if (k === 'id' || k === 'branch_id') continue;
+      if (!allowedFields.includes(k)) continue;
       fields.push(`${k} = ?`);
       // SQLite does not accept JS booleans — convert to 1/0
       vals.push(typeof v === 'boolean' ? (v ? 1 : 0) : v);
@@ -1251,6 +1270,47 @@ app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (r
   } catch (err) {
     logError('Error updating tenant', { id: req.params.id, error: err.message });
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Close tenant account (soft delete — preserves records for audit)
+app.post('/api/tenants/:id/close', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    if (tenant.account_status === 'Closed') return res.status(400).json({ error: 'Account is already closed' });
+
+    const reason = req.body.reason || '';
+
+    db.transaction(() => {
+      // Free the locker
+      if (tenant.locker_id) {
+        db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(tenant.locker_id);
+      }
+      // Update tenant: clear locker, set closed status
+      db.prepare("UPDATE tenants SET account_status = 'Closed', closed_at = datetime('now'), closed_reason = ?, locker_id = '' WHERE id = ?").run(reason, req.params.id);
+      logInfo('Tenant account closed', { id: req.params.id, name: tenant.name, locker_freed: tenant.locker_id, reason });
+    })();
+
+    res.json({ ok: true, message: 'Account closed. Locker has been freed.' });
+  } catch (err) {
+    logError('Account close failed', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Failed to close account' });
+  }
+});
+
+// Reopen a closed tenant account
+app.post('/api/tenants/:id/reopen', requireAuth, requireRole('headoffice'), (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(req.params.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    if (tenant.account_status !== 'Closed') return res.status(400).json({ error: 'Account is not closed' });
+    db.prepare("UPDATE tenants SET account_status = 'Active', closed_at = '', closed_reason = '' WHERE id = ?").run(req.params.id);
+    logInfo('Tenant account reopened', { id: req.params.id, name: tenant.name });
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Account reopen failed', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Failed to reopen account' });
   }
 });
 
@@ -1418,8 +1478,16 @@ app.get('/api/payments/:id', requireAuth, (req, res) => {
 });
 
 app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
   const d = req.body;
+  if (!d.branch_id) return res.status(400).json({ error: 'Branch is required' });
+  if (!d.tenant_id) return res.status(400).json({ error: 'Tenant is required' });
+  if (!d.amount || parseFloat(d.amount) <= 0) return res.status(400).json({ error: 'Amount must be greater than 0' });
   const type = d.type || 'rent';
+  if (!['rent', 'deposit', 'penalty', 'other'].includes(type)) return res.status(400).json({ error: 'Invalid payment type' });
+
+  // Auto-fill paid_on when marking as Paid
+  if (d.status === 'Paid' && !d.paid_on) d.paid_on = new Date().toISOString().split('T')[0];
 
   // Auto-fill locker_id from tenant if not provided
   let locker_id = d.locker_id || '';
@@ -1450,14 +1518,36 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
     logInfo('Payment recorded', { id, receipt_no, type, tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status });
     res.json({ id, receipt_no });
   }
+  } catch (err) {
+    logError('Payment creation failed', { error: err.message, tenant: req.body.tenant_id });
+    res.status(500).json({ error: 'Failed to create payment' });
+  }
 });
 
 app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
-  const d = req.body;
-  const fields = []; const vals = [];
-  for (const [k, v] of Object.entries(d)) { if (k === 'id' || k === 'branch_id') continue; fields.push(`${k} = ?`); vals.push(v); }
-  if (fields.length) { vals.push(req.params.id); db.prepare(`UPDATE payments SET ${fields.join(', ')} WHERE id = ?`).run(...vals); }
-  res.json({ ok: true });
+  try {
+    const d = req.body;
+    const allowedFields = ['tenant_id', 'locker_id', 'type', 'period', 'amount', 'due_date', 'status', 'paid_on', 'method', 'ref_no', 'receipt_no', 'notes'];
+    const fields = []; const vals = [];
+    for (const [k, v] of Object.entries(d)) {
+      if (!allowedFields.includes(k)) continue;
+      fields.push(`${k} = ?`);
+      vals.push(v);
+    }
+    // Auto-fill paid_on when marking as Paid
+    if (d.status === 'Paid' && !d.paid_on) {
+      fields.push('paid_on = ?');
+      vals.push(new Date().toISOString().split('T')[0]);
+    }
+    if (fields.length) {
+      vals.push(req.params.id);
+      db.prepare(`UPDATE payments SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Payment update failed', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Failed to update payment' });
+  }
 });
 
 app.delete('/api/payments/:id', requireAuth, requireRole('headoffice'), (req, res) => {
@@ -1701,8 +1791,8 @@ app.get('/api/stats', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   if (!branch_id) return res.status(400).json({ error: 'branch_id required' });
   const lockers = db.prepare(`SELECT COUNT(*) as total, SUM(CASE WHEN status='occupied' THEN 1 ELSE 0 END) as occupied, SUM(CASE WHEN status='vacant' THEN 1 ELSE 0 END) as vacant FROM lockers WHERE branch_id = ?`).get(branch_id);
-  const revenue = db.prepare(`SELECT COALESCE(SUM(annual_rent), 0) as total FROM tenants WHERE branch_id = ? AND locker_id != ''`).get(branch_id);
-  const tenantCount = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ?`).get(branch_id);
+  const revenue = db.prepare(`SELECT COALESCE(SUM(annual_rent), 0) as total FROM tenants WHERE branch_id = ? AND locker_id != '' AND (account_status IS NULL OR account_status != 'Closed')`).get(branch_id);
+  const tenantCount = db.prepare(`SELECT COUNT(*) as total FROM tenants WHERE branch_id = ? AND (account_status IS NULL OR account_status != 'Closed')`).get(branch_id);
   const overdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(branch_id);
   const missedPayouts = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND status = 'Missed'`).get(branch_id);
 
@@ -1713,7 +1803,7 @@ app.get('/api/stats', requireAuth, enforceBranchScope, (req, res) => {
   const totalPending = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Pending'`).get(branch_id);
 
   const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM visits WHERE branch_id = ? AND date(datetime) = date('now')`).get(branch_id);
-  const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified' AND bg_status != 'verified'`).get(branch_id);
+  const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified' AND bg_status != 'verified' AND (account_status IS NULL OR account_status != 'Closed')`).get(branch_id);
   const pendingInterest = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND (status = 'Pending' OR status = 'Missed')`).get(branch_id);
 
   // Current month summary — match by paid_on date (YYYY-MM-DD), not period
@@ -1794,7 +1884,7 @@ app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
     locker_types: db.prepare('SELECT * FROM locker_types').all(),
     units: db.prepare('SELECT * FROM units').all(),
     lockers: db.prepare('SELECT * FROM lockers').all(),
-    tenants: db.prepare('SELECT id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end, annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch, bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes, created_at FROM tenants').all(),
+    tenants: db.prepare('SELECT id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end, annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch, bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes, account_status, closed_at, closed_reason, created_at FROM tenants').all(),
     payments: db.prepare('SELECT * FROM payments').all(),
     payouts: db.prepare('SELECT * FROM payouts').all(),
     appointments: db.prepare('SELECT * FROM appointments').all(),
@@ -2336,6 +2426,47 @@ app.post('/api/account/request-deletion', (req, res) => {
     res.json({ success: true, message: 'Deletion request received.' });
   } catch (err) {
     res.status(500).json({ error: 'Request failed' });
+  }
+});
+
+// ============================
+//  PUBLIC ENQUIRY / LEAD SIGNUP (no auth)
+// ============================
+// Public: List branches (name & id only, for signup form)
+app.get('/api/public/branches', (req, res) => {
+  try {
+    const branches = db.prepare('SELECT id, name, location FROM branches ORDER BY name').all();
+    res.json(branches);
+  } catch (err) {
+    logError('Public branches list failed', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Public: Submit enquiry → creates a lead
+app.post('/api/public/enquiry', (req, res) => {
+  try {
+    const { name, phone, email, locker_size, branch_id, notes, source } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+    const cleanPhone = (phone || '').replace(/[^0-9]/g, '').slice(0, 10);
+    if (!cleanPhone || cleanPhone.length !== 10) return res.status(400).json({ error: 'Please provide a valid 10-digit phone number' });
+    // Rate limit: max 3 enquiries per phone per day
+    const today = new Date().toISOString().slice(0, 10);
+    const recentCount = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE phone = ? AND created_at >= ?").get(cleanPhone, today + ' 00:00:00');
+    if (recentCount && recentCount.cnt >= 3) {
+      return res.status(429).json({ error: 'Too many enquiries. Please try again tomorrow or call us directly.' });
+    }
+    // Detect source: mobile_app or web_app
+    const leadSource = source === 'mobile_app' ? 'Mobile App' : 'Web App';
+    const id = genId();
+    db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, name.trim(), cleanPhone, (email || '').trim(), locker_size || '', branch_id || '', (notes || '').trim(), 'New', 'self-signup', 'Customer Enquiry', leadSource
+    );
+    logInfo('Public enquiry submitted', { id, name: name.trim(), phone: cleanPhone, source: leadSource });
+    res.json({ success: true, message: 'Thank you for your enquiry! Our team will contact you shortly.' });
+  } catch (err) {
+    logError('Public enquiry failed', { error: err.message });
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   }
 });
 
@@ -3083,8 +3214,8 @@ app.post('/api/leads', requireAuth, (req, res) => {
     const id = genId();
     const created_by = req.body.created_by || '';
     const created_by_name = req.body.created_by_name || '';
-    db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, name, phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name
+    db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, name, phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name, 'Staff'
     );
     logInfo('Lead created', { id, name, phone, created_by: created_by_name });
     res.json({ id, success: true });

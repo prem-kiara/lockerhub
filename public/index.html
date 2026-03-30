@@ -682,8 +682,10 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
+            padding: 20px;
             background: linear-gradient(135deg, #2c1810 0%, #4a2c1a 50%, #3d2010 100%);
+            overflow-y: auto;
         }
 
         .login-box {
@@ -1865,19 +1867,70 @@
             <div class="login-logo" id="loginLogo"><img src="/logo.png" alt="LockerHub" style="max-height:64px; max-width:200px; object-fit:contain;" onerror="this.style.display='none'"></div>
             <h1>LockerHub</h1>
             <div id="loginError" class="login-error"></div>
-            <form id="loginForm">
-                <div class="form-group">
-                    <label for="username">Username / Phone Number</label>
-                    <input type="text" id="username" name="username" placeholder="Enter username or phone number" required>
-                </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-                <button type="submit" class="btn btn-primary" style="width: 100%;">Login</button>
-            </form>
+
+            <!-- Login Form -->
+            <div id="loginPanel">
+              <form id="loginForm">
+                  <div class="form-group">
+                      <label for="username">Username / Phone Number</label>
+                      <input type="text" id="username" name="username" placeholder="Enter username or phone number" required>
+                  </div>
+                  <div class="form-group">
+                      <label for="password">Password</label>
+                      <input type="password" id="password" name="password" required>
+                  </div>
+                  <button type="submit" class="btn btn-primary" style="width: 100%;">Login</button>
+              </form>
+              <div style="text-align:center; margin-top:18px; font-size:14px;">
+                <span style="color:#888;">Want a locker?</span>
+                <a href="#" onclick="showSignupForm(); return false;" style="color:#b8860b; font-weight:600; margin-left:4px;">Enquire Now</a>
+              </div>
+            </div>
+
+            <!-- Signup / Enquiry Form -->
+            <div id="signupPanel" style="display:none;">
+              <p style="text-align:center; color:#aaa; font-size:13px; margin-bottom:16px;">Fill in your details and our team will contact you shortly.</p>
+              <form id="signupForm">
+                  <div class="form-group">
+                      <label for="signupName">Full Name *</label>
+                      <input type="text" id="signupName" placeholder="Enter your full name" required>
+                  </div>
+                  <div class="form-group">
+                      <label for="signupPhone">Phone Number *</label>
+                      <input type="tel" id="signupPhone" placeholder="10-digit mobile number" maxlength="10" pattern="[0-9]{10}" required>
+                  </div>
+                  <div class="form-group">
+                      <label for="signupEmail">Email</label>
+                      <input type="email" id="signupEmail" placeholder="Enter your email (optional)">
+                  </div>
+                  <div class="form-group">
+                      <label for="signupBranch">Preferred Branch</label>
+                      <select id="signupBranch"><option value="">Select branch...</option></select>
+                  </div>
+                  <div class="form-group">
+                      <label for="signupLockerSize">Locker Size</label>
+                      <select id="signupLockerSize">
+                        <option value="">Select size...</option>
+                        <option value="Small">Small</option>
+                        <option value="Medium (L10)">Medium</option>
+                        <option value="Large (L6)">Large</option>
+                        <option value="Any">Any / Not sure</option>
+                      </select>
+                  </div>
+                  <div class="form-group">
+                      <label for="signupNotes">Additional Notes</label>
+                      <textarea id="signupNotes" placeholder="Any specific requirements..." rows="2" style="width:100%; padding:10px; background:var(--input-bg); border:1px solid var(--border); border-radius:6px; color:var(--text); font-size:14px; resize:vertical;"></textarea>
+                  </div>
+                  <button type="submit" class="btn btn-primary" style="width: 100%;">Submit Enquiry</button>
+              </form>
+              <div style="text-align:center; margin-top:18px; font-size:14px;">
+                <span style="color:#888;">Already have an account?</span>
+                <a href="#" onclick="showLoginForm(); return false;" style="color:#b8860b; font-weight:600; margin-left:4px;">Login</a>
+              </div>
+            </div>
+
             <div style="text-align:center; margin-top:16px; font-size:13px; color:#888;">
-              By logging in, you agree to our
+              By continuing, you agree to our
               <a href="#" onclick="showLegalPage('privacy')" style="color:#b8860b;">Privacy Policy</a> and
               <a href="#" onclick="showLegalPage('terms')" style="color:#b8860b;">Terms of Service</a>
             </div>
@@ -2495,6 +2548,7 @@
                                     <th>Phone</th>
                                     <th>Locker Size</th>
                                     <th>Branch</th>
+                                    <th>Source</th>
                                     <th>Created By</th>
                                     <th>Status</th>
                                     <th>Actions</th>
@@ -3691,6 +3745,68 @@
             }
         });
 
+        // ===== Signup / Enquiry Form =====
+        function showSignupForm() {
+            document.getElementById('loginPanel').style.display = 'none';
+            document.getElementById('signupPanel').style.display = 'block';
+            document.getElementById('loginError').classList.remove('show');
+            // Load branches for dropdown
+            fetch('/api/public/branches')
+              .then(r => r.json())
+              .then(branches => {
+                const sel = document.getElementById('signupBranch');
+                sel.innerHTML = '<option value="">Select branch...</option>';
+                branches.forEach(b => {
+                  sel.innerHTML += `<option value="${b.id}">${b.name}${b.location ? ' — ' + b.location : ''}</option>`;
+                });
+              }).catch(() => {});
+        }
+
+        function showLoginForm() {
+            document.getElementById('signupPanel').style.display = 'none';
+            document.getElementById('loginPanel').style.display = 'block';
+            document.getElementById('loginError').classList.remove('show');
+        }
+
+        document.getElementById('signupForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('signupName').value.trim();
+            const phone = document.getElementById('signupPhone').value.trim();
+            const email = document.getElementById('signupEmail').value.trim();
+            const branch_id = document.getElementById('signupBranch').value;
+            const locker_size = document.getElementById('signupLockerSize').value;
+            const notes = document.getElementById('signupNotes').value.trim();
+
+            if (!name) { alert('Please enter your name'); return; }
+            if (!/^\d{10}$/.test(phone)) { alert('Please enter a valid 10-digit phone number'); return; }
+
+            showLoading('Submitting enquiry...');
+            try {
+                const res = await fetch('/api/public/enquiry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, phone, email, locker_size, branch_id, notes, source: /Android.*wv\)|LockerHub/.test(navigator.userAgent) ? 'mobile_app' : 'web_app' })
+                });
+                const data = await res.json();
+                hideLoading();
+                if (data.success) {
+                    document.getElementById('signupForm').reset();
+                    document.getElementById('signupPanel').innerHTML = `
+                      <div style="text-align:center; padding:20px 0;">
+                        <div style="font-size:48px; margin-bottom:12px;">✓</div>
+                        <h2 style="color:var(--gold); margin-bottom:8px;">Enquiry Submitted!</h2>
+                        <p style="color:#aaa; font-size:14px; margin-bottom:20px;">${data.message}</p>
+                        <a href="#" onclick="location.reload(); return false;" style="color:#b8860b; font-weight:600;">Back to Login</a>
+                      </div>`;
+                } else {
+                    alert(data.error || 'Something went wrong. Please try again.');
+                }
+            } catch (err) {
+                hideLoading();
+                alert('Network error. Please check your connection and try again.');
+            }
+        });
+
         function toggleUserDropdown() {
             const menu = document.getElementById('userMenu');
             menu.classList.toggle('open');
@@ -4273,8 +4389,8 @@
                     daysLeft <= 30 ? `<span class="badge badge-warning">${daysLeft}d left</span>` :
                     new Date(t.lease_end).toLocaleDateString('en-IN');
                 return `
-                <tr>
-                    <td><strong>${t.name}</strong></td>
+                <tr${t.account_status === 'Closed' ? ' style="opacity:0.6;"' : ''}>
+                    <td><strong>${t.name}</strong>${t.account_status === 'Closed' ? ' <span style="font-size:10px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:3px;">Closed</span>' : ''}</td>
                     <td>${t.phone.startsWith('+91') ? t.phone : '+91 ' + t.phone}</td>
                     <td>${t.locker_number || '-'}</td>
                     <td>₹${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
@@ -4282,12 +4398,20 @@
                     <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status || 'pending')}</span></td>
                     <td>
                         <div class="action-buttons">
-                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
-                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
-                            <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
-                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="quickEsign('${t.id}', '${t.branch_id}', 'agreement')" style="font-size:11px;padding:4px 8px;background:#6366f1;">E-Sign</button>` : ''}
-                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openSetPasswordModal('${t.id}', '${(t.name||'').replace(/'/g, "\\'")}', '${t.phone||''}')" style="font-size:11px;padding:4px 8px;">🔑 Login</button>` : ''}
-                            ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
+                            ${t.account_status === 'Closed' ? `
+                              <span style="font-size:11px;padding:3px 8px;background:#dc2626;color:#fff;border-radius:4px;">Closed</span>
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="reopenAccount('${t.id}')" style="font-size:11px;padding:4px 8px;">Reopen</button>` : ''}
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')" style="font-size:11px;padding:4px 8px;">SOA</button>` : ''}
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
+                            ` : `
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
+                              <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="quickEsign('${t.id}', '${t.branch_id}', 'agreement')" style="font-size:11px;padding:4px 8px;background:#6366f1;">E-Sign</button>` : ''}
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openSetPasswordModal('${t.id}', '${(t.name||'').replace(/'/g, "\\'")}', '${t.phone||''}')" style="font-size:11px;padding:4px 8px;">🔑 Login</button>` : ''}
+                              ${(currentUser.role === 'headoffice' || currentUser.role === 'branch') ? `<button class="btn btn-secondary" onclick="closeAccount('${t.id}','${(t.name||'').replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 8px;background:#dc2626;color:#fff;">Close</button>` : ''}
+                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
+                            `}
                         </div>
                     </td>
                 </tr>`;
@@ -4678,6 +4802,31 @@
             } catch (err) {
                 hideLoading();
                 alert('Error recording payments: ' + err.message);
+            }
+        }
+
+        async function closeAccount(id, name) {
+            const reason = prompt(`Close account for ${name}?\n\nEnter reason (e.g. "Lease ended", "Voluntary surrender"):`, 'Lease ended');
+            if (reason === null) return; // cancelled
+            try {
+                showLoading('Closing account...');
+                await api('POST', `/api/tenants/${id}/close`, { reason });
+                hideLoading();
+                alert('Account closed. Locker has been freed.');
+                await loadTenants();
+            } catch (error) {
+                hideLoading();
+                alert('Failed to close account: ' + error.message);
+            }
+        }
+
+        async function reopenAccount(id) {
+            if (!confirm('Reopen this account? You will need to reassign a locker manually.')) return;
+            try {
+                await api('POST', `/api/tenants/${id}/reopen`);
+                await loadTenants();
+            } catch (error) {
+                alert('Failed to reopen account: ' + error.message);
             }
         }
 
@@ -7251,6 +7400,7 @@
                         <td>${r.phone || '-'}</td>
                         <td>${r.locker_size || '-'}</td>
                         <td>${r.branch_name || '-'}</td>
+                        <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${r.source === 'Mobile App' ? '#1a73e8' : r.source === 'Web App' ? '#0d9488' : '#6b7280'};color:#fff;">${r.source || 'Staff'}</span></td>
                         <td><span style="font-size:12px;">${r.created_by_name || '-'}</span></td>
                         <td>
                             <select onchange="updateLeadStatus('${r.id}', this.value)" style="padding:4px 8px;border:2px solid ${sColor};border-radius:6px;font-size:12px;font-weight:600;color:${sColor};background:#fff;cursor:pointer;">
@@ -7361,7 +7511,7 @@
 
                         <!-- Save + Convert + Close buttons -->
                         <div style="border-top:1px solid #eee;padding-top:14px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;">
-                            <div style="font-size:11px;color:#888;align-self:center;">Created: ${createdDate} by ${r.created_by_name || '-'}</div>
+                            <div style="font-size:11px;color:#888;align-self:center;">Created: ${createdDate} by ${r.created_by_name || '-'}${r.source ? ` &bull; <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${r.source === 'Mobile App' ? '#1a73e8' : r.source === 'Web App' ? '#0d9488' : '#6b7280'};color:#fff;">${r.source}</span>` : ''}</div>
                             <div style="display:flex;gap:8px;">
                                 ${!isConverted ? `<button class="btn btn-primary" onclick="saveLeadDetail('${r.id}')" style="padding:7px 16px;font-size:12px;background:#b8860b;border-color:#b8860b;">Save</button>
                                 <button class="btn btn-primary" onclick="convertLeadToTenant('${r.id}')" style="padding:7px 16px;font-size:12px;background:#27ae60;border-color:#27ae60;">Convert to Tenant</button>` : `<span style="color:#27ae60;font-weight:600;font-size:12px;align-self:center;">Converted to Tenant</span>`}
