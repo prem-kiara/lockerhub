@@ -3529,7 +3529,9 @@
                 document.getElementById('lockerAddBtns').style.display = 'none';
                 document.getElementById('branchSelectorContainer').style.display = 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
-                await switchSection('custDashboard');
+                const savedCustSection = localStorage.getItem('lockerhub_section');
+                const validCustSections = ['custDashboard', 'custAppointments', 'custPayments'];
+                await switchSection(validCustSections.includes(savedCustSection) ? savedCustSection : 'custDashboard');
                 // Check if feedback needed (first login prompt)
                 try {
                     const fbStatus = await api('GET', `/api/customer/${result.id}/feedback/status`);
@@ -3568,7 +3570,10 @@
                     currentBranchId = null; // HO sees all branches by default
                     loadBranchSelector();
                 }
-                await switchSection('dashboard');
+                // Restore last viewed section on refresh, or default to dashboard
+                const savedSection = localStorage.getItem('lockerhub_section');
+                const validSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
+                await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard');
             }
             resetInactivityTimer();
         }
@@ -3624,6 +3629,7 @@
             currentUser = null;
             currentBranchId = null;
             clearSession();
+            try { localStorage.removeItem('lockerhub_section'); } catch(e) {}
             if (inactivityTimer) clearTimeout(inactivityTimer);
             document.getElementById('loginScreen').style.display = 'flex';
             document.getElementById('appContainer').style.display = 'none';
@@ -3635,6 +3641,8 @@
         async function switchSection(section) {
             closeSidebar(); // Close mobile sidebar on navigation
             if (typeof stopEsignPolling === 'function') stopEsignPolling(); // Stop polling when leaving e-sign
+            // Remember current section for page refresh
+            try { localStorage.setItem('lockerhub_section', section); } catch(e) {}
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
             document.getElementById(section + 'Screen').classList.add('active');
 
