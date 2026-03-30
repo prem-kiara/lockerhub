@@ -144,7 +144,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             override fun onReceivedError(
-                view: WebView?, request: ResourceRequest?, error: WebResourceError?
+                view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
                 super.onReceivedError(view, request, error)
                 // Only handle main frame errors
@@ -217,7 +217,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Enable remote debugging in debug builds
-        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+        val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        WebView.setWebContentsDebuggingEnabled(isDebug)
     }
 
     // ── Back button handling ──────────────────────────────────────────
