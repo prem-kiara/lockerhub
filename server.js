@@ -431,27 +431,70 @@ logInfo('Database migrations complete');
   }
 })();
 
-// Guarantee RS Puram branch and staff user always exist
-(function ensureRSPuram() {
+// Guarantee RS Puram branch, staff user, locker types, units, and lockers always exist
+(function ensureDefaultData() {
+  const _gid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
+  const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+  // 1. Ensure RS Puram branch
   const branchExists = db.prepare("SELECT id FROM branches WHERE id = 'br_rspuram'").get();
   if (!branchExists) {
     db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(
       'br_rspuram', 'RS Puram', 'RS Puram, Coimbatore', '', 'RS Puram, Coimbatore', ''
     );
-    // Ensure config row exists for this branch
-    const configExists = db.prepare("SELECT branch_id FROM config WHERE branch_id = 'br_rspuram'").get();
-    if (!configExists) {
-      db.prepare('INSERT INTO config (branch_id) VALUES (?)').run('br_rspuram');
-    }
-    logInfo('Migration: created RS Puram branch (guaranteed default)');
+    logInfo('Migration: created RS Puram branch');
   }
+  // Ensure config row
+  const configExists = db.prepare("SELECT branch_id FROM config WHERE branch_id = 'br_rspuram'").get();
+  if (!configExists) {
+    db.prepare('INSERT INTO config (branch_id) VALUES (?)').run('br_rspuram');
+  }
+
+  // 2. Ensure RS Puram staff user
   const staffExists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'rspuram'").get();
   if (!staffExists) {
-    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
     db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-      id, 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', 'br_rspuram'
+      _gid(), 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', 'br_rspuram'
     );
-    logInfo('Migration: created RS Puram staff user (guaranteed default)');
+    logInfo('Migration: created RS Puram staff user');
+  }
+
+  // 3. Ensure locker types exist
+  const types = [
+    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
+    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
+  ];
+  const insType = db.prepare(`INSERT OR IGNORE INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming, annual_rent, deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  types.forEach(t => {
+    const sz = classifySize(t.lh, t.lw, t.ld);
+    insType.run(t.id, t.name, t.variant, t.lpu, t.uh, t.uw, t.ud, t.lh, t.lw, t.ld, t.w, sz, t.desc, t.up, t.rent, t.dep);
+  });
+
+  // 4. Ensure RS Puram units and lockers exist
+  const lockerCount = db.prepare("SELECT COUNT(*) as c FROM lockers WHERE branch_id = 'br_rspuram'").get().c;
+  if (lockerCount === 0) {
+    const insUnit = db.prepare('INSERT OR IGNORE INTO units (id, branch_id, locker_type_id, unit_number, location, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    const insLock = db.prepare('INSERT INTO lockers (id, branch_id, unit_id, locker_type_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const brRS = 'br_rspuram';
+
+    const txRS = db.transaction(() => {
+      // 8 L6 units (6 lockers each = 48)
+      for (let i = 1; i <= 8; i++) {
+        const uid = 'unit_rs_l6_' + i, unum = 'L6-' + String(i).padStart(2, '0');
+        insUnit.run(uid, brRS, 'lt_l6_std', unum, 'RS Puram', 'active', '');
+        for (let j = 0; j < 6; j++) insLock.run(_gid(), brRS, uid, 'lt_l6_std', unum + '-' + LETTERS[j], 'Large', 'RS Puram', 0, 'vacant');
+      }
+      // 4 L10 units (10 lockers each = 40)
+      for (let i = 1; i <= 4; i++) {
+        const uid = 'unit_rs_l10_' + i, unum = 'L10-' + String(i).padStart(2, '0');
+        insUnit.run(uid, brRS, 'lt_l10_std', unum, 'RS Puram', 'active', '');
+        for (let j = 0; j < 10; j++) insLock.run(_gid(), brRS, uid, 'lt_l10_std', unum + '-' + LETTERS[j], 'Medium', 'RS Puram', 0, 'vacant');
+      }
+    });
+    txRS();
+    logInfo('Migration: seeded RS Puram 88 lockers (8×L6 + 4×L10)');
   }
 })();
 

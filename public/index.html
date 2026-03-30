@@ -1940,7 +1940,7 @@
                 <!-- Dashboard Screen -->
                 <div id="dashboardScreen" class="screen active">
                     <div class="section-title">Dashboard</div>
-                    <div id="dashboardStats" class="stat-cards"></div>
+                    <div id="dashboardStats" class="stat-cards"><div style="padding:24px;color:#888;text-align:center;">Loading dashboard...</div></div>
                     <div id="dashboardContent"></div>
                 </div>
 
@@ -3566,13 +3566,18 @@
                 document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
 
+                // Hide leadCapture nav for non-lead_agent users
+                document.getElementById('navLeadCapture').style.display = 'none';
+
                 if (isHeadOffice) {
                     currentBranchId = null; // HO sees all branches by default
                     loadBranchSelector();
                 }
                 // Restore last viewed section on refresh, or default to dashboard
                 const savedSection = localStorage.getItem('lockerhub_section');
-                const validSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
+                const hoSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
+                const branchSections = ['dashboard','tenants','payments','visits','appointments','reminders','feedback','leads'];
+                const validSections = isHeadOffice ? hoSections : branchSections;
                 await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard');
             }
             resetInactivityTimer();
@@ -3580,9 +3585,16 @@
 
         // Restore session on page load
         (async function restoreSession() {
-            const session = getSession();
-            if (session && session.user) {
-                await applySession(session.user);
+            try {
+                const session = getSession();
+                if (session && session.user) {
+                    await applySession(session.user);
+                }
+            } catch (error) {
+                console.error('Session restore failed:', error);
+                // If session restore fails, show login screen
+                document.getElementById('loginScreen').style.display = 'flex';
+                document.getElementById('appContainer').style.display = 'none';
             }
         })();
 
@@ -3641,6 +3653,11 @@
         async function switchSection(section) {
             closeSidebar(); // Close mobile sidebar on navigation
             if (typeof stopEsignPolling === 'function') stopEsignPolling(); // Stop polling when leaving e-sign
+
+            // Validate section exists before switching
+            const screenEl = document.getElementById(section + 'Screen');
+            if (!screenEl) { section = 'dashboard'; }
+
             // Remember current section for page refresh
             try { localStorage.setItem('lockerhub_section', section); } catch(e) {}
             document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -3654,7 +3671,8 @@
             }
 
             document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-            document.querySelector(`[data-section="${section}"]`).classList.add('active');
+            const navLink = document.querySelector(`[data-section="${section}"]`);
+            if (navLink) navLink.classList.add('active');
 
             // Update title
             const titles = {
@@ -3708,6 +3726,8 @@
 
         // ===== Dashboard =====
         async function loadDashboard() {
+            document.getElementById('dashboardStats').innerHTML = '<div style="padding:24px;color:#888;text-align:center;">Loading dashboard...</div>';
+            document.getElementById('dashboardContent').innerHTML = '';
             try {
                 const isHeadOffice = currentUser.role === 'headoffice';
 
@@ -3729,6 +3749,9 @@
                 renderRenewalReminders(renewals);
             } catch (error) {
                 console.error('Failed to load dashboard:', error);
+                document.getElementById('dashboardStats').innerHTML = `<div style="padding:24px;color:#c00;text-align:center;">
+                    Failed to load dashboard. <a href="#" onclick="loadDashboard(); return false;" style="color:var(--primary);text-decoration:underline;">Retry</a>
+                </div>`;
             }
         }
 
@@ -7312,11 +7335,10 @@
                     created_by_name: currentUser.name
                 });
                 hideLoading();
-                // Clear form
+                // Clear form (keep locker size and branch selected for faster repeat entry)
                 document.getElementById('lcName').value = '';
                 document.getElementById('lcPhone').value = '';
                 document.getElementById('lcEmail').value = '';
-                document.getElementById('lcLockerSize').value = '';
                 document.getElementById('lcNotes').value = '';
                 // Refresh stats
                 await loadLeadCapture();
