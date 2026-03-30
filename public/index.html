@@ -2465,7 +2465,9 @@
                             <option value="New">New</option>
                             <option value="Contacted">Contacted</option>
                             <option value="Interested">Interested</option>
+                            <option value="Visit Scheduled">Visit Scheduled</option>
                             <option value="Converted">Converted</option>
+                            <option value="Follow Up Later">Follow Up Later</option>
                             <option value="Lost">Lost</option>
                         </select>
                         <input type="text" id="leadSearch" placeholder="Search by name or phone..." oninput="loadLeads()" style="padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:13px; min-width:200px;">
@@ -2504,7 +2506,7 @@
                             </div>
                             <div style="margin-bottom:16px;">
                                 <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Phone Number *</label>
-                                <input type="tel" id="lcPhone" placeholder="10-digit mobile number" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+                                <input type="tel" id="lcPhone" placeholder="10-digit mobile number" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
                             </div>
                             <div style="margin-bottom:16px;">
                                 <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Email</label>
@@ -2733,11 +2735,11 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="tenantBgAadhaar">Aadhaar Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBgAadhaar" placeholder="e.g., 1234 5678 9012" maxlength="14" required>
+                                <input type="text" id="tenantBgAadhaar" placeholder="e.g., 123456789012" maxlength="12" pattern="[0-9]{12}" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,12)" required>
                             </div>
                             <div class="form-group">
                                 <label for="tenantBgPan">PAN Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBgPan" placeholder="e.g., ABCDE1234F" maxlength="10" style="text-transform:uppercase;" required>
+                                <input type="text" id="tenantBgPan" placeholder="e.g., ABCDE1234F" maxlength="10" pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10)" style="text-transform:uppercase;" required>
                             </div>
                         </div>
                         <div class="checkbox-group" style="margin-top: 8px;">
@@ -7142,9 +7144,17 @@
                         <div class="stat-label">Contacted</div>
                         <div class="stat-value">${statusMap['Contacted'] || 0}</div>
                     </div>
+                    <div class="stat-card" style="border-left:4px solid #2980b9;">
+                        <div class="stat-label">Visit Scheduled</div>
+                        <div class="stat-value">${statusMap['Visit Scheduled'] || 0}</div>
+                    </div>
                     <div class="stat-card" style="border-left:4px solid #27ae60;">
                         <div class="stat-label">Converted</div>
                         <div class="stat-value">${statusMap['Converted'] || 0}</div>
+                    </div>
+                    <div class="stat-card" style="border-left:4px solid #e67e22;">
+                        <div class="stat-label">Follow Up Later</div>
+                        <div class="stat-value">${statusMap['Follow Up Later'] || 0}</div>
                     </div>
                 `;
 
@@ -7154,11 +7164,11 @@
                 }
 
                 document.getElementById('leadsTable').innerHTML = filtered.map(r => {
-                    const date = r.created_at ? r.created_at.split('T')[0] : '-';
-                    const statusColors = { New: '#3498db', Contacted: '#f39c12', Interested: '#9b59b6', Converted: '#27ae60', Lost: '#e74c3c' };
+                    const dateRaw = r.created_at ? r.created_at.replace('T',' ').slice(0,16) : '-';
+                    const statusColors = { New: '#3498db', Contacted: '#f39c12', Interested: '#9b59b6', 'Visit Scheduled': '#2980b9', Converted: '#27ae60', 'Follow Up Later': '#e67e22', Lost: '#e74c3c' };
                     const sColor = statusColors[r.status] || '#888';
                     return `<tr>
-                        <td>${date}</td>
+                        <td style="white-space:nowrap;font-size:12px;">${dateRaw}</td>
                         <td><strong>${r.name}</strong>${r.email ? '<br><span style="font-size:11px;color:#888;">' + r.email + '</span>' : ''}</td>
                         <td>${r.phone || '-'}</td>
                         <td>${r.locker_size || '-'}</td>
@@ -7166,7 +7176,7 @@
                         <td><span style="font-size:12px;">${r.created_by_name || '-'}</span></td>
                         <td>
                             <select onchange="updateLeadStatus('${r.id}', this.value)" style="padding:4px 8px;border:2px solid ${sColor};border-radius:6px;font-size:12px;font-weight:600;color:${sColor};background:#fff;cursor:pointer;">
-                                ${['New','Contacted','Interested','Converted','Lost'].map(s => `<option value="${s}" ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+                                ${['New','Contacted','Interested','Visit Scheduled','Converted','Follow Up Later','Lost'].map(s => `<option value="${s}" ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}
                             </select>
                         </td>
                         <td>
@@ -7200,32 +7210,199 @@
             }
         }
 
-        function viewLeadDetail(id) {
-            // Find lead from table data (re-fetch)
-            api('GET', '/api/leads').then(rows => {
+        async function viewLeadDetail(id) {
+            try {
+                const [rows, notes] = await Promise.all([
+                    api('GET', '/api/leads'),
+                    api('GET', `/api/leads/${id}/notes`)
+                ]);
                 const r = rows.find(l => l.id === id);
                 if (!r) return alert('Lead not found');
+
+                const allStatuses = ['New','Contacted','Interested','Visit Scheduled','Converted','Follow Up Later','Lost'];
+                const statusColors = { New:'#3498db', Contacted:'#f39c12', Interested:'#9b59b6', 'Visit Scheduled':'#2980b9', Converted:'#27ae60', 'Follow Up Later':'#e67e22', Lost:'#e74c3c' };
+                const sColor = statusColors[r.status] || '#888';
+                const lockerSizes = ['Large (L6)','Medium (L10)','Small','Any'];
+                const createdDate = r.created_at ? r.created_at.replace('T',' ').slice(0,16) : '-';
+
+                const notesHtml = notes.length > 0 ? notes.map(n => {
+                    const nDate = n.created_at ? n.created_at.replace('T',' ').slice(0,16) : '';
+                    return `<div style="padding:8px 10px;border-left:3px solid #b8860b;background:#fefcf7;border-radius:0 6px 6px 0;margin-bottom:6px;">
+                        <div style="font-size:13px;">${n.note}</div>
+                        <div style="font-size:10px;color:#999;margin-top:3px;">${n.created_by_name || 'Unknown'} &bull; ${nDate}</div>
+                    </div>`;
+                }).join('') : '<div style="color:#aaa;font-size:12px;text-align:center;padding:8px;">No notes yet</div>';
+
+                const isConverted = r.status === 'Converted';
+
                 const modal = `
-                <div id="leadDetailModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
-                    <div style="background:#fff;border-radius:16px;max-width:450px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-                        <h3 style="margin:0 0 16px;font-size:18px;color:#2c1810;">${r.name}</h3>
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-                            <div><div style="font-size:11px;color:#888;">Phone</div><div style="font-weight:600;">${r.phone || '-'}</div></div>
-                            <div><div style="font-size:11px;color:#888;">Email</div><div style="font-weight:600;">${r.email || '-'}</div></div>
-                            <div><div style="font-size:11px;color:#888;">Locker Size</div><div style="font-weight:600;">${r.locker_size || '-'}</div></div>
-                            <div><div style="font-size:11px;color:#888;">Branch</div><div style="font-weight:600;">${r.branch_name || '-'}</div></div>
-                            <div><div style="font-size:11px;color:#888;">Status</div><div style="font-weight:600;">${r.status}</div></div>
-                            <div><div style="font-size:11px;color:#888;">Created By</div><div style="font-weight:600;">${r.created_by_name || '-'}</div></div>
+                <div id="leadDetailModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)closeLeadDetail('${r.id}')">
+                    <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:90vh;overflow-y:auto;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);" onclick="event.stopPropagation()">
+                        <!-- Header: Name - Branch -->
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                            <h3 style="margin:0;font-size:18px;color:#2c1810;">${r.name} <span style="font-weight:400;font-size:14px;color:#888;">— ${r.branch_name || 'No branch'}</span></h3>
+                            <span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;color:#fff;background:${sColor};">${r.status}</span>
                         </div>
-                        ${r.notes ? `<div style="background:#f9f6f0;border-radius:8px;padding:12px;margin-bottom:16px;"><div style="font-size:11px;color:#888;margin-bottom:4px;">Notes</div><div style="font-size:13px;">${r.notes}</div></div>` : ''}
-                        <div style="font-size:11px;color:#888;">Created: ${r.created_at || '-'}</div>
-                        <div style="text-align:right;margin-top:16px;"><button class="btn btn-secondary" onclick="document.getElementById('leadDetailModal').remove()" style="padding:8px 20px;">Close</button></div>
+
+                        <!-- Editable Fields -->
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Name</label><input type="text" id="ldName" value="${(r.name||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Phone</label><input type="tel" id="ldPhone" value="${r.phone||''}" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Email</label><input type="email" id="ldEmail" value="${(r.email||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Locker Size</label>
+                                <select id="ldSize" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}>
+                                    <option value="">Select...</option>${lockerSizes.map(s => `<option value="${s}" ${r.locker_size===s?'selected':''}>${s}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Status + Visit Time -->
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Status</label>
+                                <select id="ldStatus" style="width:100%;padding:6px 10px;border:2px solid ${sColor};border-radius:6px;font-size:13px;font-weight:600;color:${sColor};" ${isConverted ? 'disabled' : ''}>
+                                    ${allStatuses.map(s => `<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Customer Visit Date/Time</label>
+                                <input type="datetime-local" id="ldVisitTime" value="${r.visit_time||''}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}>
+                            </div>
+                        </div>
+
+                        <!-- Initial Notes (from lead creation) -->
+                        ${r.notes ? `<div style="background:#f9f6f0;border-radius:8px;padding:10px 12px;margin-bottom:12px;"><div style="font-size:10px;color:#888;margin-bottom:2px;">Lead Notes</div><div style="font-size:13px;">${r.notes}</div></div>` : ''}
+
+                        <!-- Telecalling Notes Section -->
+                        <div style="margin-bottom:14px;">
+                            <div style="font-size:13px;font-weight:600;color:#2c1810;margin-bottom:8px;">Telecalling / Remarks</div>
+                            <div id="ldNotesHistory" style="max-height:150px;overflow-y:auto;margin-bottom:8px;">${notesHtml}</div>
+                            ${!isConverted ? `<div style="display:flex;gap:8px;">
+                                <input type="text" id="ldNewNote" placeholder="Add remark..." style="flex:1;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" onkeydown="if(event.key==='Enter')addLeadNote('${r.id}')">
+                                <button class="btn btn-primary" onclick="addLeadNote('${r.id}')" style="padding:6px 14px;font-size:12px;background:#b8860b;border-color:#b8860b;white-space:nowrap;">Add Note</button>
+                            </div>` : ''}
+                        </div>
+
+                        <!-- Save + Convert + Close buttons -->
+                        <div style="border-top:1px solid #eee;padding-top:14px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;">
+                            <div style="font-size:11px;color:#888;align-self:center;">Created: ${createdDate} by ${r.created_by_name || '-'}</div>
+                            <div style="display:flex;gap:8px;">
+                                ${!isConverted ? `<button class="btn btn-primary" onclick="saveLeadDetail('${r.id}')" style="padding:7px 16px;font-size:12px;background:#b8860b;border-color:#b8860b;">Save</button>
+                                <button class="btn btn-primary" onclick="convertLeadToTenant('${r.id}')" style="padding:7px 16px;font-size:12px;background:#27ae60;border-color:#27ae60;">Convert to Tenant</button>` : `<span style="color:#27ae60;font-weight:600;font-size:12px;align-self:center;">Converted to Tenant</span>`}
+                                <button class="btn btn-secondary" onclick="closeLeadDetail('${r.id}')" style="padding:7px 16px;font-size:12px;">Close</button>
+                            </div>
+                        </div>
                     </div>
                 </div>`;
                 const existing = document.getElementById('leadDetailModal');
                 if (existing) existing.remove();
                 document.body.insertAdjacentHTML('beforeend', modal);
-            });
+            } catch (err) {
+                console.error('Failed to load lead detail:', err);
+                alert('Failed to load lead details');
+            }
+        }
+
+        async function saveLeadDetail(id) {
+            try {
+                const data = {
+                    name: document.getElementById('ldName').value.trim(),
+                    phone: document.getElementById('ldPhone').value.trim(),
+                    email: document.getElementById('ldEmail').value.trim(),
+                    locker_size: document.getElementById('ldSize').value,
+                    status: document.getElementById('ldStatus').value,
+                    visit_time: document.getElementById('ldVisitTime').value
+                };
+                if (!data.name) return alert('Name is required');
+                await api('PUT', `/api/leads/${id}`, data);
+                await loadLeads();
+                // Refresh the modal
+                await viewLeadDetail(id);
+            } catch (err) { alert('Failed to save: ' + err.message); }
+        }
+
+        async function closeLeadDetail(id) {
+            // Auto-update status if notes were added and status is still New
+            const statusEl = document.getElementById('ldStatus');
+            if (statusEl) {
+                const currentStatus = statusEl.value;
+                // Check if there are unsaved changes
+                const visitTime = document.getElementById('ldVisitTime')?.value;
+                if (visitTime && currentStatus !== 'Visit Scheduled' && currentStatus !== 'Converted') {
+                    await api('PUT', `/api/leads/${id}`, { status: 'Visit Scheduled', visit_time: visitTime });
+                } else if (currentStatus !== document.getElementById('ldStatus')?.dataset?.original) {
+                    // Save current status on close
+                    await api('PUT', `/api/leads/${id}`, { status: currentStatus });
+                }
+            }
+            document.getElementById('leadDetailModal')?.remove();
+            await loadLeads();
+        }
+
+        async function addLeadNote(id) {
+            const input = document.getElementById('ldNewNote');
+            const note = input.value.trim();
+            if (!note) return;
+            try {
+                await api('POST', `/api/leads/${id}/notes`, {
+                    note,
+                    created_by: currentUser.id,
+                    created_by_name: currentUser.name
+                });
+                input.value = '';
+                // Auto-change status from New to Contacted if first note
+                const statusEl = document.getElementById('ldStatus');
+                if (statusEl && statusEl.value === 'New') {
+                    statusEl.value = 'Contacted';
+                    await api('PUT', `/api/leads/${id}`, { status: 'Contacted' });
+                }
+                // Refresh notes
+                const notes = await api('GET', `/api/leads/${id}/notes`);
+                const container = document.getElementById('ldNotesHistory');
+                if (container) {
+                    container.innerHTML = notes.length > 0 ? notes.map(n => {
+                        const nDate = n.created_at ? n.created_at.replace('T',' ').slice(0,16) : '';
+                        return `<div style="padding:8px 10px;border-left:3px solid #b8860b;background:#fefcf7;border-radius:0 6px 6px 0;margin-bottom:6px;">
+                            <div style="font-size:13px;">${n.note}</div>
+                            <div style="font-size:10px;color:#999;margin-top:3px;">${n.created_by_name || 'Unknown'} &bull; ${nDate}</div>
+                        </div>`;
+                    }).join('') : '';
+                }
+            } catch (err) { alert('Failed to add note: ' + err.message); }
+        }
+
+        async function convertLeadToTenant(leadId) {
+            if (!confirm('Convert this lead to a tenant? This will open the Add Tenant form with the lead details pre-filled.')) return;
+            try {
+                const rows = await api('GET', '/api/leads');
+                const r = rows.find(l => l.id === leadId);
+                if (!r) return alert('Lead not found');
+
+                // Close lead modal
+                document.getElementById('leadDetailModal')?.remove();
+
+                // Use the latest values from the form
+                const name = document.getElementById('ldName')?.value?.trim() || r.name;
+                const phone = document.getElementById('ldPhone')?.value?.trim() || r.phone;
+                const email = document.getElementById('ldEmail')?.value?.trim() || r.email;
+
+                // Switch to tenants section and open add form
+                await switchSection('tenants');
+                await openAddTenantModal();
+
+                // Pre-fill tenant form with lead data
+                document.getElementById('tenantName').value = name;
+                document.getElementById('tenantPhone').value = phone;
+                document.getElementById('tenantEmail').value = email || '';
+
+                // Set branch
+                if (r.branch_id) {
+                    const branchSel = document.getElementById('tenantBranch');
+                    if (branchSel) branchSel.value = r.branch_id;
+                }
+
+                // Mark lead as converted
+                await api('PUT', `/api/leads/${leadId}`, { status: 'Converted' });
+                await loadLeads();
+            } catch (err) { alert('Failed: ' + err.message); }
         }
 
         function openLeadModal() {
@@ -7234,7 +7411,7 @@
                 <div style="background:#fff;border-radius:16px;max-width:450px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
                     <h3 style="margin:0 0 20px;font-size:18px;color:#2c1810;">Add New Lead</h3>
                     <div style="margin-bottom:14px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Name *</label><input type="text" id="mlName" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
-                    <div style="margin-bottom:14px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Phone *</label><input type="tel" id="mlPhone" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                    <div style="margin-bottom:14px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Phone *</label><input type="tel" id="mlPhone" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
                     <div style="margin-bottom:14px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Email</label><input type="email" id="mlEmail" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
                     <div style="margin-bottom:14px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Locker Size</label>
                         <select id="mlSize" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
@@ -7308,7 +7485,10 @@
                     document.getElementById('myRecentLeads').innerHTML = '<div style="text-align:center;padding:20px;color:#888;">No leads captured yet. Start adding!</div>';
                 } else {
                     document.getElementById('myRecentLeads').innerHTML = '<div class="table-container"><table><thead><tr><th>Name</th><th>Phone</th><th>Size</th><th>Time</th></tr></thead><tbody>' +
-                        recent.map(l => `<tr><td>${l.name}</td><td>${l.phone || '-'}</td><td>${l.locker_size || '-'}</td><td>${l.created_at ? l.created_at.split('T')[1]?.split('.')[0] || l.created_at.split(' ')[1] || '-' : '-'}</td></tr>`).join('') +
+                        recent.map(l => {
+                            const timeStr = l.created_at ? l.created_at.replace('T',' ').slice(11,16) : '-';
+                            return `<tr><td>${l.name}</td><td>${l.phone || '-'}</td><td>${l.locker_size || '-'}</td><td>${timeStr}</td></tr>`;
+                        }).join('') +
                         '</tbody></table></div>';
                 }
             } catch (err) {

@@ -381,6 +381,23 @@ addColumnIfMissing('locker_types', 'deposit', 'REAL DEFAULT 0');
 // E-sign table migrations
 addColumnIfMissing('esign_requests', 'onedrive_url', "TEXT DEFAULT ''");
 
+// Leads table migrations
+addColumnIfMissing('leads', 'visit_time', "TEXT DEFAULT ''");
+addColumnIfMissing('leads', 'converted_tenant_id', "TEXT DEFAULT ''");
+
+// Lead telecalling notes table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS lead_notes (
+    id TEXT PRIMARY KEY,
+    lead_id TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_by TEXT DEFAULT '',
+    created_by_name TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (lead_id) REFERENCES leads(id) ON DELETE CASCADE
+  );
+`);
+
 // Migration: Update locker type rates (L10 Large: 20k/3L, L6 Medium: 10k/2L)
 // Only updates the locker_types template — existing tenants keep their original rates
 (function updateLockerTypeRates() {
@@ -1558,7 +1575,7 @@ app.get('/api/stats/all', (req, res) => {
 // ============================
 app.get('/api/backup', (req, res) => {
   const backup = {
-    version: 4,
+    version: 5,
     export_date: new Date().toISOString(),
     branches: db.prepare('SELECT * FROM branches').all(),
     users: db.prepare('SELECT * FROM users').all(),
@@ -1574,7 +1591,8 @@ app.get('/api/backup', (req, res) => {
     config: db.prepare('SELECT * FROM config').all(),
     esign_requests: db.prepare('SELECT * FROM esign_requests').all(),
     feedback: db.prepare('SELECT * FROM feedback').all(),
-    leads: db.prepare('SELECT * FROM leads').all()
+    leads: db.prepare('SELECT * FROM leads').all(),
+    lead_notes: db.prepare('SELECT * FROM lead_notes').all()
   };
   res.json(backup);
 });
@@ -2647,16 +2665,18 @@ app.get('/api/leads', (req, res) => {
   }
 });
 
-// Update lead status (HO/branch can convert, mark contacted, etc.)
+// Update lead (status, notes, visit_time, editable fields, converted_tenant_id)
 app.put('/api/leads/:id', (req, res) => {
   try {
-    const { status, notes, branch_id } = req.body;
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
-    if (status) db.prepare("UPDATE leads SET status = ?, updated_at = datetime('now') WHERE id = ?").run(status, req.params.id);
-    if (notes !== undefined) db.prepare("UPDATE leads SET notes = ?, updated_at = datetime('now') WHERE id = ?").run(notes, req.params.id);
-    if (branch_id) db.prepare("UPDATE leads SET branch_id = ?, updated_at = datetime('now') WHERE id = ?").run(branch_id, req.params.id);
-    logInfo('Lead updated', { id: req.params.id, status });
+    const fields = ['status', 'notes', 'branch_id', 'visit_time', 'name', 'phone', 'email', 'locker_size', 'converted_tenant_id'];
+    fields.forEach(f => {
+      if (req.body[f] !== undefined) {
+        db.prepare(`UPDATE leads SET ${f} = ?, updated_at = datetime('now') WHERE id = ?`).run(req.body[f], req.params.id);
+      }
+    });
+    logInfo('Lead updated', { id: req.params.id, status: req.body.status });
     res.json({ ok: true });
   } catch (err) {
     logError('Lead update failed', { error: err.message });
@@ -2667,6 +2687,7 @@ app.put('/api/leads/:id', (req, res) => {
 // Delete a lead
 app.delete('/api/leads/:id', (req, res) => {
   try {
+    db.prepare('DELETE FROM lead_notes WHERE lead_id = ?').run(req.params.id);
     db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
     logInfo('Lead deleted', { id: req.params.id });
     res.json({ ok: true });
@@ -2674,6 +2695,27 @@ app.delete('/api/leads/:id', (req, res) => {
     logError('Lead delete failed', { error: err.message });
     res.status(500).json({ error: err.message });
   }
+});
+
+// Lead telecalling notes
+app.get('/api/leads/:id/notes', (req, res) => {
+  try {
+    const notes = db.prepare('SELECT * FROM lead_notes WHERE lead_id = ? ORDER BY created_at DESC').all(req.params.id);
+    res.json(notes);
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/leads/:id/notes', (req, res) => {
+  try {
+    const { note, created_by, created_by_name } = req.body;
+    if (!note || !note.trim()) return res.status(400).json({ error: 'Note text is required' });
+    const id = genId();
+    db.prepare('INSERT INTO lead_notes (id, lead_id, note, created_by, created_by_name) VALUES (?, ?, ?, ?, ?)').run(
+      id, req.params.id, note.trim(), created_by || '', created_by_name || ''
+    );
+    logInfo('Lead note added', { leadId: req.params.id, by: created_by_name });
+    res.json({ id, ok: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Lead summary stats
