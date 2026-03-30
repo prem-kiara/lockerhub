@@ -49,13 +49,13 @@
             width: 250px;
             background: linear-gradient(135deg, var(--sidebar-dark) 0%, var(--sidebar-darker) 100%);
             color: white;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
+            overflow: hidden;
             padding: 0;
             position: fixed;
             left: 0;
             top: 0;
             height: 100vh;
+            height: 100dvh;
             z-index: 1000;
             display: flex;
             flex-direction: column;
@@ -67,6 +67,7 @@
             display: flex;
             align-items: center;
             gap: 12px;
+            flex-shrink: 0;
         }
 
         .sidebar-header h1 {
@@ -75,11 +76,29 @@
         }
 
         .sidebar-nav {
-            padding: 20px 0;
+            padding: 12px 0 20px;
             list-style: none;
             flex: 1;
+            min-height: 0;
             overflow-y: auto;
+            overflow-x: hidden;
             -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.2) transparent;
+        }
+
+        .sidebar-nav::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .sidebar-nav::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .sidebar-nav::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 2px;
         }
 
         .sidebar-nav li {
@@ -921,11 +940,26 @@
                 transform: translateX(-100%);
                 transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
                 box-shadow: none;
+                height: 100vh;
+                height: 100dvh;
             }
 
             .sidebar.open {
                 transform: translateX(0);
                 box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
+            }
+
+            .sidebar-nav {
+                padding: 8px 0 24px;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+
+            .sidebar-nav a {
+                padding: 14px 20px;
+                min-height: 48px;
+                display: flex;
+                align-items: center;
             }
 
             .hamburger-btn {
@@ -994,13 +1028,6 @@
             .action-buttons button {
                 min-height: 44px;
                 min-width: 44px;
-            }
-
-            .sidebar-nav a {
-                padding: 14px 20px;
-                min-height: 48px;
-                display: flex;
-                align-items: center;
             }
 
             .branch-selector {
@@ -1465,14 +1492,184 @@
                 padding-bottom: calc(12px + env(safe-area-inset-bottom));
             }
 
-            .sidebar {
-                padding-bottom: env(safe-area-inset-bottom);
+            .sidebar-nav {
+                padding-bottom: calc(20px + env(safe-area-inset-bottom));
             }
 
             @media (max-width: 480px) {
                 .content-area {
                     padding-bottom: calc(14px + env(safe-area-inset-bottom));
                 }
+            }
+        }
+
+        /* ================================================================
+           RESPONSIVE: NEW SCREENS (Leads, Feedback, Reminders, Lead Capture)
+           ================================================================ */
+        @media (max-width: 768px) {
+            /* Summary card grids in new screens — 2 cols */
+            #remindersSummary,
+            #feedbackSummaryCards,
+            #leadsSummary,
+            #leadCaptureStats {
+                grid-template-columns: 1fr 1fr !important;
+                gap: 10px !important;
+            }
+
+            /* Filter/search toolbars in new screens */
+            #remindersScreen .section-toolbar,
+            #leadsScreen .section-toolbar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            #remindersScreen .section-toolbar select,
+            #leadsScreen .section-toolbar select,
+            #leadStatusFilter,
+            #leadSearch,
+            #reminderFilter {
+                width: 100%;
+                min-height: 44px;
+                font-size: 16px;
+                border-radius: 8px;
+            }
+
+            /* Lead capture form — already max-width:500px, just adjust padding */
+            #leadCaptureScreen > div {
+                padding: 0 4px;
+            }
+
+            #leadCaptureScreen input,
+            #leadCaptureScreen select,
+            #leadCaptureScreen textarea {
+                font-size: 16px !important;
+            }
+
+            /* Customer reminder banners */
+            #custDashboardContent > div[style*="border-left:4px"] {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+                padding: 12px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            /* Summary cards — tighter on small phones */
+            #remindersSummary,
+            #feedbackSummaryCards,
+            #leadsSummary {
+                grid-template-columns: 1fr 1fr !important;
+                gap: 8px !important;
+            }
+
+            #leadCaptureStats {
+                grid-template-columns: 1fr 1fr !important;
+                gap: 8px !important;
+            }
+
+            /* Inline modals (feedback, lead detail, add lead) — bottom sheet */
+            #feedbackModal > div,
+            #feedbackDetailModal > div,
+            #leadDetailModal > div,
+            #addLeadModal > div {
+                max-width: 100% !important;
+                max-height: 92vh !important;
+                border-radius: 20px 20px 0 0 !important;
+                margin: 0 !important;
+                position: fixed !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                right: 0 !important;
+                animation: slideUpMobile 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            }
+
+            #feedbackModal,
+            #feedbackDetailModal,
+            #leadDetailModal,
+            #addLeadModal {
+                align-items: flex-end !important;
+                padding: 0 !important;
+            }
+
+            /* Feedback form radio pills — smaller on mobile */
+            .fb-option {
+                padding: 5px 8px !important;
+                font-size: 11px !important;
+            }
+
+            /* NPS buttons — smaller */
+            .nps-btn {
+                width: 30px !important;
+                height: 30px !important;
+                font-size: 12px !important;
+            }
+
+            /* Leads table status dropdown — touch friendly */
+            #leadsTable select {
+                min-height: 36px;
+                font-size: 12px;
+                padding: 4px 6px;
+            }
+
+            /* Leads table action buttons */
+            #leadsTable .btn {
+                min-height: 32px;
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+
+            /* Reminders table row highlighting */
+            #remindersTable tr {
+                font-size: 12px;
+            }
+
+            #remindersTable .btn {
+                min-height: 32px;
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+
+            /* Feedback table */
+            #feedbackTable .btn {
+                min-height: 32px;
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+
+            /* Lead capture — full width button */
+            #leadCaptureScreen .btn-primary {
+                min-height: 48px;
+                font-size: 16px !important;
+            }
+
+            /* Customer dashboard stat cards grid */
+            #custDashboardContent .stat-card {
+                padding: 12px;
+            }
+
+            #custDashboardContent > div:first-child {
+                grid-template-columns: 1fr 1fr !important;
+                gap: 10px !important;
+            }
+        }
+
+        @media (max-width: 360px) {
+            #remindersSummary,
+            #feedbackSummaryCards,
+            #leadsSummary {
+                grid-template-columns: 1fr !important;
+            }
+
+            .fb-option {
+                padding: 4px 6px !important;
+                font-size: 10px !important;
+            }
+
+            .nps-btn {
+                width: 26px !important;
+                height: 26px !important;
+                font-size: 11px !important;
             }
         }
 
