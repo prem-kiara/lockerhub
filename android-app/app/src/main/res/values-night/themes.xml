@@ -10,7 +10,6 @@
     </style>
 
     <style name="Theme.LockerHub.Splash" parent="Theme.LockerHub">
-        <item name="android:windowSplashScreenBackground">@color/splash_background</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <item name="android:windowBackground">@color/splash_background</item>
     </style>
 </resources>
