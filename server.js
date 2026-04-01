@@ -1125,6 +1125,10 @@ app.put('/api/lockers/:id', requireAuth, requireRole('headoffice', 'branch'), (r
 });
 
 app.delete('/api/lockers/:id', requireAuth, requireRole('headoffice'), (req, res) => {
+  const occupant = db.prepare("SELECT id, name FROM tenants WHERE locker_id = ? AND (account_status IS NULL OR account_status != 'Closed')").get(req.params.id);
+  if (occupant) {
+    return res.status(400).json({ error: `Cannot delete — locker is assigned to ${occupant.name}. Close or reassign the tenant first.` });
+  }
   db.prepare('DELETE FROM lockers WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -1527,6 +1531,12 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
 app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     const d = req.body;
+    if (d.status && !['Pending', 'Overdue', 'Paid'].includes(d.status)) {
+      return res.status(400).json({ error: 'Invalid payment status. Must be Pending, Overdue, or Paid.' });
+    }
+    if (d.amount !== undefined && (isNaN(parseFloat(d.amount)) || parseFloat(d.amount) <= 0)) {
+      return res.status(400).json({ error: 'Amount must be greater than 0' });
+    }
     const allowedFields = ['tenant_id', 'locker_id', 'type', 'period', 'amount', 'due_date', 'status', 'paid_on', 'method', 'ref_no', 'receipt_no', 'notes'];
     const fields = []; const vals = [];
     for (const [k, v] of Object.entries(d)) {
@@ -1742,6 +1752,27 @@ app.post('/api/visits', requireAuth, requireRole('headoffice', 'branch'), (req, 
     id, d.branch_id, d.tenant_id, d.locker_id || '', d.datetime || '', d.purpose || '', d.duration || '', d.notes || ''
   );
   res.json({ id });
+});
+
+app.put('/api/visits/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  const d = req.body;
+  const allowedFields = ['branch_id', 'tenant_id', 'locker_id', 'datetime', 'purpose', 'duration', 'notes'];
+  const fields = []; const vals = [];
+  for (const [k, v] of Object.entries(d)) {
+    if (!allowedFields.includes(k)) continue;
+    fields.push(`${k} = ?`);
+    vals.push(v);
+  }
+  if (fields.length) {
+    vals.push(req.params.id);
+    db.prepare(`UPDATE visits SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
+  }
+  res.json({ ok: true });
+});
+
+app.delete('/api/visits/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  db.prepare('DELETE FROM visits WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // ============================

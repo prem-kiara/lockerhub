@@ -3695,6 +3695,8 @@
         window._sessionRestored = false;
         (async function restoreSession() {
             try {
+                // Small delay to ensure DOM is fully painted before loading data
+                await new Promise(r => setTimeout(r, 100));
                 const session = getSession();
                 const token = localStorage.getItem('lockerhub_token');
                 // Require both session and token to restore
@@ -3931,20 +3933,24 @@
 
                 if (isHeadOffice && !currentBranchId) {
                     // Head office with no branch selected — show all-branches overview
-                    const data = await api('GET', '/api/stats/all');
+                    const data = await api('GET', '/api/stats/all', null, 15000);
                     renderHeadOfficeDashboard(data);
                 } else {
                     // Specific branch selected (or branch-level user)
-                    const stats = await api('GET', `/api/stats?branch_id=${currentBranchId}`);
+                    const stats = await api('GET', `/api/stats?branch_id=${currentBranchId}`, null, 15000);
                     renderBranchDashboard(stats);
                 }
 
-                // Load renewal reminders
-                const renewalUrl = currentBranchId
-                    ? `/api/renewals?branch_id=${currentBranchId}`
-                    : '/api/renewals?branch_id=all';
-                const renewals = await api('GET', renewalUrl);
-                renderRenewalReminders(renewals);
+                // Load renewal reminders (don't let this block dashboard rendering)
+                try {
+                    const renewalUrl = currentBranchId
+                        ? `/api/renewals?branch_id=${currentBranchId}`
+                        : '/api/renewals?branch_id=all';
+                    const renewals = await api('GET', renewalUrl, null, 15000);
+                    renderRenewalReminders(renewals);
+                } catch (renewalError) {
+                    console.warn('Renewal reminders failed to load:', renewalError.message);
+                }
             } catch (error) {
                 console.error('Failed to load dashboard:', error);
                 document.getElementById('dashboardStats').innerHTML = `<div style="padding:24px;color:#c00;text-align:center;">
@@ -4701,6 +4707,14 @@
                 hideLoading();
                 closeModal('tenantModal');
                 await loadTenants();
+
+                // If this tenant was converted from a lead, mark the lead as Converted now
+                if (newId && window._pendingLeadConversion) {
+                    try {
+                        await api('PUT', `/api/leads/${window._pendingLeadConversion}`, { status: 'Converted', converted_tenant_id: newId });
+                    } catch (e) { console.warn('Failed to update lead status:', e); }
+                    window._pendingLeadConversion = null;
+                }
 
                 // For new tenants: prompt to record deposit + first year rent
                 if (newId) {
@@ -6083,11 +6097,15 @@
         }
         function closeModal(modalId) {
             document.getElementById(modalId).classList.remove('active');
+            // If closing tenant modal without saving, clear pending lead conversion
+            if (modalId === 'tenantModal') window._pendingLeadConversion = null;
         }
 
         document.addEventListener('click', (e) => {
             if (e.target.classList.contains('modal-overlay')) {
                 e.target.classList.remove('active');
+                // If closing tenant modal by clicking overlay, clear pending lead conversion
+                if (e.target.id === 'tenantModal') window._pendingLeadConversion = null;
             }
         });
 
@@ -7633,8 +7651,8 @@
                     }
                 }
 
-                // Mark lead as converted
-                await api('PUT', `/api/leads/${leadId}`, { status: 'Converted' });
+                // Store leadId so saveTenant() can mark it Converted after successful save
+                window._pendingLeadConversion = leadId;
             } catch (err) { alert('Failed: ' + err.message); }
         }
 

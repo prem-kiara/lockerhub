@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "422858411007",
+    "project_id": "lockerhub-8cec0",
+    "storage_bucket": "lockerhub-8cec0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:422858411007:android:ad41727ed8b648e4a3b5ca",
+        "android_client_info": {
+          "package_name": "com.dhanam.lockerhub"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBATqQxvQi-pSEjC2QlgWE1fzacad-x1WI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

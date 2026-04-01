@@ -18,6 +18,7 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.google.firebase.crashlytics.FirebaseCrashlytics
 
 class MainActivity : AppCompatActivity() {
 
@@ -112,6 +113,10 @@ class MainActivity : AppCompatActivity() {
                 view: WebView?, request: WebResourceRequest?, error: WebResourceError?
             ) {
                 super.onReceivedError(view, request, error)
+                // Log WebView errors to Crashlytics
+                FirebaseCrashlytics.getInstance().log(
+                    "WebView error: ${error?.errorCode} - ${error?.description} | URL: ${request?.url}"
+                )
                 if (request?.isForMainFrame == true) {
                     isLoading = false
                     showOffline()
