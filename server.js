@@ -576,12 +576,13 @@ logInfo('Database migrations complete');
     'Srinish', 'Harisudhan', 'Rithiesh', 'Gokul', 'Anbu', 'Karthik', 'Deepak',
     'Vignesh', 'Arun', 'Praveen', 'Mohan', 'Rajesh', 'Dinesh'
   ];
+  const leadHash = bcrypt.hashSync('lead@123', 10);
   leadAgents.forEach(name => {
     const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = ?').get(name.toLowerCase());
     if (!existing) {
       const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
       db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-        id, name.toLowerCase(), 'lead@123', name, 'lead_agent', null
+        id, name.toLowerCase(), leadHash, name, 'lead_agent', null
       );
       logInfo('Migration: created lead agent', { name, username: name.toLowerCase() });
     }
@@ -592,10 +593,23 @@ logInfo('Database migrations complete');
 (function ensureRootAdmin() {
   const rootExists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'root'").get();
   if (!rootExists) {
+    const hash = bcrypt.hashSync('admin@123', 10);
     db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-      'admin001', 'root', 'admin@123', 'Head Office Admin', 'headoffice', null
+      'admin001', 'root', hash, 'Head Office Admin', 'headoffice', null
     );
     logInfo('Migration: created root admin user (guaranteed default)');
+  }
+})();
+
+// Guarantee Google reviewer account always exists
+(function ensureGoogleReviewer() {
+  const exists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'googlereviewer'").get();
+  if (!exists) {
+    const hash = bcrypt.hashSync('Review@2026', 10);
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+      Date.now().toString(36) + Math.random().toString(36).slice(2, 9), 'googlereviewer', hash, 'Google Reviewer', 'headoffice', null
+    );
+    logInfo('Migration: created Google reviewer account');
   }
 })();
 
@@ -621,8 +635,9 @@ logInfo('Database migrations complete');
   // 2. Ensure RS Puram staff user
   const staffExists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'rspuram'").get();
   if (!staffExists) {
+    const staffHash = bcrypt.hashSync('admin@123', 10);
     db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-      _gid(), 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', 'br_rspuram'
+      _gid(), 'rspuram', staffHash, 'RS Puram Staff', 'branch', 'br_rspuram'
     );
     logInfo('Migration: created RS Puram staff user');
   }
@@ -1980,8 +1995,15 @@ function autoSeed() {
   console.log('  First run — seeding default data...');
 
   // Admin user
+  const rootHash = bcrypt.hashSync('admin@123', 10);
   db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-    'admin001', 'root', 'admin@123', 'Head Office Admin', 'headoffice', null
+    'admin001', 'root', rootHash, 'Head Office Admin', 'headoffice', null
+  );
+
+  // Google reviewer account
+  const reviewerHash = bcrypt.hashSync('Review@2026', 10);
+  db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+    genId(), 'googlereviewer', reviewerHash, 'Google Reviewer', 'headoffice', null
   );
 
   // Lead agent users (for branch opening lead capture)
@@ -1990,9 +2012,10 @@ function autoSeed() {
     'Srinish', 'Harisudhan', 'Rithiesh', 'Gokul', 'Anbu', 'Karthik', 'Deepak',
     'Vignesh', 'Arun', 'Praveen', 'Mohan', 'Rajesh', 'Dinesh'
   ];
+  const seedLeadHash = bcrypt.hashSync('lead@123', 10);
   leadAgents.forEach(name => {
     db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-      genId(), name.toLowerCase(), 'lead@123', name, 'lead_agent', null
+      genId(), name.toLowerCase(), seedLeadHash, name, 'lead_agent', null
     );
   });
 
@@ -2017,8 +2040,9 @@ function autoSeed() {
   const brRS = 'br_rspuram';
   db.prepare('INSERT INTO branches (id, name, address, phone, location, manager_name) VALUES (?, ?, ?, ?, ?, ?)').run(brRS, 'RS Puram', 'RS Puram, Coimbatore', '', 'RS Puram, Coimbatore', '');
   db.prepare('INSERT INTO config (branch_id) VALUES (?)').run(brRS);
+  const rsStaffHash = bcrypt.hashSync('admin@123', 10);
   db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-    genId(), 'rspuram', 'admin@123', 'RS Puram Staff', 'branch', brRS
+    genId(), 'rspuram', rsStaffHash, 'RS Puram Staff', 'branch', brRS
   );
 
   // RS Puram: 8 L6 units (01-08, 6 lockers each) + 4 L10 units (01-04, 10 lockers each) = 88 lockers
