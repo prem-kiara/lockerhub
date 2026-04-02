@@ -3064,30 +3064,34 @@
     <div id="userModal" class="modal-overlay">
         <div class="modal">
             <div class="modal-header">
-                <h2>Add User</h2>
+                <h2 id="userModalTitle">Add User</h2>
                 <button class="modal-close" onclick="closeModal('userModal')">×</button>
             </div>
             <div class="modal-body">
+                <div id="userFormError" style="display:none;background:#fef2f2;border:1px solid #fca5a5;color:#b91c1c;padding:10px 14px;border-radius:8px;margin-bottom:16px;font-size:14px;"></div>
                 <form id="userForm">
+                    <input type="hidden" id="userEditId">
                     <div class="form-group">
                         <label for="userName">Name</label>
-                        <input type="text" id="userName" required>
+                        <input type="text" id="userName" required placeholder="Full name">
                     </div>
                     <div class="form-group">
                         <label for="userUsername">Username</label>
-                        <input type="text" id="userUsername" required>
+                        <input type="text" id="userUsername" required placeholder="Login username">
                     </div>
-                    <div class="form-group">
+                    <div class="form-group" id="userPasswordGroup">
                         <label for="userPassword">Password</label>
-                        <input type="password" id="userPassword" required>
+                        <input type="password" id="userPassword" placeholder="Min 6 characters" minlength="6">
+                        <small id="userPasswordHint" style="color:#7a6b5e;font-size:12px;"></small>
                     </div>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="userRole">Role</label>
                             <select id="userRole" required onchange="updateBranchSelectForUser()">
                                 <option value="">Select role</option>
-                                <option value="headoffice">Head Office</option>
-                                <option value="branch">Branch Manager</option>
+                                <option value="headoffice">Head Office Admin</option>
+                                <option value="branch">Branch Staff</option>
+                                <option value="lead_agent">Lead Agent</option>
                             </select>
                         </div>
                         <div class="form-group" id="userBranchGroup" style="display: none;">
@@ -3101,7 +3105,7 @@
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('userModal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveUser()">Add User</button>
+                <button class="btn btn-primary" id="userSaveBtn" onclick="saveUser()">Add User</button>
             </div>
         </div>
     </div>
@@ -5557,6 +5561,7 @@
         async function loadUsers() {
             try {
                 const users = await api('GET', '/api/users');
+                _loadedUsers = users;
                 renderUsers(users);
             } catch (error) {
                 console.error('Failed to load users:', error);
@@ -5569,16 +5574,21 @@
                 return;
             }
 
+            const roleLabels = { headoffice: 'Head Office', branch: 'Branch Staff', lead_agent: 'Lead Agent', customer: 'Customer' };
+            const roleBadges = { headoffice: 'badge-danger', branch: 'badge-primary', lead_agent: 'badge-warning', customer: 'badge-success' };
+
             const html = users.map(u => `
                 <tr>
                     <td><strong>${u.name}</strong></td>
-                    <td>${u.username}</td>
-                    <td><span class="badge badge-primary">${capitalize(u.role)}</span></td>
-                    <td>${u.branch_name || 'All Branches'}</td>
+                    <td><code style="background:#f5f0eb;padding:2px 8px;border-radius:4px;font-size:13px;">${u.username}</code></td>
+                    <td><span class="badge ${roleBadges[u.role] || 'badge-primary'}">${roleLabels[u.role] || capitalize(u.role)}</span></td>
+                    <td>${u.branch_name || (u.role === 'lead_agent' ? 'All Branches' : 'All Branches')}</td>
                     <td>
-                        <!-- CHANGE 3: Add Change Password button for non-root users -->
-                        ${u.role !== 'headoffice' ? `<button class="btn btn-secondary" onclick="openChangePasswordModal('${u.id}', '${u.name}')">Change Password</button>` : ''}
-                        <button class="btn btn-danger" onclick="deleteUser('${u.id}')">Delete</button>
+                        <div class="action-buttons">
+                            <button class="btn btn-secondary" onclick="openEditUserModal('${u.id}')" style="font-size:12px;padding:5px 10px;">Edit</button>
+                            <button class="btn btn-secondary" onclick="openChangePasswordModal('${u.id}', '${u.name}')" style="font-size:12px;padding:5px 10px;">Password</button>
+                            <button class="btn btn-danger" onclick="deleteUser('${u.id}')" style="font-size:12px;padding:5px 10px;">Delete</button>
+                        </div>
                     </td>
                 </tr>
             `).join('');
@@ -5586,7 +5596,10 @@
             document.getElementById('usersTable').innerHTML = html;
         }
 
-        // CHANGE 3: Change password modal functions
+        // Store loaded users for edit lookup
+        let _loadedUsers = [];
+
+        // Change password modal
         function openChangePasswordModal(userId, userName) {
             document.getElementById('changeUserPwdId').value = userId;
             document.getElementById('changeUserPwdName').textContent = userName;
@@ -5599,7 +5612,7 @@
             const newPassword = document.getElementById('changeUserPwdPassword').value.trim();
 
             if (!newPassword) return alert('Please enter a password');
-            if (newPassword.length < 4) return alert('Password must be at least 4 characters');
+            if (newPassword.length < 6) return alert('Password must be at least 6 characters');
 
             try {
                 await api('PUT', `/api/users/${userId}/password`, { password: newPassword });
@@ -5611,10 +5624,46 @@
             }
         }
 
+        // Add user modal
         function openAddUserModal() {
             document.getElementById('userForm').reset();
+            document.getElementById('userEditId').value = '';
+            document.getElementById('userModalTitle').textContent = 'Add User';
+            document.getElementById('userSaveBtn').textContent = 'Add User';
+            document.getElementById('userFormError').style.display = 'none';
+            document.getElementById('userPassword').required = true;
+            document.getElementById('userPasswordHint').textContent = '';
+            document.getElementById('userPasswordGroup').style.display = 'block';
+            document.getElementById('userBranchGroup').style.display = 'none';
             loadBranchSelectorForUser();
-            document.getElementById('userModal').classList.add('active');
+            openModal('userModal');
+        }
+
+        // Edit user modal
+        async function openEditUserModal(userId) {
+            const user = _loadedUsers.find(u => u.id === userId);
+            if (!user) return alert('User not found');
+
+            document.getElementById('userForm').reset();
+            document.getElementById('userEditId').value = userId;
+            document.getElementById('userModalTitle').textContent = 'Edit User';
+            document.getElementById('userSaveBtn').textContent = 'Save Changes';
+            document.getElementById('userFormError').style.display = 'none';
+            document.getElementById('userName').value = user.name;
+            document.getElementById('userUsername').value = user.username;
+            document.getElementById('userPassword').required = false;
+            document.getElementById('userPassword').value = '';
+            document.getElementById('userPasswordHint').textContent = 'Leave blank to keep current password';
+            document.getElementById('userPasswordGroup').style.display = 'block';
+            document.getElementById('userRole').value = user.role;
+
+            await loadBranchSelectorForUser();
+            updateBranchSelectForUser();
+            if (user.branch_id) {
+                document.getElementById('userBranch').value = user.branch_id;
+            }
+
+            openModal('userModal');
         }
 
         function updateBranchSelectForUser() {
@@ -5634,30 +5683,53 @@
         }
 
         async function saveUser() {
-            const data = {
-                name: document.getElementById('userName').value,
-                username: document.getElementById('userUsername').value,
-                password: document.getElementById('userPassword').value,
-                role: document.getElementById('userRole').value,
-                branch_id: document.getElementById('userRole').value === 'branch' ? document.getElementById('userBranch').value : null
-            };
+            const errorEl = document.getElementById('userFormError');
+            errorEl.style.display = 'none';
+
+            const editId = document.getElementById('userEditId').value;
+            const isEdit = !!editId;
+            const name = document.getElementById('userName').value.trim();
+            const username = document.getElementById('userUsername').value.trim();
+            const password = document.getElementById('userPassword').value;
+            const role = document.getElementById('userRole').value;
+            const branch_id = role === 'branch' ? document.getElementById('userBranch').value : null;
+
+            // Validation
+            if (!name) { errorEl.textContent = 'Name is required'; errorEl.style.display = 'block'; return; }
+            if (!username) { errorEl.textContent = 'Username is required'; errorEl.style.display = 'block'; return; }
+            if (!isEdit && !password) { errorEl.textContent = 'Password is required'; errorEl.style.display = 'block'; return; }
+            if (password && password.length < 6) { errorEl.textContent = 'Password must be at least 6 characters'; errorEl.style.display = 'block'; return; }
+            if (!role) { errorEl.textContent = 'Please select a role'; errorEl.style.display = 'block'; return; }
+            if (role === 'branch' && !branch_id) { errorEl.textContent = 'Please select a branch for branch staff'; errorEl.style.display = 'block'; return; }
 
             try {
-                await api('POST', '/api/users', data);
+                if (isEdit) {
+                    // Update user details
+                    await api('PUT', `/api/users/${editId}`, { name, username, role, branch_id });
+                    // Update password if provided
+                    if (password) {
+                        await api('PUT', `/api/users/${editId}/password`, { password });
+                    }
+                } else {
+                    await api('POST', '/api/users', { name, username, password, role, branch_id });
+                }
                 closeModal('userModal');
                 await loadUsers();
             } catch (error) {
-                console.error('Failed to save user:', error);
+                errorEl.textContent = error.message || 'Failed to save user';
+                errorEl.style.display = 'block';
             }
         }
 
         async function deleteUser(id) {
-            if (confirm('Are you sure?')) {
+            const user = _loadedUsers.find(u => u.id === id);
+            const name = user ? user.name : 'this user';
+            if (confirm(`Delete ${name}? This cannot be undone.`)) {
                 try {
                     await api('DELETE', `/api/users/${id}`);
                     await loadUsers();
                 } catch (error) {
-                    console.error('Failed to delete user:', error);
+                    alert('Failed to delete user: ' + error.message);
                 }
             }
         }

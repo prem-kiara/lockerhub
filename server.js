@@ -593,11 +593,23 @@ logInfo('Database migrations complete');
 (function ensureRootAdmin() {
   const rootExists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'root'").get();
   if (!rootExists) {
-    const hash = bcrypt.hashSync('admin@123', 10);
+    const hash = bcrypt.hashSync('adcc@123', 10);
     db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
       'admin001', 'root', hash, 'Head Office Admin', 'headoffice', null
     );
     logInfo('Migration: created root admin user (guaranteed default)');
+  }
+})();
+
+// Guarantee HO admin user always exists
+(function ensureHOAdmin() {
+  const exists = db.prepare("SELECT id FROM users WHERE LOWER(username) = 'ho'").get();
+  if (!exists) {
+    const hash = bcrypt.hashSync('admin@123', 10);
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+      Date.now().toString(36) + Math.random().toString(36).slice(2, 9), 'ho', hash, 'Head Office Admin', 'headoffice', null
+    );
+    logInfo('Migration: created HO admin user');
   }
 })();
 
@@ -1968,16 +1980,53 @@ app.post('/api/users', requireAuth, requireRole('headoffice'), async (req, res) 
   }
 });
 
+app.put('/api/users/:id', requireAuth, requireRole('headoffice'), (req, res) => {
+  const { name, role, branch_id, username } = req.body;
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  // Only root can edit root
+  if (user.username === 'root' && req.user.username !== 'root') {
+    return res.status(403).json({ error: 'Only the root user can modify the root account' });
+  }
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+  const validRoles = ['headoffice', 'branch', 'lead_agent'];
+  if (role && !validRoles.includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  // Prevent changing root's username
+  if (user.username === 'root' && username && username !== 'root') {
+    return res.status(400).json({ error: 'Cannot change the root username' });
+  }
+  // Check username uniqueness if changed
+  if (username && username !== user.username) {
+    const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = ? AND id != ?').get(username.toLowerCase(), req.params.id);
+    if (existing) return res.status(400).json({ error: 'Username already taken' });
+  }
+  db.prepare('UPDATE users SET name = ?, role = ?, branch_id = ?, username = ? WHERE id = ?').run(
+    name.trim(), role || user.role, branch_id || null, username || user.username, req.params.id
+  );
+  logInfo('User updated', { id: req.params.id, name, role });
+  res.json({ ok: true });
+});
+
 app.delete('/api/users/:id', requireAuth, requireRole('headoffice'), (req, res) => {
+  // Protect root user from deletion
+  const user = db.prepare('SELECT username FROM users WHERE id = ?').get(req.params.id);
+  if (user && user.username === 'root') {
+    return res.status(403).json({ error: 'The root account cannot be deleted' });
+  }
   db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-// Change Password for Branch Staff
+// Change Password
 app.put('/api/users/:id/password', requireAuth, requireRole('headoffice'), async (req, res) => {
   const { password } = req.body;
   if (!password) return res.status(400).json({ error: 'Password required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  // Only root can change root's password
+  const targetUser = db.prepare('SELECT username FROM users WHERE id = ?').get(req.params.id);
+  if (targetUser && targetUser.username === 'root' && req.user.username !== 'root') {
+    return res.status(403).json({ error: 'Only the root user can change the root password' });
+  }
 
   const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
   db.prepare('UPDATE users SET password = ? WHERE id = ?').run(hashedPassword, req.params.id);
@@ -1994,10 +2043,16 @@ function autoSeed() {
 
   console.log('  First run — seeding default data...');
 
-  // Admin user
-  const rootHash = bcrypt.hashSync('admin@123', 10);
+  // Root super admin
+  const rootHash = bcrypt.hashSync('adcc@123', 10);
   db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
-    'admin001', 'root', rootHash, 'Head Office Admin', 'headoffice', null
+    'admin001', 'root', rootHash, 'Root Admin', 'headoffice', null
+  );
+
+  // HO admin user
+  const hoHash = bcrypt.hashSync('admin@123', 10);
+  db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(
+    genId(), 'ho', hoHash, 'Head Office Admin', 'headoffice', null
   );
 
   // Google reviewer account
