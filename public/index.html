@@ -3747,7 +3747,9 @@
                 window._sessionRestored = true;
             } catch (error) {
                 hideLoading();
-                const msg = error.message.includes('timed out') ? 'Server is starting up — please wait 30 seconds and try again.' : 'Invalid credentials';
+                const msg = error.message.includes('timed out') ? 'Server is starting up — please wait 30 seconds and try again.'
+                    : error.message.includes('Too Many') || error.message.includes('429') ? 'Too many login attempts. Please wait a minute and try again.'
+                    : 'Invalid credentials';
                 document.getElementById('loginError').textContent = msg;
                 document.getElementById('loginError').classList.add('show');
             }
