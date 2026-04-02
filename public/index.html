@@ -6604,20 +6604,21 @@
 
             const monthName = firstDay.toLocaleDateString('en', { month: 'long', year: 'numeric' });
 
-            let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
-                <button onclick="_calMonth--;if(_calMonth<0){_calMonth=11;_calYear--;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:16px;font-weight:600;color:#555;">&larr;</button>
-                <span style="font-weight:700;font-size:15px;color:#333;">${monthName}</span>
-                <button onclick="_calMonth++;if(_calMonth>11){_calMonth=0;_calYear++;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:16px;font-weight:600;color:#555;">&rarr;</button>
+            let html = `<div style="max-width:420px;">`;
+            html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                <button onclick="_calMonth--;if(_calMonth<0){_calMonth=11;_calYear--;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:13px;font-weight:600;color:#555;">&larr;</button>
+                <span style="font-weight:700;font-size:13px;color:#333;">${monthName}</span>
+                <button onclick="_calMonth++;if(_calMonth>11){_calMonth=0;_calYear++;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:13px;font-weight:600;color:#555;">&rarr;</button>
             </div>`;
 
-            html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">';
+            html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;">';
 
             ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(d => {
-                html += `<div style="text-align:center;font-weight:600;font-size:11px;color:#999;padding:4px 0;">${d}</div>`;
+                html += `<div style="text-align:center;font-weight:600;font-size:10px;color:#999;padding:2px 0;">${d}</div>`;
             });
 
             for (let i = 0; i < startDow; i++) {
-                html += `<div style="aspect-ratio:1;"></div>`;
+                html += `<div style="height:38px;"></div>`;
             }
 
             for (let day = 1; day <= daysInMonth; day++) {
@@ -6634,42 +6635,34 @@
                 const bgColor = isToday ? '#fdf8e8' : isPast ? '#fafafa' : '#fff';
                 const textColor = isPast ? '#aaa' : isToday ? '#b8860b' : '#333';
 
-                html += `<div onclick="showDaySlots('${dateStr}')" style="aspect-ratio:1;border:1.5px solid ${borderColor};border-radius:6px;padding:3px;background:${bgColor};cursor:pointer;transition:box-shadow 0.15s;display:flex;flex-direction:column;overflow:hidden;" onmouseover="this.style.boxShadow='0 2px 6px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow='none'">
-                    <div style="font-size:12px;font-weight:700;color:${textColor};line-height:1;">${day}</div>
-                    ${total > 0 ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:auto;">
-                        ${pending ? `<span style="font-size:8px;background:#fef3c7;color:#b45309;border-radius:2px;padding:0 2px;line-height:1.4;">${pending}P</span>` : ''}
-                        ${approved ? `<span style="font-size:8px;background:#d1fae5;color:#047857;border-radius:2px;padding:0 2px;line-height:1.4;">${approved}A</span>` : ''}
-                        ${completed ? `<span style="font-size:8px;background:#cffafe;color:#0e7490;border-radius:2px;padding:0 2px;line-height:1.4;">${completed}D</span>` : ''}
+                html += `<div onclick="showDaySlots('${dateStr}')" style="height:38px;border:1px solid ${borderColor};border-radius:4px;padding:2px 3px;background:${bgColor};cursor:pointer;transition:box-shadow 0.15s;display:flex;flex-direction:column;overflow:hidden;" onmouseover="this.style.boxShadow='0 1px 4px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
+                    <div style="font-size:11px;font-weight:700;color:${textColor};line-height:1;">${day}</div>
+                    ${total > 0 ? `<div style="display:flex;gap:1px;flex-wrap:wrap;margin-top:auto;">
+                        ${pending ? `<span style="font-size:7px;background:#fef3c7;color:#b45309;border-radius:2px;padding:0 2px;line-height:1.4;">${pending}P</span>` : ''}
+                        ${approved ? `<span style="font-size:7px;background:#d1fae5;color:#047857;border-radius:2px;padding:0 2px;line-height:1.4;">${approved}A</span>` : ''}
+                        ${completed ? `<span style="font-size:7px;background:#cffafe;color:#0e7490;border-radius:2px;padding:0 2px;line-height:1.4;">${completed}D</span>` : ''}
                     </div>` : ''}
                 </div>`;
             }
             html += '</div>';
 
-            html += `<div style="display:flex;gap:8px;margin-top:6px;font-size:10px;color:#888;flex-wrap:wrap;">
-                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:2px;vertical-align:middle;"></span>Pending</span>
-                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#10b981;margin-right:2px;vertical-align:middle;"></span>Approved</span>
-                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0891b2;margin-right:2px;vertical-align:middle;"></span>Done</span>
-                <span style="margin-left:auto;color:#aaa;">Click a day to see slots</span>
+            html += `<div style="display:flex;gap:6px;margin-top:4px;font-size:9px;color:#888;flex-wrap:wrap;">
+                <span><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#f59e0b;margin-right:2px;vertical-align:middle;"></span>Pending</span>
+                <span><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#10b981;margin-right:2px;vertical-align:middle;"></span>Approved</span>
+                <span><span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#0891b2;margin-right:2px;vertical-align:middle;"></span>Done</span>
+                <span style="margin-left:auto;color:#aaa;">Tap a day to view</span>
             </div>`;
-
-            // Day slot detail panel (hidden by default)
-            html += `<div id="daySlotPanel" style="display:none;margin-top:10px;border:1px solid #e5e5e5;border-radius:8px;background:#fff;padding:12px;"></div>`;
+            html += '</div>'; // close max-width wrapper
 
             cal.innerHTML = html;
         }
 
-        async function showDaySlots(dateStr) {
-            const panel = document.getElementById('daySlotPanel');
-            if (!panel) return;
-            panel.style.display = 'block';
-
+        function showDaySlots(dateStr) {
             const [y, m, d] = dateStr.split('-');
-            const dayLabel = new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' });
+            const dayLabel = new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
 
-            // Get appointments for this day (use cached data)
             const dayAppts = _calAppts.filter(a => a.requested_date === dateStr && a.status !== 'Cancelled' && a.status !== 'Rejected');
 
-            // Build slot map: slot -> list of appointments
             const slotMap = {};
             generateTimeSlots().forEach(s => { slotMap[s] = []; });
             dayAppts.forEach(a => {
@@ -6677,7 +6670,6 @@
                 if (slotMap[t] !== undefined) {
                     slotMap[t].push(a);
                 } else if (a.requested_time) {
-                    // Round to nearest slot
                     const [hh, mm] = a.requested_time.split(':').map(Number);
                     const rounded = String(hh).padStart(2, '0') + ':' + (mm < 30 ? '00' : '30');
                     if (slotMap[rounded]) slotMap[rounded].push(a);
@@ -6685,39 +6677,57 @@
             });
 
             const allSlots = generateTimeSlots();
-            let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
-                <strong style="font-size:14px;color:#333;">${dayLabel}</strong>
-                <button onclick="document.getElementById('daySlotPanel').style.display='none'" style="border:none;background:#f0f0f0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;color:#666;">Close</button>
-            </div>`;
+            const bookedCount = allSlots.filter(s => (slotMap[s] || []).some(a => a.status === 'Approved' || a.status === 'Completed')).length;
+            const pendingCount = allSlots.filter(s => (slotMap[s] || []).some(a => a.status === 'Pending')).length;
+            const availCount = allSlots.length - bookedCount - pendingCount;
 
-            html += '<div style="display:grid;grid-template-columns:1fr;gap:2px;max-height:300px;overflow-y:auto;">';
+            let body = `<div style="display:flex;gap:12px;margin-bottom:12px;font-size:12px;">
+                <span style="color:#16a34a;font-weight:600;">${availCount} Available</span>
+                <span style="color:#d97706;font-weight:600;">${pendingCount} Pending</span>
+                <span style="color:#dc2626;font-weight:600;">${bookedCount} Booked</span>
+            </div>`;
+            body += '<div style="max-height:350px;overflow-y:auto;">';
             allSlots.forEach(slot => {
                 const appts = slotMap[slot] || [];
                 const isBooked = appts.some(a => a.status === 'Approved' || a.status === 'Completed');
                 const isPending = appts.some(a => a.status === 'Pending');
-                const isEmpty = appts.length === 0;
 
-                let bg = '#f0fdf4'; // green-ish = available
-                let statusLabel = '<span style="color:#16a34a;font-size:11px;">Available</span>';
+                let bg = '#f0fdf4';
+                let statusLabel = '<span style="color:#16a34a;font-size:12px;">Available</span>';
                 if (isBooked) {
                     bg = '#fef2f2';
                     const a = appts.find(a => a.status === 'Approved' || a.status === 'Completed');
-                    statusLabel = `<span style="color:#dc2626;font-size:11px;">Booked — ${a.tenant_name || 'Customer'}</span>`;
+                    statusLabel = `<span style="color:#dc2626;font-size:12px;">Booked — ${a.tenant_name || 'Customer'}</span>`;
                 } else if (isPending) {
                     bg = '#fffbeb';
                     const a = appts.find(a => a.status === 'Pending');
-                    statusLabel = `<span style="color:#d97706;font-size:11px;">Pending — ${a.tenant_name || 'Customer'}</span>`;
+                    statusLabel = `<span style="color:#d97706;font-size:12px;">Pending — ${a.tenant_name || 'Customer'}</span>`;
                 }
 
-                html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:${bg};border-radius:4px;border:1px solid ${isBooked ? '#fecaca' : isPending ? '#fde68a' : '#bbf7d0'};">
-                    <span style="font-weight:600;font-size:12px;min-width:70px;color:#333;">${formatSlotTime(slot)}</span>
+                body += `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:${bg};border-radius:5px;border:1px solid ${isBooked ? '#fecaca' : isPending ? '#fde68a' : '#bbf7d0'};margin-bottom:3px;">
+                    <span style="font-weight:600;font-size:12px;min-width:72px;color:#333;">${formatSlotTime(slot)}</span>
                     ${statusLabel}
                 </div>`;
             });
-            html += '</div>';
+            body += '</div>';
 
-            panel.innerHTML = html;
-            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            // Build and show modal
+            let overlay = document.getElementById('daySlotsModal');
+            if (!overlay) {
+                overlay = document.createElement('div');
+                overlay.id = 'daySlotsModal';
+                document.body.appendChild(overlay);
+            }
+            overlay.className = 'modal-overlay';
+            overlay.style.cssText = 'display:flex;align-items:center;justify-content:center;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.4);z-index:9999;';
+            overlay.innerHTML = `<div style="background:#fff;border-radius:10px;width:90%;max-width:420px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,0.2);">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid #eee;">
+                    <h3 style="margin:0;font-size:15px;color:#333;">${dayLabel}</h3>
+                    <button onclick="document.getElementById('daySlotsModal').style.display='none'" style="border:none;background:#f0f0f0;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:13px;color:#555;font-weight:600;">✕</button>
+                </div>
+                <div style="padding:14px 18px;overflow-y:auto;">${body}</div>
+            </div>`;
+            overlay.onclick = (e) => { if (e.target === overlay) overlay.style.display = 'none'; };
         }
 
         // CHANGE 6: Auto-log visit on appointment completion
