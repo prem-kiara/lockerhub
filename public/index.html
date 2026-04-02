@@ -5333,12 +5333,27 @@
         }
 
         // ===== Backup =====
-        function downloadDbBackup() {
-            // Direct download of the SQLite database file
-            const a = document.createElement('a');
-            a.href = '/api/backup/download';
-            a.download = 'lockerhub_backup.db';
-            a.click();
+        async function downloadDbBackup() {
+            showLoading('Downloading database...');
+            try {
+                const token = localStorage.getItem('lockerhub_token');
+                const resp = await fetch('/api/backup/download', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) throw new Error('Failed to download backup');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'lockerhub_backup.db';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                alert('Failed to download backup: ' + err.message);
+            }
+            hideLoading();
         }
 
         async function createServerBackup() {
@@ -6333,26 +6348,51 @@
         }
 
         // ===== SOA Download (Ledger Style) =====
-        function downloadAllotmentForm(tenantId) {
+        async function downloadAllotmentForm(tenantId) {
             showLoading('Generating Allotment Form...');
-            const a = document.createElement('a');
-            a.href = `/api/allotment-form/${tenantId}`;
-            a.download = '';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => hideLoading(), 2000);
+            try {
+                const token = localStorage.getItem('lockerhub_token');
+                const resp = await fetch(`/api/allotment-form/${tenantId}`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) throw new Error('Failed to generate form');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `allotment-form-${tenantId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                alert('Failed to download allotment form: ' + err.message);
+            }
+            hideLoading();
         }
 
-        function downloadReceipt(paymentId, customerCopyOnly) {
+        async function downloadReceipt(paymentId, customerCopyOnly) {
             showLoading('Generating Receipt...');
-            const a = document.createElement('a');
-            a.href = `/api/receipt/${paymentId}${customerCopyOnly ? '?copy=customer' : ''}`;
-            a.download = '';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => hideLoading(), 2000);
+            try {
+                const token = localStorage.getItem('lockerhub_token');
+                const url = `/api/receipt/${paymentId}${customerCopyOnly ? '?copy=customer' : ''}`;
+                const resp = await fetch(url, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) throw new Error('Failed to generate receipt');
+                const blob = await resp.blob();
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = `receipt-${paymentId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(blobUrl);
+            } catch (err) {
+                alert('Failed to download receipt: ' + err.message);
+            }
+            hideLoading();
         }
 
         async function downloadSOA(tenantId) {
@@ -6502,35 +6542,71 @@
             }
         }
 
+        // Calendar state
+        let _calMonth = new Date().getMonth();
+        let _calYear = new Date().getFullYear();
+        let _calAppts = [];
+
         function renderAppointmentCalendar(appts) {
+            if (appts) _calAppts = appts;
             const cal = document.getElementById('appointmentCalendar');
             const today = new Date();
-            let html = '<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:8px;">';
+            const todayStr = today.toISOString().split('T')[0];
 
-            ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
-                html += `<div style="text-align:center; font-weight:600; font-size:12px; color:#888; padding:4px;">${d}</div>`;
+            const firstDay = new Date(_calYear, _calMonth, 1);
+            const lastDay = new Date(_calYear, _calMonth + 1, 0);
+            const daysInMonth = lastDay.getDate();
+            const startDow = firstDay.getDay(); // 0=Sun
+
+            const monthName = firstDay.toLocaleDateString('en', { month: 'long', year: 'numeric' });
+
+            let html = `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+                <button onclick="_calMonth--;if(_calMonth<0){_calMonth=11;_calYear--;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;font-weight:600;color:#555;">&larr;</button>
+                <span style="font-weight:700;font-size:15px;color:#333;">${monthName}</span>
+                <button onclick="_calMonth++;if(_calMonth>11){_calMonth=0;_calYear++;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;font-weight:600;color:#555;">&rarr;</button>
+            </div>`;
+
+            html += '<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:3px;">';
+
+            ['S','M','T','W','T','F','S'].forEach(d => {
+                html += `<div style="text-align:center;font-weight:600;font-size:11px;color:#999;padding:2px 0;">${d}</div>`;
             });
 
-            for (let i = 0; i < 14; i++) {
-                const d = new Date(today);
-                d.setDate(today.getDate() + i);
-                const dateStr = d.toISOString().split('T')[0];
-                const dayAppts = appts.filter(a => a.requested_date === dateStr);
+            // Empty cells before 1st
+            for (let i = 0; i < startDow; i++) {
+                html += `<div style="min-height:44px;"></div>`;
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const dateStr = `${_calYear}-${String(_calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dayAppts = _calAppts.filter(a => a.requested_date === dateStr);
                 const pending = dayAppts.filter(a => a.status === 'Pending').length;
                 const approved = dayAppts.filter(a => a.status === 'Approved').length;
                 const completed = dayAppts.filter(a => a.status === 'Completed').length;
-                const isToday = i === 0;
+                const isToday = dateStr === todayStr;
                 const total = dayAppts.length;
 
-                html += `<div style="border:2px solid ${isToday ? '#b8860b' : total > 0 ? '#d4a' : '#e8e8e8'}; border-radius:10px; padding:8px; min-height:70px; background:${isToday ? '#fdf8e8' : '#fff'}; cursor:pointer; transition:box-shadow 0.2s;" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
-                    <div style="font-size:13px; font-weight:700; ${isToday ? 'color:#b8860b;' : 'color:#333;'}">${d.getDate()} ${d.toLocaleDateString('en', {month:'short'})}</div>
-                    ${pending ? `<div style="font-size:11px; margin-top:4px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:4px;"></span>${pending} pending</div>` : ''}
-                    ${approved ? `<div style="font-size:11px; margin-top:2px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-right:4px;"></span>${approved} approved</div>` : ''}
-                    ${completed ? `<div style="font-size:11px; margin-top:2px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#0891b2;margin-right:4px;"></span>${completed} done</div>` : ''}
-                    ${total === 0 ? '<div style="font-size:11px; color:#ccc; margin-top:4px;">—</div>' : ''}
+                const borderColor = isToday ? '#b8860b' : total > 0 ? '#c084fc' : '#eee';
+                const bgColor = isToday ? '#fdf8e8' : '#fff';
+
+                html += `<div style="border:1.5px solid ${borderColor};border-radius:6px;padding:3px 4px;min-height:44px;background:${bgColor};cursor:pointer;transition:box-shadow 0.15s;" onmouseover="this.style.boxShadow='0 1px 4px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
+                    <div style="font-size:11px;font-weight:700;${isToday ? 'color:#b8860b;' : 'color:#444;'}">${day}</div>
+                    ${total > 0 ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:2px;">
+                        ${pending ? `<span style="font-size:9px;background:#fef3c7;color:#b45309;border-radius:3px;padding:0 3px;">${pending}P</span>` : ''}
+                        ${approved ? `<span style="font-size:9px;background:#d1fae5;color:#047857;border-radius:3px;padding:0 3px;">${approved}A</span>` : ''}
+                        ${completed ? `<span style="font-size:9px;background:#cffafe;color:#0e7490;border-radius:3px;padding:0 3px;">${completed}D</span>` : ''}
+                    </div>` : ''}
                 </div>`;
             }
             html += '</div>';
+
+            // Legend
+            html += `<div style="display:flex;gap:10px;margin-top:6px;font-size:10px;color:#777;">
+                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:2px;"></span>P = Pending</span>
+                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#10b981;margin-right:2px;"></span>A = Approved</span>
+                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0891b2;margin-right:2px;"></span>D = Done</span>
+            </div>`;
+
             cal.innerHTML = html;
         }
 
@@ -6857,15 +6933,27 @@
             }
         }
 
-        function downloadSignedDoc(esignId) {
+        async function downloadSignedDoc(esignId) {
             showLoading('Downloading signed document...');
-            const a = document.createElement('a');
-            a.href = `/api/esign/${esignId}/download`;
-            a.download = '';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            setTimeout(() => hideLoading(), 2000);
+            try {
+                const token = localStorage.getItem('lockerhub_token');
+                const resp = await fetch(`/api/esign/${esignId}/download`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) throw new Error('Failed to download document');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `signed-doc-${esignId}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (err) {
+                alert('Failed to download: ' + err.message);
+            }
+            hideLoading();
         }
 
         function previewSignedDoc(esignId) {
