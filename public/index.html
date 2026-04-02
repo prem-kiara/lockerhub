@@ -6355,7 +6355,15 @@
                 const resp = await fetch(`/api/allotment-form/${tenantId}`, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (!resp.ok) throw new Error('Failed to generate form');
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.error || `Server error ${resp.status}`);
+                }
+                const contentType = resp.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    const errData = await resp.json();
+                    throw new Error(errData.error || 'Server returned JSON instead of PDF');
+                }
                 const blob = await resp.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -6379,7 +6387,15 @@
                 const resp = await fetch(url, {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (!resp.ok) throw new Error('Failed to generate receipt');
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.error || `Server error ${resp.status}`);
+                }
+                const contentType = resp.headers.get('content-type') || '';
+                if (contentType.includes('application/json')) {
+                    const errData = await resp.json();
+                    throw new Error(errData.error || 'Server returned JSON instead of PDF');
+                }
                 const blob = await resp.blob();
                 const blobUrl = URL.createObjectURL(blob);
                 const a = document.createElement('a');
