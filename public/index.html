@@ -3340,8 +3340,11 @@
                         <input type="date" id="apptDate" required>
                     </div>
                     <div class="form-group">
-                        <label>Time</label>
-                        <input type="time" id="apptTime">
+                        <label>Time Slot</label>
+                        <select id="apptTime" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                            <option value="">— Select date first —</option>
+                        </select>
+                        <div id="apptSlotStatus" style="font-size:11px;margin-top:4px;color:#888;"></div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -3385,8 +3388,11 @@
                         <input type="date" id="custVisitDate" required>
                     </div>
                     <div class="form-group">
-                        <label>Preferred Time</label>
-                        <input type="time" id="custVisitTime">
+                        <label>Preferred Time Slot</label>
+                        <select id="custVisitTime" style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                            <option value="">— Select date first —</option>
+                        </select>
+                        <div id="custSlotStatus" style="font-size:11px;margin-top:4px;color:#888;"></div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -6536,7 +6542,7 @@
                 }
                 document.getElementById('appointmentsTable').innerHTML = appts.map(a => `<tr>
                     <td><strong>${a.requested_date}</strong></td>
-                    <td>${a.requested_time || '-'}</td>
+                    <td>${a.requested_time ? formatSlotTime(a.requested_time) : '-'}</td>
                     <td>${a.branch_name || '-'}</td>
                     <td><strong>${a.tenant_name || '-'}</strong></td>
                     <td>${a.tenant_phone || '-'}</td>
@@ -6563,6 +6569,28 @@
         let _calYear = new Date().getFullYear();
         let _calAppts = [];
 
+        // Time slot constants
+        const SLOT_START_HOUR = 9;  // 9:00 AM
+        const SLOT_END_HOUR = 18;   // 6:00 PM
+        const SLOT_DURATION = 30;   // minutes
+        function generateTimeSlots() {
+            const slots = [];
+            for (let h = SLOT_START_HOUR; h < SLOT_END_HOUR; h++) {
+                for (let m = 0; m < 60; m += SLOT_DURATION) {
+                    const hh = String(h).padStart(2, '0');
+                    const mm = String(m).padStart(2, '0');
+                    slots.push(`${hh}:${mm}`);
+                }
+            }
+            return slots;
+        }
+        function formatSlotTime(slot) {
+            const [h, m] = slot.split(':').map(Number);
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+            return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+        }
+
         function renderAppointmentCalendar(appts) {
             if (appts) _calAppts = appts;
             const cal = document.getElementById('appointmentCalendar');
@@ -6572,58 +6600,124 @@
             const firstDay = new Date(_calYear, _calMonth, 1);
             const lastDay = new Date(_calYear, _calMonth + 1, 0);
             const daysInMonth = lastDay.getDate();
-            const startDow = firstDay.getDay(); // 0=Sun
+            const startDow = firstDay.getDay();
 
             const monthName = firstDay.toLocaleDateString('en', { month: 'long', year: 'numeric' });
 
-            let html = `<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
-                <button onclick="_calMonth--;if(_calMonth<0){_calMonth=11;_calYear--;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;font-weight:600;color:#555;">&larr;</button>
+            let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                <button onclick="_calMonth--;if(_calMonth<0){_calMonth=11;_calYear--;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:16px;font-weight:600;color:#555;">&larr;</button>
                 <span style="font-weight:700;font-size:15px;color:#333;">${monthName}</span>
-                <button onclick="_calMonth++;if(_calMonth>11){_calMonth=0;_calYear++;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:14px;font-weight:600;color:#555;">&rarr;</button>
+                <button onclick="_calMonth++;if(_calMonth>11){_calMonth=0;_calYear++;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:6px;padding:5px 12px;cursor:pointer;font-size:16px;font-weight:600;color:#555;">&rarr;</button>
             </div>`;
 
-            html += '<div style="display:grid; grid-template-columns:repeat(7, 1fr); gap:3px;">';
+            html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;">';
 
-            ['S','M','T','W','T','F','S'].forEach(d => {
-                html += `<div style="text-align:center;font-weight:600;font-size:11px;color:#999;padding:2px 0;">${d}</div>`;
+            ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(d => {
+                html += `<div style="text-align:center;font-weight:600;font-size:11px;color:#999;padding:4px 0;">${d}</div>`;
             });
 
-            // Empty cells before 1st
             for (let i = 0; i < startDow; i++) {
-                html += `<div style="min-height:44px;"></div>`;
+                html += `<div style="aspect-ratio:1;"></div>`;
             }
 
             for (let day = 1; day <= daysInMonth; day++) {
                 const dateStr = `${_calYear}-${String(_calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dayAppts = _calAppts.filter(a => a.requested_date === dateStr);
+                const dayAppts = _calAppts.filter(a => a.requested_date === dateStr && a.status !== 'Cancelled' && a.status !== 'Rejected');
                 const pending = dayAppts.filter(a => a.status === 'Pending').length;
                 const approved = dayAppts.filter(a => a.status === 'Approved').length;
                 const completed = dayAppts.filter(a => a.status === 'Completed').length;
                 const isToday = dateStr === todayStr;
                 const total = dayAppts.length;
+                const isPast = dateStr < todayStr;
 
-                const borderColor = isToday ? '#b8860b' : total > 0 ? '#c084fc' : '#eee';
-                const bgColor = isToday ? '#fdf8e8' : '#fff';
+                const borderColor = isToday ? '#b8860b' : total > 0 ? '#c084fc' : '#e5e5e5';
+                const bgColor = isToday ? '#fdf8e8' : isPast ? '#fafafa' : '#fff';
+                const textColor = isPast ? '#aaa' : isToday ? '#b8860b' : '#333';
 
-                html += `<div style="border:1.5px solid ${borderColor};border-radius:6px;padding:3px 4px;min-height:44px;background:${bgColor};cursor:pointer;transition:box-shadow 0.15s;" onmouseover="this.style.boxShadow='0 1px 4px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
-                    <div style="font-size:11px;font-weight:700;${isToday ? 'color:#b8860b;' : 'color:#444;'}">${day}</div>
-                    ${total > 0 ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:2px;">
-                        ${pending ? `<span style="font-size:9px;background:#fef3c7;color:#b45309;border-radius:3px;padding:0 3px;">${pending}P</span>` : ''}
-                        ${approved ? `<span style="font-size:9px;background:#d1fae5;color:#047857;border-radius:3px;padding:0 3px;">${approved}A</span>` : ''}
-                        ${completed ? `<span style="font-size:9px;background:#cffafe;color:#0e7490;border-radius:3px;padding:0 3px;">${completed}D</span>` : ''}
+                html += `<div onclick="showDaySlots('${dateStr}')" style="aspect-ratio:1;border:1.5px solid ${borderColor};border-radius:6px;padding:3px;background:${bgColor};cursor:pointer;transition:box-shadow 0.15s;display:flex;flex-direction:column;overflow:hidden;" onmouseover="this.style.boxShadow='0 2px 6px rgba(0,0,0,0.12)'" onmouseout="this.style.boxShadow='none'">
+                    <div style="font-size:12px;font-weight:700;color:${textColor};line-height:1;">${day}</div>
+                    ${total > 0 ? `<div style="display:flex;gap:2px;flex-wrap:wrap;margin-top:auto;">
+                        ${pending ? `<span style="font-size:8px;background:#fef3c7;color:#b45309;border-radius:2px;padding:0 2px;line-height:1.4;">${pending}P</span>` : ''}
+                        ${approved ? `<span style="font-size:8px;background:#d1fae5;color:#047857;border-radius:2px;padding:0 2px;line-height:1.4;">${approved}A</span>` : ''}
+                        ${completed ? `<span style="font-size:8px;background:#cffafe;color:#0e7490;border-radius:2px;padding:0 2px;line-height:1.4;">${completed}D</span>` : ''}
                     </div>` : ''}
                 </div>`;
             }
             html += '</div>';
 
-            // Legend
-            html += `<div style="display:flex;gap:10px;margin-top:6px;font-size:10px;color:#777;">
-                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:2px;"></span>P = Pending</span>
-                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#10b981;margin-right:2px;"></span>A = Approved</span>
-                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0891b2;margin-right:2px;"></span>D = Done</span>
+            html += `<div style="display:flex;gap:8px;margin-top:6px;font-size:10px;color:#888;flex-wrap:wrap;">
+                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f59e0b;margin-right:2px;vertical-align:middle;"></span>Pending</span>
+                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#10b981;margin-right:2px;vertical-align:middle;"></span>Approved</span>
+                <span><span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#0891b2;margin-right:2px;vertical-align:middle;"></span>Done</span>
+                <span style="margin-left:auto;color:#aaa;">Click a day to see slots</span>
             </div>`;
 
+            // Day slot detail panel (hidden by default)
+            html += `<div id="daySlotPanel" style="display:none;margin-top:10px;border:1px solid #e5e5e5;border-radius:8px;background:#fff;padding:12px;"></div>`;
+
             cal.innerHTML = html;
+        }
+
+        async function showDaySlots(dateStr) {
+            const panel = document.getElementById('daySlotPanel');
+            if (!panel) return;
+            panel.style.display = 'block';
+
+            const [y, m, d] = dateStr.split('-');
+            const dayLabel = new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString('en', { weekday: 'long', month: 'short', day: 'numeric' });
+
+            // Get appointments for this day (use cached data)
+            const dayAppts = _calAppts.filter(a => a.requested_date === dateStr && a.status !== 'Cancelled' && a.status !== 'Rejected');
+
+            // Build slot map: slot -> list of appointments
+            const slotMap = {};
+            generateTimeSlots().forEach(s => { slotMap[s] = []; });
+            dayAppts.forEach(a => {
+                const t = (a.requested_time || '').substring(0, 5);
+                if (slotMap[t] !== undefined) {
+                    slotMap[t].push(a);
+                } else if (a.requested_time) {
+                    // Round to nearest slot
+                    const [hh, mm] = a.requested_time.split(':').map(Number);
+                    const rounded = String(hh).padStart(2, '0') + ':' + (mm < 30 ? '00' : '30');
+                    if (slotMap[rounded]) slotMap[rounded].push(a);
+                }
+            });
+
+            const allSlots = generateTimeSlots();
+            let html = `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+                <strong style="font-size:14px;color:#333;">${dayLabel}</strong>
+                <button onclick="document.getElementById('daySlotPanel').style.display='none'" style="border:none;background:#f0f0f0;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:12px;color:#666;">Close</button>
+            </div>`;
+
+            html += '<div style="display:grid;grid-template-columns:1fr;gap:2px;max-height:300px;overflow-y:auto;">';
+            allSlots.forEach(slot => {
+                const appts = slotMap[slot] || [];
+                const isBooked = appts.some(a => a.status === 'Approved' || a.status === 'Completed');
+                const isPending = appts.some(a => a.status === 'Pending');
+                const isEmpty = appts.length === 0;
+
+                let bg = '#f0fdf4'; // green-ish = available
+                let statusLabel = '<span style="color:#16a34a;font-size:11px;">Available</span>';
+                if (isBooked) {
+                    bg = '#fef2f2';
+                    const a = appts.find(a => a.status === 'Approved' || a.status === 'Completed');
+                    statusLabel = `<span style="color:#dc2626;font-size:11px;">Booked — ${a.tenant_name || 'Customer'}</span>`;
+                } else if (isPending) {
+                    bg = '#fffbeb';
+                    const a = appts.find(a => a.status === 'Pending');
+                    statusLabel = `<span style="color:#d97706;font-size:11px;">Pending — ${a.tenant_name || 'Customer'}</span>`;
+                }
+
+                html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:${bg};border-radius:4px;border:1px solid ${isBooked ? '#fecaca' : isPending ? '#fde68a' : '#bbf7d0'};">
+                    <span style="font-weight:600;font-size:12px;min-width:70px;color:#333;">${formatSlotTime(slot)}</span>
+                    ${statusLabel}
+                </div>`;
+            });
+            html += '</div>';
+
+            panel.innerHTML = html;
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
 
         // CHANGE 6: Auto-log visit on appointment completion
@@ -6661,11 +6755,100 @@
             document.getElementById('apptTenantInfo').style.display = 'none';
             document.getElementById('apptTenantId').value = '';
             document.getElementById('apptLockerId').value = '';
-            document.getElementById('apptDate').value = new Date().toISOString().split('T')[0];
-            document.getElementById('apptTime').value = '';
+            const dateEl = document.getElementById('apptDate');
+            dateEl.value = new Date().toISOString().split('T')[0];
+            dateEl.min = new Date().toISOString().split('T')[0];
+            document.getElementById('apptTime').innerHTML = '<option value="">— Select date first —</option>';
+            document.getElementById('apptSlotStatus').textContent = '';
             document.getElementById('apptPurpose').value = 'Locker Access';
             document.getElementById('apptNotes').value = '';
             openModal('bookApptModal');
+            // Load slots for today
+            loadStaffSlots();
+        }
+
+        // Load available slots when staff changes date
+        document.addEventListener('DOMContentLoaded', () => {
+            const apptDateEl = document.getElementById('apptDate');
+            if (apptDateEl) apptDateEl.addEventListener('change', loadStaffSlots);
+            const custDateEl = document.getElementById('custVisitDate');
+            if (custDateEl) custDateEl.addEventListener('change', loadCustSlots);
+        });
+
+        async function loadStaffSlots() {
+            const date = document.getElementById('apptDate').value;
+            const branchId = currentBranchId;
+            const sel = document.getElementById('apptTime');
+            const statusDiv = document.getElementById('apptSlotStatus');
+            if (!date || !branchId) {
+                sel.innerHTML = '<option value="">— Select date first —</option>';
+                return;
+            }
+            sel.innerHTML = '<option value="">Loading slots...</option>';
+            try {
+                const slots = await api('GET', `/api/appointments/slots?branch_id=${branchId}&date=${date}`);
+                sel.innerHTML = '<option value="">— Pick a time slot —</option>';
+                let availCount = 0;
+                slots.forEach(s => {
+                    const h = parseInt(s.time.split(':')[0]);
+                    const m = s.time.split(':')[1];
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+                    const label = `${h12}:${m} ${ampm}`;
+                    if (s.status === 'booked') {
+                        sel.innerHTML += `<option value="${s.time}" disabled style="color:#999;">⛔ ${label} — Booked</option>`;
+                    } else if (s.status === 'pending') {
+                        sel.innerHTML += `<option value="${s.time}" style="color:#d97706;">⏳ ${label} — Pending request</option>`;
+                        availCount++;
+                    } else {
+                        sel.innerHTML += `<option value="${s.time}">✅ ${label} — Available</option>`;
+                        availCount++;
+                    }
+                });
+                statusDiv.textContent = `${availCount} of ${slots.length} slots available`;
+                statusDiv.style.color = availCount > 10 ? '#16a34a' : availCount > 5 ? '#d97706' : '#dc2626';
+            } catch (err) {
+                sel.innerHTML = '<option value="">Error loading slots</option>';
+                statusDiv.textContent = err.message;
+            }
+        }
+
+        async function loadCustSlots() {
+            const date = document.getElementById('custVisitDate').value;
+            const selLocker = document.getElementById('custVisitLocker');
+            const branchId = selLocker.options[selLocker.selectedIndex]?.dataset?.branchId;
+            const sel = document.getElementById('custVisitTime');
+            const statusDiv = document.getElementById('custSlotStatus');
+            if (!date || !branchId) {
+                sel.innerHTML = '<option value="">— Select date first —</option>';
+                return;
+            }
+            sel.innerHTML = '<option value="">Loading slots...</option>';
+            try {
+                const slots = await api('GET', `/api/appointments/slots?branch_id=${branchId}&date=${date}`);
+                sel.innerHTML = '<option value="">— Pick a time slot —</option>';
+                let availCount = 0;
+                slots.forEach(s => {
+                    const h = parseInt(s.time.split(':')[0]);
+                    const m = s.time.split(':')[1];
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+                    const label = `${h12}:${m} ${ampm}`;
+                    if (s.status === 'booked') {
+                        sel.innerHTML += `<option value="${s.time}" disabled style="color:#999;">⛔ ${label} — Booked</option>`;
+                    } else if (s.status === 'pending') {
+                        sel.innerHTML += `<option value="${s.time}" disabled style="color:#d97706;">⏳ ${label} — Reserved</option>`;
+                    } else {
+                        sel.innerHTML += `<option value="${s.time}">✅ ${label} — Available</option>`;
+                        availCount++;
+                    }
+                });
+                statusDiv.textContent = `${availCount} of ${slots.length} slots available`;
+                statusDiv.style.color = availCount > 10 ? '#16a34a' : availCount > 5 ? '#d97706' : '#dc2626';
+            } catch (err) {
+                sel.innerHTML = '<option value="">Error loading slots</option>';
+                statusDiv.textContent = err.message;
+            }
         }
 
         async function lookupApptTenant() {
@@ -6689,20 +6872,22 @@
             if (!tenantId) return alert('Please lookup a tenant first');
             const date = document.getElementById('apptDate').value;
             if (!date) return alert('Please select a date');
+            const time = document.getElementById('apptTime').value;
+            if (!time) return alert('Please select a time slot');
             try {
                 await api('POST', '/api/appointments', {
                     branch_id: currentBranchId,
                     tenant_id: tenantId,
                     locker_id: document.getElementById('apptLockerId').value,
                     requested_date: date,
-                    requested_time: document.getElementById('apptTime').value,
+                    requested_time: time,
                     purpose: document.getElementById('apptPurpose').value,
                     notes: document.getElementById('apptNotes').value,
                     booked_by: 'staff'
                 });
                 closeModal('bookApptModal');
                 await loadAppointments();
-                alert('Appointment booked successfully (auto-approved)');
+                alert('Appointment booked for ' + date + ' at ' + formatSlotTime(time) + ' (auto-approved)');
             } catch (err) {
                 alert('Error: ' + err.message);
             }
@@ -6972,8 +7157,24 @@
             hideLoading();
         }
 
-        function previewSignedDoc(esignId) {
-            window.open(`/api/esign/${esignId}/preview`, '_blank');
+        async function previewSignedDoc(esignId) {
+            showLoading('Loading preview...');
+            try {
+                const token = localStorage.getItem('lockerhub_token');
+                const resp = await fetch(`/api/esign/${esignId}/download`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({}));
+                    throw new Error(errData.error || `Server error ${resp.status}`);
+                }
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+            } catch (err) {
+                alert('Failed to preview: ' + err.message);
+            }
+            hideLoading();
         }
 
         async function saveToRepo(esignId) {
@@ -7087,7 +7288,7 @@
                         <th>Date</th><th>Time</th><th>Branch</th><th>Locker</th><th>Purpose</th><th>Status</th>
                     </tr></thead><tbody>`;
                     upcoming.forEach(a => {
-                        html += `<tr><td><strong>${a.requested_date}</strong></td><td>${a.requested_time || '-'}</td>
+                        html += `<tr><td><strong>${a.requested_date}</strong></td><td>${a.requested_time ? formatSlotTime(a.requested_time) : '-'}</td>
                         <td>${a.branch_name || '-'}</td><td>${a.locker_number || '-'}</td><td>${a.purpose}</td>
                         <td><span class="badge ${getApptStatusBadge(a.status)}">${a.status}</span></td></tr>`;
                     });
@@ -7126,7 +7327,7 @@
                 }
                 document.getElementById('custAppointmentsTable').innerHTML = appts.map(a => `<tr>
                     <td><strong>${a.requested_date}</strong></td>
-                    <td>${a.requested_time || '-'}</td>
+                    <td>${a.requested_time ? formatSlotTime(a.requested_time) : '-'}</td>
                     <td>${a.branch_name || '-'}</td>
                     <td>${a.locker_number || '-'}</td>
                     <td>${a.purpose}</td>
@@ -7145,16 +7346,23 @@
             sel.innerHTML = tenants.map(t =>
                 `<option value="${t.id}" data-branch-id="${t.branch_id}" data-locker-id="${t.locker_id || ''}">${t.branch_name || 'Branch'} — Locker ${t.locker_number || 'N/A'}</option>`
             ).join('');
-            document.getElementById('custVisitDate').value = '';
-            document.getElementById('custVisitTime').value = '';
+            const dateEl = document.getElementById('custVisitDate');
+            dateEl.value = '';
+            dateEl.min = new Date().toISOString().split('T')[0];
+            document.getElementById('custVisitTime').innerHTML = '<option value="">— Select date first —</option>';
+            document.getElementById('custSlotStatus').textContent = '';
             document.getElementById('custVisitPurpose').value = 'Locker Access';
             document.getElementById('custVisitNotes').value = '';
             openModal('custVisitModal');
+            // Also reload slots when customer changes the branch/locker
+            sel.onchange = () => { if (dateEl.value) loadCustSlots(); };
         }
 
         async function submitCustVisitRequest() {
             const date = document.getElementById('custVisitDate').value;
             if (!date) return alert('Please select a date');
+            const time = document.getElementById('custVisitTime').value;
+            if (!time) return alert('Please select a time slot');
             const sel = document.getElementById('custVisitLocker');
             const selectedOption = sel.options[sel.selectedIndex];
             const tenantId = sel.value;
@@ -7166,14 +7374,14 @@
                     tenant_id: tenantId,
                     locker_id: lockerId,
                     requested_date: date,
-                    requested_time: document.getElementById('custVisitTime').value,
+                    requested_time: time,
                     purpose: document.getElementById('custVisitPurpose').value,
                     notes: document.getElementById('custVisitNotes').value,
                     booked_by: 'customer'
                 });
                 closeModal('custVisitModal');
                 await loadCustAppointments();
-                alert('Visit request submitted! Waiting for branch approval.');
+                alert('Visit request submitted for ' + date + ' at ' + formatSlotTime(time) + '. Waiting for branch approval.');
             } catch (err) {
                 alert('Error: ' + err.message);
             }

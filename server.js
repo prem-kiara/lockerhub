@@ -2611,17 +2611,85 @@ app.get('/api/appointments', requireAuth, (req, res) => {
   res.json(db.prepare(sql).all(...params));
 });
 
+// Slot availability: returns all 30-min slots for a date+branch with status
+app.get('/api/appointments/slots', requireAuth, (req, res) => {
+  const { branch_id, date } = req.query;
+  if (!branch_id || !date) return res.status(400).json({ error: 'branch_id and date are required' });
+
+  // Get all non-cancelled/rejected appointments for this branch+date
+  const appts = db.prepare(
+    `SELECT a.*, t.name as tenant_name FROM appointments a LEFT JOIN tenants t ON a.tenant_id = t.id
+     WHERE a.branch_id = ? AND a.requested_date = ? AND a.status NOT IN ('Cancelled', 'Rejected')`
+  ).all(branch_id, date);
+
+  // Generate all 30-min slots from 9:00 to 17:30
+  const slots = [];
+  for (let h = 9; h < 18; h++) {
+    for (let m = 0; m < 60; m += 30) {
+      const time = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+      const slotAppts = appts.filter(a => (a.requested_time || '').substring(0, 5) === time);
+      const confirmed = slotAppts.find(a => a.status === 'Approved' || a.status === 'Completed');
+      const pending = slotAppts.find(a => a.status === 'Pending');
+      slots.push({
+        time,
+        status: confirmed ? 'booked' : pending ? 'pending' : 'available',
+        tenant_name: confirmed ? confirmed.tenant_name : pending ? pending.tenant_name : null,
+        appointment_id: confirmed ? confirmed.id : pending ? pending.id : null
+      });
+    }
+  }
+  res.json(slots);
+});
+
 app.post('/api/appointments', requireAuth, (req, res) => {
   const d = req.body;
   if (!d.branch_id || !d.tenant_id || !d.requested_date) {
     return res.status(400).json({ error: 'Branch, tenant, and date are required' });
   }
+  if (!d.requested_time) {
+    return res.status(400).json({ error: 'Please select a time slot' });
+  }
+
+  // Validate the time slot is within operating hours (09:00 - 17:30)
+  const [hh, mm] = (d.requested_time || '').split(':').map(Number);
+  if (isNaN(hh) || hh < 9 || hh > 17 || (hh === 17 && mm > 30) || (mm !== 0 && mm !== 30)) {
+    return res.status(400).json({ error: 'Invalid time slot. Slots are every 30 minutes from 9:00 AM to 5:30 PM' });
+  }
+  const slotTime = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+
+  // Check for conflicts: is there already a confirmed (Approved/Completed) appointment at this slot?
+  const conflict = db.prepare(
+    `SELECT id, status FROM appointments
+     WHERE branch_id = ? AND requested_date = ? AND substr(requested_time, 1, 5) = ?
+     AND status IN ('Approved', 'Completed')`
+  ).get(d.branch_id, d.requested_date, slotTime);
+
+  if (conflict) {
+    return res.status(409).json({ error: 'This time slot is already booked. Please choose a different slot.' });
+  }
+
   const id = genId();
   const locker_id = d.locker_id || '';
   const status = d.booked_by === 'customer' ? 'Pending' : 'Approved';
+
+  // If staff is approving directly, also check no other pending exists to avoid double-booking
+  if (status === 'Approved') {
+    const pendingConflict = db.prepare(
+      `SELECT id FROM appointments
+       WHERE branch_id = ? AND requested_date = ? AND substr(requested_time, 1, 5) = ?
+       AND status = 'Pending'`
+    ).get(d.branch_id, d.requested_date, slotTime);
+    // Auto-reject conflicting pending if staff books directly
+    if (pendingConflict) {
+      db.prepare(`UPDATE appointments SET status = 'Rejected', admin_notes = 'Auto-rejected: slot booked by staff' WHERE id = ?`)
+        .run(pendingConflict.id);
+      logInfo('Pending appointment auto-rejected due to staff booking', { rejectedId: pendingConflict.id });
+    }
+  }
+
   db.prepare(`INSERT INTO appointments (id, branch_id, tenant_id, locker_id, requested_date, requested_time, purpose, status, booked_by, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, d.branch_id, d.tenant_id, locker_id, d.requested_date, d.requested_time || '', d.purpose || 'Locker Access', status, d.booked_by || 'customer', d.notes || '');
-  logInfo('Appointment created', { id, tenant: d.tenant_id, date: d.requested_date, booked_by: d.booked_by || 'customer', status });
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, d.branch_id, d.tenant_id, locker_id, d.requested_date, slotTime, d.purpose || 'Locker Access', status, d.booked_by || 'customer', d.notes || '');
+  logInfo('Appointment created', { id, tenant: d.tenant_id, date: d.requested_date, time: slotTime, booked_by: d.booked_by || 'customer', status });
   res.json({ success: true, id, status });
 });
 
@@ -2632,6 +2700,20 @@ app.put('/api/appointments/:id/status', requireAuth, requireRole('headoffice', '
   }
   const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+
+  // Conflict check when approving: make sure slot isn't already booked
+  if (status === 'Approved' && appt.requested_time) {
+    const slotTime = (appt.requested_time || '').substring(0, 5);
+    const existing = db.prepare(
+      `SELECT id FROM appointments
+       WHERE branch_id = ? AND requested_date = ? AND substr(requested_time, 1, 5) = ?
+       AND status IN ('Approved', 'Completed') AND id != ?`
+    ).get(appt.branch_id, appt.requested_date, slotTime, appt.id);
+    if (existing) {
+      return res.status(409).json({ error: 'Cannot approve — this time slot is already booked by another appointment.' });
+    }
+  }
+
   db.prepare('UPDATE appointments SET status = ?, admin_notes = COALESCE(?, admin_notes), approved_by = ? WHERE id = ?')
     .run(status, admin_notes || null, req.body.approved_by || '', req.params.id);
 
