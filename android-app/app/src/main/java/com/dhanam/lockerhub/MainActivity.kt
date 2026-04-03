@@ -170,7 +170,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Download listener — handles PDF and file downloads from WebView
-        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+        webView.setDownloadListener { url, _, contentDisposition, mimeType, _ ->
             try {
                 val request = DownloadManager.Request(Uri.parse(url))
                 // Extract filename from Content-Disposition or URL

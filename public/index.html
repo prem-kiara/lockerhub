@@ -2513,6 +2513,7 @@
                             <button class="btn btn-secondary" onclick="zoomRoom(1.2)" title="Zoom In" style="padding:6px 10px;">🔍+</button>
                             <button class="btn btn-secondary" onclick="zoomRoom(0.8)" title="Zoom Out" style="padding:6px 10px;">🔍−</button>
                             <button class="btn btn-secondary" onclick="resetRoomView()" title="Fit View" style="padding:6px 10px;">⊞</button>
+                            <button class="btn btn-secondary" onclick="rotateRoomView()" title="Rotate View 90°" style="padding:6px 10px;">🔄</button>
                             <div style="border-left:1px solid var(--border); height:28px; margin:0 4px;"></div>
                             <button class="btn btn-secondary" onclick="undoRoom()" style="padding:6px 10px;">↩ Undo</button>
                             <button class="btn btn-secondary" onclick="clearRoomWalls()" style="padding:6px 10px;">Clear Walls</button>
@@ -2523,8 +2524,8 @@
                         <!-- Room dimensions input -->
                         <div id="roomDimensionsBar" style="display:flex; gap:12px; align-items:center; margin-top:8px; padding:8px 12px; background:var(--bg-warm); border-radius:6px; font-size:13px;">
                             <label>Room Size: </label>
-                            <input type="number" id="roomWidthFt" value="20" min="5" max="200" style="width:60px; padding:4px 6px; border:1px solid var(--border); border-radius:4px;" onchange="updateRoomDimensions()"> ft ×
-                            <input type="number" id="roomHeightFt" value="15" min="5" max="200" style="width:60px; padding:4px 6px; border:1px solid var(--border); border-radius:4px;" onchange="updateRoomDimensions()"> ft
+                            <input type="number" id="roomWidthFt" value="20" min="5" max="200" step="0.1" style="width:60px; padding:4px 6px; border:1px solid var(--border); border-radius:4px;" onchange="updateRoomDimensions()"> ft ×
+                            <input type="number" id="roomHeightFt" value="15" min="5" max="200" step="0.1" style="width:60px; padding:4px 6px; border:1px solid var(--border); border-radius:4px;" onchange="updateRoomDimensions()"> ft
                             <span style="color:var(--text-light); margin-left:8px;">Grid: 1ft squares</span>
                         </div>
                     </div>
@@ -6544,6 +6545,7 @@
         }
 
         function showRoomBuilder() {
+            document.getElementById('roomSetupPrompt').style.display = 'none';
             document.getElementById('roomToolbar').style.display = roomEditMode ? 'block' : 'none';
             document.getElementById('roomBuilderContainer').style.display = 'block';
 
@@ -6571,12 +6573,17 @@
             updateRoomStatus();
         }
 
+        let roomUndoStack = []; // Undo stack for all actions
+        let roomViewRotation = 0; // Current view rotation in degrees
+
         function initRoomCanvas(widthFt, heightFt) {
             const wrapEl = document.getElementById('roomCanvasWrap');
             const cw = widthFt * ROOM_PX_PER_FT + 40; // Extra padding
             const ch = heightFt * ROOM_PX_PER_FT + 40;
 
             if (roomCanvas) { roomCanvas.dispose(); }
+            roomUndoStack = [];
+            roomViewRotation = 0;
 
             const canvasEl = document.getElementById('roomCanvas');
             canvasEl.width = Math.max(cw, wrapEl.clientWidth);
@@ -6649,7 +6656,6 @@
             let touchMoved = false;
             let lastTouchDist = 0;
 
-            // Convert touch to mouse-like event for Fabric.js
             function touchToPointer(touch) {
                 const rect = upperCanvas.getBoundingClientRect();
                 return { clientX: touch.clientX, clientY: touch.clientY, offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top };
@@ -6659,16 +6665,10 @@
                 if (e.touches.length === 1) {
                     touchStartTime = Date.now();
                     touchMoved = false;
-                    const touch = e.touches[0];
-                    const simEvt = touchToPointer(touch);
-                    // Let Fabric handle object selection
+                    const simEvt = touchToPointer(e.touches[0]);
                     roomCanvas._onMouseDown(simEvt);
-                    // For drawing tools, prevent scroll
-                    if (roomTool !== 'select') {
-                        e.preventDefault();
-                    }
+                    if (roomTool !== 'select') e.preventDefault();
                 } else if (e.touches.length === 2) {
-                    // Pinch zoom start
                     e.preventDefault();
                     const dx = e.touches[0].clientX - e.touches[1].clientX;
                     const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -6679,22 +6679,14 @@
             upperCanvas.addEventListener('touchmove', function(e) {
                 if (e.touches.length === 1) {
                     touchMoved = true;
-                    const touch = e.touches[0];
-                    const simEvt = touchToPointer(touch);
-                    roomCanvas._onMouseMove(simEvt);
-                    if (roomTool !== 'select' || roomCanvas.getActiveObject()) {
-                        e.preventDefault();
-                    }
+                    roomCanvas._onMouseMove(touchToPointer(e.touches[0]));
+                    if (roomTool !== 'select' || roomCanvas.getActiveObject()) e.preventDefault();
                 } else if (e.touches.length === 2) {
-                    // Pinch zoom
                     e.preventDefault();
                     const dx = e.touches[0].clientX - e.touches[1].clientX;
                     const dy = e.touches[0].clientY - e.touches[1].clientY;
                     const dist = Math.sqrt(dx * dx + dy * dy);
-                    if (lastTouchDist > 0) {
-                        const factor = dist / lastTouchDist;
-                        zoomRoom(factor);
-                    }
+                    if (lastTouchDist > 0) zoomRoom(dist / lastTouchDist);
                     lastTouchDist = dist;
                 }
             }, { passive: false });
@@ -6703,15 +6695,10 @@
                 if (e.touches.length === 0) {
                     const simEvt = e.changedTouches ? touchToPointer(e.changedTouches[0]) : {};
                     roomCanvas._onMouseUp(simEvt);
-
-                    // Detect double-tap (for closing polygon)
                     const now = Date.now();
                     if (!touchMoved && (now - touchStartTime) < 300) {
                         if (upperCanvas._lastTapTime && (now - upperCanvas._lastTapTime) < 350) {
-                            // Double tap
-                            if (roomTool === 'drawRoom' && roomDrawingPoints.length >= 3) {
-                                finishRoomPolygon();
-                            }
+                            if (roomTool === 'drawRoom' && roomDrawingPoints.length >= 3) finishRoomPolygon();
                             upperCanvas._lastTapTime = 0;
                         } else {
                             upperCanvas._lastTapTime = now;
@@ -6721,14 +6708,23 @@
                 }
             }, { passive: true });
 
-            // === Original mouse events ===
+            // === Accurate pointer helper (accounts for zoom, pan, scroll) ===
+            function getCanvasPointer(fabricEvent) {
+                const ptr = roomCanvas.getPointer(fabricEvent.e, true); // true = ignoreZoom for absolute coords
+                const vpt = roomCanvas.viewportTransform;
+                return {
+                    x: (ptr.x - vpt[4]) / vpt[0],
+                    y: (ptr.y - vpt[5]) / vpt[3]
+                };
+            }
+
+            // === Mouse events ===
             roomCanvas.on('mouse:down', function(opt) {
                 if (roomTool === 'drawRoom') {
-                    const ptr = roomCanvas.getPointer(opt.e);
+                    const ptr = getCanvasPointer(opt);
                     const x = snapToGrid(ptr.x);
                     const y = snapToGrid(ptr.y);
 
-                    // Check if closing the polygon (click near first point)
                     if (roomDrawingPoints.length >= 3) {
                         const first = roomDrawingPoints[0];
                         if (Math.abs(x - first.x) < 15 && Math.abs(y - first.y) < 15) {
@@ -6738,14 +6734,14 @@
                     }
 
                     roomDrawingPoints.push({ x, y });
-                    // Draw corner marker
+                    roomUndoStack.push({ type: 'wallPoint' });
+
                     const marker = new fabric.Circle({
                         left: x, top: y, radius: 4, fill: '#1a73e8', originX: 'center', originY: 'center',
                         selectable: false, evented: false, _isDrawingMarker: true
                     });
                     roomCanvas.add(marker);
 
-                    // Draw line from previous point
                     if (roomDrawingPoints.length > 1) {
                         const prev = roomDrawingPoints[roomDrawingPoints.length - 2];
                         const line = new fabric.Line([prev.x, prev.y, x, y], {
@@ -6756,16 +6752,18 @@
                     }
                     roomCanvas.renderAll();
                 } else if (roomTool === 'door' && roomEditMode) {
-                    const ptr = roomCanvas.getPointer(opt.e);
+                    const ptr = getCanvasPointer(opt);
                     const x = snapToGrid(ptr.x);
                     const y = snapToGrid(ptr.y);
                     placeRoomElement({ type: 'door', x, y, rotation: 0 });
+                    roomUndoStack.push({ type: 'element', elementType: 'door' });
                     setRoomTool('select');
                 } else if (roomTool === 'pillar' && roomEditMode) {
-                    const ptr = roomCanvas.getPointer(opt.e);
+                    const ptr = getCanvasPointer(opt);
                     const x = snapToGrid(ptr.x);
                     const y = snapToGrid(ptr.y);
                     placeRoomElement({ type: 'pillar', x, y, rotation: 0 });
+                    roomUndoStack.push({ type: 'element', elementType: 'pillar' });
                     setRoomTool('select');
                 }
             });
@@ -6791,11 +6789,30 @@
                 obj.angle = Math.round(obj.angle / 15) * 15;
             });
 
-            // Snap position to grid on move
+            // Snap position to grid on move + clamp within canvas bounds
             roomCanvas.on('object:moving', function(opt) {
                 const obj = opt.target;
                 obj.left = snapToGrid(obj.left);
                 obj.top = snapToGrid(obj.top);
+                // Clamp to canvas area
+                const bound = obj.getBoundingRect();
+                if (bound.left < 0) obj.left = obj.left - bound.left;
+                if (bound.top < 0) obj.top = obj.top - bound.top;
+                if (bound.left + bound.width > roomCanvas.width) obj.left = obj.left - (bound.left + bound.width - roomCanvas.width);
+                if (bound.top + bound.height > roomCanvas.height) obj.top = obj.top - (bound.top + bound.height - roomCanvas.height);
+            });
+
+            // Clamp after rotation too — keep controls visible
+            roomCanvas.on('object:modified', function(opt) {
+                const obj = opt.target;
+                const bound = obj.getBoundingRect(true); // includes controls
+                const pad = 20;
+                if (bound.left < -pad) obj.left = obj.left - bound.left + pad;
+                if (bound.top < -pad) obj.top = obj.top - bound.top + pad;
+                if (bound.left + bound.width > roomCanvas.width + pad) obj.left = obj.left - (bound.left + bound.width - roomCanvas.width - pad);
+                if (bound.top + bound.height > roomCanvas.height + pad) obj.top = obj.top - (bound.top + bound.height - roomCanvas.height - pad);
+                obj.setCoords();
+                roomCanvas.renderAll();
             });
         }
 
@@ -6843,8 +6860,10 @@
                     angle: el.rotation || 0,
                     hasControls: roomEditMode, hasBorders: roomEditMode, selectable: roomEditMode,
                     lockScalingX: true, lockScalingY: true,
+                    cornerSize: 10, transparentCorners: false, cornerColor: '#8B4513', padding: 4,
                     _elementType: 'door', _isRoomElement: true
                 });
+                door.setControlsVisibility({ mt:false, mb:false, ml:false, mr:false, tl:false, tr:false, bl:false, br:false, mtr:true });
                 roomCanvas.add(door);
             } else if (el.type === 'pillar') {
                 const pillar = new fabric.Rect({
@@ -6854,8 +6873,10 @@
                     angle: el.rotation || 0,
                     hasControls: roomEditMode, hasBorders: roomEditMode, selectable: roomEditMode,
                     lockScalingX: true, lockScalingY: true,
+                    cornerSize: 10, transparentCorners: false, cornerColor: '#666', padding: 4,
                     _elementType: 'pillar', _isRoomElement: true
                 });
+                pillar.setControlsVisibility({ mt:false, mb:false, ml:false, mr:false, tl:false, tr:false, bl:false, br:false, mtr:true });
                 roomCanvas.add(pillar);
             }
             roomCanvas.renderAll();
@@ -6905,7 +6926,15 @@
                 hasControls: roomEditMode, hasBorders: true, selectable: roomEditMode,
                 lockScalingX: true, lockScalingY: true,
                 hoverCursor: 'pointer',
-                _isUnit: true, _unitData: unitData, _unitId: unitData.id
+                _isUnit: true, _unitData: unitData, _unitId: unitData.id,
+                cornerSize: 10, transparentCorners: false, cornerColor: '#1a73e8',
+                padding: 4
+            });
+            // Only show rotate control, hide all scale handles
+            group.setControlsVisibility({
+                mt: false, mb: false, ml: false, mr: false,
+                tl: false, tr: false, bl: false, br: false,
+                mtr: true
             });
 
             // Remove existing unit with same id
@@ -6985,6 +7014,7 @@
                             placeUnitOnCanvas(u, x, y, 0);
                             if (!roomLayout.unit_placements) roomLayout.unit_placements = {};
                             roomLayout.unit_placements[paletteTouchUnitId] = { x, y, rotation: 0 };
+                            roomUndoStack.push({ type: 'unit', unitId: paletteTouchUnitId });
                             loadRoomPalette();
                         }
                     }
@@ -6997,14 +7027,15 @@
 
         function paletteClickPlace(unitId) {
             if (!roomEditMode) return;
+            if (roomTool !== 'select') { setRoomTool('select'); } // Switch to select before placing
             const u = roomUnitsData.find(u => u.id === unitId);
             if (!u) return;
-            const wFt = (u.unit_width_mm || 1075) * MM_TO_FT;
             const cx = 20 + ((roomLayout.room_width_ft || 20) * ROOM_PX_PER_FT) / 2;
             const cy = 20 + ((roomLayout.room_height_ft || 15) * ROOM_PX_PER_FT) / 2;
             placeUnitOnCanvas(u, snapToGrid(cx), snapToGrid(cy), 0);
             if (!roomLayout.unit_placements) roomLayout.unit_placements = {};
             roomLayout.unit_placements[unitId] = { x: snapToGrid(cx), y: snapToGrid(cy), rotation: 0 };
+            roomUndoStack.push({ type: 'unit', unitId: unitId });
             loadRoomPalette();
         }
 
@@ -7027,6 +7058,7 @@
                     placeUnitOnCanvas(u, x, y, 0);
                     if (!roomLayout.unit_placements) roomLayout.unit_placements = {};
                     roomLayout.unit_placements[unitId] = { x, y, rotation: 0 };
+                    roomUndoStack.push({ type: 'unit', unitId: unitId });
                     loadRoomPalette();
                 });
             }, 500);
@@ -7113,24 +7145,71 @@
 
         function resetRoomView() {
             if (!roomCanvas) return;
+            roomViewRotation = 0;
             roomCanvas.setZoom(1);
             roomCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
             roomCanvas.renderAll();
         }
 
         function undoRoom() {
-            if (roomDrawingPoints.length > 0) {
-                roomDrawingPoints.pop();
-                // Remove last marker and line
+            if (roomUndoStack.length === 0) return;
+            const action = roomUndoStack.pop();
+
+            if (action.type === 'wallPoint') {
+                // Undo a wall drawing point
+                if (roomDrawingPoints.length > 0) {
+                    roomDrawingPoints.pop();
+                    const objs = roomCanvas.getObjects();
+                    // Remove last marker
+                    for (let i = objs.length - 1; i >= 0; i--) {
+                        if (objs[i]._isDrawingMarker) { roomCanvas.remove(objs[i]); break; }
+                    }
+                    // Remove last line
+                    for (let i = roomCanvas.getObjects().length - 1; i >= 0; i--) {
+                        if (roomCanvas.getObjects()[i]._isDrawingLine) { roomCanvas.remove(roomCanvas.getObjects()[i]); break; }
+                    }
+                }
+            } else if (action.type === 'unit') {
+                // Undo a unit placement
+                const unitId = action.unitId;
+                roomCanvas.getObjects().forEach(obj => {
+                    if (obj._unitId === unitId) roomCanvas.remove(obj);
+                });
+                if (roomLayout && roomLayout.unit_placements) {
+                    delete roomLayout.unit_placements[unitId];
+                }
+                loadRoomPalette();
+                updateRoomStatus();
+            } else if (action.type === 'element') {
+                // Undo a door or pillar placement — remove last one of that type
                 const objs = roomCanvas.getObjects();
                 for (let i = objs.length - 1; i >= 0; i--) {
-                    if (objs[i]._isDrawingMarker || objs[i]._isDrawingLine) {
+                    if (objs[i]._isRoomElement && objs[i]._elementType === action.elementType) {
                         roomCanvas.remove(objs[i]);
                         break;
                     }
                 }
-                roomCanvas.renderAll();
             }
+            roomCanvas.renderAll();
+        }
+
+        function rotateRoomView() {
+            if (!roomCanvas) return;
+            roomViewRotation = (roomViewRotation + 90) % 360;
+            const cx = roomCanvas.width / 2;
+            const cy = roomCanvas.height / 2;
+            const radians = roomViewRotation * Math.PI / 180;
+            const cos = Math.cos(radians);
+            const sin = Math.sin(radians);
+            const zoom = roomCanvas.getZoom();
+            // Apply rotation via viewport transform: [scaleX, skewY, skewX, scaleY, translateX, translateY]
+            roomCanvas.setViewportTransform([
+                zoom * cos, zoom * sin,
+                -zoom * sin, zoom * cos,
+                cx - zoom * (cos * cx - sin * cy),
+                cy - zoom * (sin * cx + cos * cy)
+            ]);
+            roomCanvas.renderAll();
         }
 
         function clearRoomWalls() {
@@ -7144,8 +7223,8 @@
         }
 
         function updateRoomDimensions() {
-            const w = parseInt(document.getElementById('roomWidthFt').value) || 20;
-            const h = parseInt(document.getElementById('roomHeightFt').value) || 15;
+            const w = parseFloat(document.getElementById('roomWidthFt').value) || 20;
+            const h = parseFloat(document.getElementById('roomHeightFt').value) || 15;
             if (roomLayout) {
                 roomLayout.room_width_ft = w;
                 roomLayout.room_height_ft = h;
