@@ -2,6 +2,7 @@ package com.dhanam.lockerhub
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -9,6 +10,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.view.KeyEvent
 import android.view.View
 import android.webkit.*
@@ -94,7 +96,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 WebSettings.LOAD_CACHE_ELSE_NETWORK
             }
-            userAgentString = "$userAgentString LockerHub-Android/1.0"
+            userAgentString = "$userAgentString LockerHub-Android/1.1"
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -164,6 +166,27 @@ class MainActivity : AppCompatActivity() {
                     return false
                 }
                 return true
+            }
+        }
+
+        // Download listener — handles PDF and file downloads from WebView
+        webView.setDownloadListener { url, userAgent, contentDisposition, mimeType, contentLength ->
+            try {
+                val request = DownloadManager.Request(Uri.parse(url))
+                // Extract filename from Content-Disposition or URL
+                val filename = URLUtil.guessFileName(url, contentDisposition, mimeType)
+                request.setTitle(filename)
+                request.setDescription("Downloading $filename")
+                request.setMimeType(mimeType)
+                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, filename)
+
+                val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                dm.enqueue(request)
+                Toast.makeText(this, "Downloading $filename", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                FirebaseCrashlytics.getInstance().recordException(e)
+                Toast.makeText(this, "Download failed: ${e.message}", Toast.LENGTH_LONG).show()
             }
         }
 

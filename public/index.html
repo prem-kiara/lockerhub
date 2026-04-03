@@ -6,6 +6,7 @@
     <title>LockerHub - Locker Management System</title>
     <link rel="icon" type="image/png" href="/logo.png">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -677,6 +678,49 @@
         .checkbox-item input {
             width: auto;
         }
+
+        /* Room Builder */
+        .room-tool-btn {
+            width: 36px; height: 36px; border: 1px solid transparent; border-radius: 6px;
+            background: none; cursor: pointer; font-size: 18px; display: flex; align-items: center;
+            justify-content: center; transition: all 0.15s;
+        }
+        .room-tool-btn:hover { background: rgba(0,0,0,0.06); }
+        .room-tool-btn.active { background: var(--primary); border-color: var(--primary); filter: brightness(1.3); box-shadow: 0 2px 6px rgba(26,115,232,0.3); }
+        .palette-unit {
+            padding: 10px; margin-bottom: 8px; background: #fff; border: 1px solid var(--border);
+            border-radius: 6px; cursor: grab; transition: box-shadow 0.15s; font-size: 12px;
+        }
+        .palette-unit:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+        .palette-unit:active { cursor: grabbing; }
+        .palette-unit .pu-name { font-weight: 600; font-size: 13px; }
+        .palette-unit .pu-type { color: var(--text-light); }
+        .palette-unit .pu-occ { margin-top: 4px; }
+        .palette-unit.placed { border-left: 3px solid var(--success); opacity: 0.7; }
+
+        .kyc-upload-box {
+            border: 2px dashed var(--border);
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+            min-height: 60px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .kyc-upload-box:hover { border-color: var(--primary); background: rgba(26,115,232,0.04); }
+        .kyc-upload-box.uploaded { border-color: var(--success); border-style: solid; background: rgba(52,168,83,0.06); }
+        .kyc-upload-box.uploading { border-color: var(--warning); opacity: 0.7; pointer-events: none; }
+        .kyc-upload-box.queued { border-color: var(--primary); border-style: solid; background: rgba(26,115,232,0.06); }
+        .kyc-upload-content { cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+        .kyc-upload-icon { font-size: 20px; }
+        .kyc-upload-label { font-size: 11px; color: var(--text-light); }
+        .kyc-upload-status { font-size: 11px; margin-top: 4px; }
+        .kyc-upload-status.success { color: var(--success); }
+        .kyc-upload-status.error { color: var(--danger); }
 
         .login-container {
             display: flex;
@@ -1860,6 +1904,94 @@
                 grid-template-columns: repeat(2, 1fr);
                 gap: 12px;
             }
+
+            /* Room Builder — tablet/mobile */
+            #roomToolbar > div:first-child {
+                gap: 4px !important;
+            }
+            #roomToolbar .btn {
+                padding: 5px 8px !important;
+                font-size: 12px !important;
+                min-height: 36px;
+            }
+            #roomDimensionsBar {
+                flex-wrap: wrap !important;
+                gap: 8px !important;
+                font-size: 12px !important;
+            }
+            #roomBuilderContainer > div {
+                flex-direction: column !important;
+            }
+            #roomPalette {
+                width: 100% !important;
+                max-height: 200px !important;
+                flex-direction: row;
+                order: -1;
+            }
+            #roomPaletteList {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+            #roomPaletteList .palette-unit {
+                min-width: 140px;
+                flex: 1;
+                margin-bottom: 0;
+            }
+            #roomCanvasWrap {
+                min-height: 350px !important;
+                overflow: auto !important;
+                -webkit-overflow-scrolling: touch;
+                touch-action: none;
+            }
+            #roomUnitPopup > div {
+                max-width: 95vw !important;
+                padding: 14px !important;
+            }
+        }
+
+        @media (max-width: 480px) {
+            /* Room Builder — small phone */
+            #roomToolGroup {
+                flex-wrap: wrap !important;
+            }
+            .room-tool-btn {
+                width: 40px !important;
+                height: 40px !important;
+                font-size: 16px !important;
+            }
+            #roomToolbar > div:first-child {
+                justify-content: center;
+            }
+            #roomToolbar > div:first-child > .btn {
+                font-size: 11px !important;
+                padding: 4px 6px !important;
+            }
+            /* Hide text labels on small screens */
+            #roomToolbar > div:first-child > .btn:not([title]) {
+                font-size: 0 !important;
+            }
+            #roomPalette {
+                max-height: 160px !important;
+                padding: 8px !important;
+            }
+            #roomPaletteList .palette-unit {
+                min-width: 120px;
+                font-size: 11px;
+                padding: 6px;
+            }
+            #roomCanvasWrap {
+                min-height: 280px !important;
+            }
+            #roomStatusLabel {
+                display: none !important;
+            }
+            #roomDimensionsBar span:last-child {
+                display: none;
+            }
+            #roomSetupPrompt {
+                padding: 30px 16px !important;
+            }
         }
     </style>
 </head>
@@ -2146,8 +2278,9 @@
                                     <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 0)">Tenant</th>
                                     <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 1)">Aadhaar</th>
                                     <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 2)">PAN</th>
-                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 3)">Photos Collected</th>
-                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 4)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 3)">Nominee</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 4)">KYC Docs</th>
+                                    <th class="sortable" onclick="sortTable(this, 'bgchecksTable', 5)">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -2355,14 +2488,76 @@
                     </div>
                 </div>
 
-                <!-- Units & Cabinets Screen -->
+                <!-- Units & Cabinets Screen (Room Builder) -->
                 <div id="unitsScreen" class="screen">
-                    <div class="section-title">Units & Cabinets</div>
-                    <div class="section-toolbar">
-                        <button class="btn btn-primary" onclick="openAddUnitModal()">+ Add Unit</button>
+                    <div class="section-title">Units & Cabinets — Locker Room</div>
+
+                    <!-- No room layout yet — setup prompt -->
+                    <div id="roomSetupPrompt" style="display:none; text-align:center; padding:60px 20px;">
+                        <div style="font-size:48px; margin-bottom:16px;">🏗️</div>
+                        <h3 style="margin-bottom:8px;">Room Layout Not Configured</h3>
+                        <p style="color:var(--text-light); margin-bottom:20px;">Set up the locker room floor plan to visually manage your units and cabinets.</p>
+                        <button class="btn btn-primary" onclick="startRoomSetup()" id="btnStartRoomSetup">Setup Room Layout</button>
                     </div>
-                    <div id="unitsGrid" class="units-grid">
-                        <div class="loading"><div class="spinner"></div></div>
+
+                    <!-- Room builder toolbar -->
+                    <div id="roomToolbar" style="display:none; margin-bottom:12px;">
+                        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                            <div id="roomToolGroup" style="display:flex; gap:4px; background:var(--bg-warm); border-radius:8px; padding:4px;">
+                                <button class="room-tool-btn active" data-tool="select" onclick="setRoomTool('select')" title="Select & Move">🖱️</button>
+                                <button class="room-tool-btn" data-tool="drawRoom" onclick="setRoomTool('drawRoom')" title="Draw Room Walls">🏠</button>
+                                <button class="room-tool-btn" data-tool="door" onclick="setRoomTool('door')" title="Place Door">🚪</button>
+                                <button class="room-tool-btn" data-tool="pillar" onclick="setRoomTool('pillar')" title="Place Pillar">⬛</button>
+                            </div>
+                            <div style="border-left:1px solid var(--border); height:28px; margin:0 4px;"></div>
+                            <button class="btn btn-secondary" onclick="zoomRoom(1.2)" title="Zoom In" style="padding:6px 10px;">🔍+</button>
+                            <button class="btn btn-secondary" onclick="zoomRoom(0.8)" title="Zoom Out" style="padding:6px 10px;">🔍−</button>
+                            <button class="btn btn-secondary" onclick="resetRoomView()" title="Fit View" style="padding:6px 10px;">⊞</button>
+                            <div style="border-left:1px solid var(--border); height:28px; margin:0 4px;"></div>
+                            <button class="btn btn-secondary" onclick="undoRoom()" style="padding:6px 10px;">↩ Undo</button>
+                            <button class="btn btn-secondary" onclick="clearRoomWalls()" style="padding:6px 10px;">Clear Walls</button>
+                            <div style="flex:1;"></div>
+                            <span id="roomStatusLabel" style="font-size:12px; color:var(--text-light); margin-right:8px;"></span>
+                            <button class="btn btn-primary" onclick="saveRoomLayout()" id="btnSaveRoom">💾 Save Layout</button>
+                        </div>
+                        <!-- Room dimensions input -->
+                        <div id="roomDimensionsBar" style="display:flex; gap:12px; align-items:center; margin-top:8px; padding:8px 12px; background:var(--bg-warm); border-radius:6px; font-size:13px;">
+                            <label>Room Size: </label>
+                            <input type="number" id="roomWidthFt" value="20" min="5" max="200" style="width:60px; padding:4px 6px; border:1px solid var(--border); border-radius:4px;" onchange="updateRoomDimensions()"> ft ×
+                            <input type="number" id="roomHeightFt" value="15" min="5" max="200" style="width:60px; padding:4px 6px; border:1px solid var(--border); border-radius:4px;" onchange="updateRoomDimensions()"> ft
+                            <span style="color:var(--text-light); margin-left:8px;">Grid: 1ft squares</span>
+                        </div>
+                    </div>
+
+                    <!-- Main room builder area -->
+                    <div id="roomBuilderContainer" style="display:none; position:relative;">
+                        <div style="display:flex; gap:12px;">
+                            <!-- Canvas area -->
+                            <div id="roomCanvasWrap" style="flex:1; border:2px solid var(--border); border-radius:8px; overflow:hidden; background:#f8f6f0; position:relative; min-height:500px;">
+                                <canvas id="roomCanvas"></canvas>
+                                <div id="roomCanvasHint" style="position:absolute; bottom:8px; left:8px; font-size:11px; color:var(--text-light); background:rgba(255,255,255,0.8); padding:4px 8px; border-radius:4px;">
+                                    Click corners to draw walls • Double-click to close shape
+                                </div>
+                            </div>
+                            <!-- Unit palette sidebar -->
+                            <div id="roomPalette" style="width:220px; background:var(--bg-warm); border-radius:8px; padding:12px; border:1px solid var(--border); overflow-y:auto; max-height:600px;">
+                                <h4 style="margin:0 0 10px; font-size:14px;">Unit Palette</h4>
+                                <p style="font-size:11px; color:var(--text-light); margin-bottom:12px;">Drag units onto the room or click to place at center.</p>
+                                <div id="roomPaletteList"></div>
+                                <hr style="border:none; border-top:1px solid var(--border); margin:12px 0;">
+                                <button class="btn btn-primary" style="width:100%; font-size:13px;" onclick="openAddUnitModal()">+ Create New Unit</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Fallback: old grid view (for branches without room layout) -->
+                    <div id="unitsGridFallback" style="display:none;">
+                        <div class="section-toolbar">
+                            <button class="btn btn-primary" onclick="openAddUnitModal()">+ Add Unit</button>
+                        </div>
+                        <div id="unitsGrid" class="units-grid">
+                            <div class="loading"><div class="spinner"></div></div>
+                        </div>
                     </div>
                 </div>
 
@@ -2819,6 +3014,115 @@
                         </div>
                         <p style="font-size: 12px; color: var(--text-light); margin-top: 8px;">Note: Collect 3 passport-size photographs from the tenant manually.</p>
                     </div>
+
+                    <!-- Nominee Details -->
+                    <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
+                        <h4 style="margin-bottom: 12px;">Nominee Details</h4>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenantNomineeName">Nominee Name</label>
+                                <input type="text" id="tenantNomineeName" placeholder="Full name of nominee">
+                            </div>
+                            <div class="form-group">
+                                <label for="tenantNomineePhone">Nominee Phone</label>
+                                <input type="text" id="tenantNomineePhone" placeholder="10-digit number" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenantNomineeAadhaar">Nominee Aadhaar</label>
+                                <input type="text" id="tenantNomineeAadhaar" placeholder="12-digit number" maxlength="12" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,12)">
+                            </div>
+                            <div class="form-group">
+                                <label for="tenantNomineePan">Nominee PAN</label>
+                                <input type="text" id="tenantNomineePan" placeholder="e.g., ABCDE1234F" maxlength="10" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10)" style="text-transform:uppercase;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KYC Document Upload (only visible when editing an existing tenant) -->
+                    <div id="kycUploadSection" style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
+                        <h4 style="margin-bottom: 12px;">KYC Documents <span style="font-size:12px; color:var(--text-light); font-weight:normal;">(Optional — Upload to SharePoint)</span></h4>
+                        <p style="font-size: 12px; color: var(--text-light); margin-bottom: 12px;">Upload Aadhaar and PAN documents for customer and nominee. Accepted: Images, PDF. You can also upload later from the Background Verification tab.</p>
+
+                        <div style="margin-bottom: 14px;">
+                            <strong style="font-size: 13px; display:block; margin-bottom: 8px;">Customer Documents</strong>
+                            <div class="form-row" style="gap:8px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:12px;">Aadhaar Front</label>
+                                    <div class="kyc-upload-box" id="kyc_customer_aadhaar_front" data-doc="customer_aadhaar_front">
+                                        <input type="file" accept="image/*,.pdf" style="display:none;" onchange="handleKycFileSelect(this)">
+                                        <div class="kyc-upload-content" onclick="this.previousElementSibling.click()">
+                                            <span class="kyc-upload-icon">📄</span>
+                                            <span class="kyc-upload-label">Choose file</span>
+                                        </div>
+                                        <div class="kyc-upload-status" style="display:none;"></div>
+                                    </div>
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:12px;">Aadhaar Back</label>
+                                    <div class="kyc-upload-box" id="kyc_customer_aadhaar_back" data-doc="customer_aadhaar_back">
+                                        <input type="file" accept="image/*,.pdf" style="display:none;" onchange="handleKycFileSelect(this)">
+                                        <div class="kyc-upload-content" onclick="this.previousElementSibling.click()">
+                                            <span class="kyc-upload-icon">📄</span>
+                                            <span class="kyc-upload-label">Choose file</span>
+                                        </div>
+                                        <div class="kyc-upload-status" style="display:none;"></div>
+                                    </div>
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:12px;">PAN Card</label>
+                                    <div class="kyc-upload-box" id="kyc_customer_pan" data-doc="customer_pan">
+                                        <input type="file" accept="image/*,.pdf" style="display:none;" onchange="handleKycFileSelect(this)">
+                                        <div class="kyc-upload-content" onclick="this.previousElementSibling.click()">
+                                            <span class="kyc-upload-icon">📄</span>
+                                            <span class="kyc-upload-label">Choose file</span>
+                                        </div>
+                                        <div class="kyc-upload-status" style="display:none;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div>
+                            <strong style="font-size: 13px; display:block; margin-bottom: 8px;">Nominee Documents</strong>
+                            <div class="form-row" style="gap:8px;">
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:12px;">Aadhaar Front</label>
+                                    <div class="kyc-upload-box" id="kyc_nominee_aadhaar_front" data-doc="nominee_aadhaar_front">
+                                        <input type="file" accept="image/*,.pdf" style="display:none;" onchange="handleKycFileSelect(this)">
+                                        <div class="kyc-upload-content" onclick="this.previousElementSibling.click()">
+                                            <span class="kyc-upload-icon">📄</span>
+                                            <span class="kyc-upload-label">Choose file</span>
+                                        </div>
+                                        <div class="kyc-upload-status" style="display:none;"></div>
+                                    </div>
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:12px;">Aadhaar Back</label>
+                                    <div class="kyc-upload-box" id="kyc_nominee_aadhaar_back" data-doc="nominee_aadhaar_back">
+                                        <input type="file" accept="image/*,.pdf" style="display:none;" onchange="handleKycFileSelect(this)">
+                                        <div class="kyc-upload-content" onclick="this.previousElementSibling.click()">
+                                            <span class="kyc-upload-icon">📄</span>
+                                            <span class="kyc-upload-label">Choose file</span>
+                                        </div>
+                                        <div class="kyc-upload-status" style="display:none;"></div>
+                                    </div>
+                                </div>
+                                <div class="form-group" style="flex:1;">
+                                    <label style="font-size:12px;">PAN Card</label>
+                                    <div class="kyc-upload-box" id="kyc_nominee_pan" data-doc="nominee_pan">
+                                        <input type="file" accept="image/*,.pdf" style="display:none;" onchange="handleKycFileSelect(this)">
+                                        <div class="kyc-upload-content" onclick="this.previousElementSibling.click()">
+                                            <span class="kyc-upload-icon">📄</span>
+                                            <span class="kyc-upload-label">Choose file</span>
+                                        </div>
+                                        <div class="kyc-upload-status" style="display:none;"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </form>
             </div>
             <div class="modal-footer">
@@ -2857,7 +3161,7 @@
                         </div>
                         <div class="form-group">
                             <label for="paymentAmount">Amount (₹)</label>
-                            <input type="number" id="paymentAmount" required step="100">
+                            <input type="number" id="paymentAmount" required step="100" min="1">
                         </div>
                     </div>
                     <div class="form-row">
@@ -3524,13 +3828,12 @@
             try {
                 const response = await fetch(path, options);
                 clearTimeout(timer);
-                // Handle 401 Unauthorized
-                if (response.status === 401) {
-                    clearTimeout(timer);
-                    throw new Error('Session expired. Please log in again.');
-                }
                 if (!response.ok) {
                     const errBody = await response.json().catch(() => ({}));
+                    // For 401 on non-login paths, it's a session expiry
+                    if (response.status === 401 && !path.includes('/login')) {
+                        throw new Error('Session expired. Please log in again.');
+                    }
                     throw new Error(errBody.error || `Server error: ${response.status}`);
                 }
                 return await response.json();
@@ -3753,9 +4056,14 @@
                 window._sessionRestored = true;
             } catch (error) {
                 hideLoading();
-                const msg = error.message.includes('timed out') ? 'Server is starting up — please wait 30 seconds and try again.'
-                    : error.message.includes('Too Many') || error.message.includes('429') ? 'Too many login attempts. Please wait a minute and try again.'
-                    : 'Invalid credentials';
+                let msg = 'Invalid username or password';
+                if (error.message.includes('timed out') || error.message.includes('Failed to fetch')) {
+                    msg = 'Server is starting up — please wait 30 seconds and try again.';
+                } else if (error.message.includes('Too many') || error.message.includes('429') || error.message.includes('too many')) {
+                    msg = 'Too many login attempts. Please wait 5 minutes and try again.';
+                } else if (error.message) {
+                    msg = error.message;
+                }
                 document.getElementById('loginError').textContent = msg;
                 document.getElementById('loginError').classList.add('show');
             }
@@ -4347,12 +4655,12 @@
         }
 
         async function deleteLocker(id) {
-            if (confirm('Are you sure you want to delete this locker?')) {
+            if (confirm('Are you sure you want to delete this locker? This cannot be undone.')) {
                 try {
                     await api('DELETE', `/api/lockers/${id}`);
                     await loadLockers();
                 } catch (error) {
-                    console.error('Failed to delete locker:', error);
+                    alert('Failed to delete locker: ' + (error.message || 'Unknown error'));
                 }
             }
         }
@@ -4415,7 +4723,7 @@
                     <td>${t.locker_number || '-'}</td>
                     <td>₹${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
                     <td>${leaseStatus}</td>
-                    <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status || 'pending')}</span></td>
+                    <td><span class="badge ${getBGStatusBadge(t.bg_status)}" title="${getMissingItems(t).length > 0 ? 'Missing: ' + getMissingItems(t).join(', ') : 'All verified'}">${capitalize(t.bg_status || 'Pending')}</span></td>
                     <td>
                         <div class="action-buttons">
                             ${t.account_status === 'Closed' ? `
@@ -4450,6 +4758,7 @@
 
         async function openAddTenantModal() {
             currentEditingId = null;
+            window._pendingLeadConversion = null; // Clear any stale lead conversion
             document.getElementById('tenantModalTitle').textContent = 'Add Tenant';
             document.getElementById('tenantForm').reset();
             document.getElementById('tenantId').value = '';
@@ -4473,6 +4782,9 @@
 
             document.getElementById('tenantRentDisplay').textContent = '';
             document.getElementById('tenantDepositDisplay').textContent = '';
+            // Reset KYC upload section (files queued until tenant is saved)
+            resetKycUploadBoxes();
+            pendingKycFiles = {};
             document.getElementById('tenantModal').classList.add('active');
         }
 
@@ -4526,6 +4838,15 @@
                 document.getElementById('tenantBgAadhaar').value = tenant.bg_aadhaar || '';
                 document.getElementById('tenantBgPan').value = tenant.bg_pan || '';
                 document.getElementById('tenantBgPhotosCollected').checked = tenant.bg_photos_collected;
+                document.getElementById('tenantNomineeName').value = tenant.nominee_name || '';
+                document.getElementById('tenantNomineePhone').value = tenant.nominee_phone || '';
+                document.getElementById('tenantNomineeAadhaar').value = tenant.nominee_aadhaar || '';
+                document.getElementById('tenantNomineePan').value = tenant.nominee_pan || '';
+
+                // Reset and load KYC status for existing tenants
+                pendingKycFiles = {};
+                resetKycUploadBoxes();
+                loadKycStatus(tenant.id);
 
                 await loadLockerSelect(tenant.locker_id, tenant.branch_id);
                 document.getElementById('tenantLocker').value = tenant.locker_id || '';
@@ -4565,6 +4886,11 @@
                 return;
             }
 
+            // Skip auto-populate during lead conversion — all fields should stay editable
+            if (window._pendingLeadConversion) {
+                return;
+            }
+
             try {
                 const tenant = await api('GET', `/api/tenants/by-phone/${phone}`);
 
@@ -4580,6 +4906,10 @@
                 document.getElementById('tenantBankBranch').value = tenant.bank_branch || '';
                 document.getElementById('tenantBgAadhaar').value = tenant.bg_aadhaar || '';
                 document.getElementById('tenantBgPan').value = tenant.bg_pan || '';
+                document.getElementById('tenantNomineeName').value = tenant.nominee_name || '';
+                document.getElementById('tenantNomineePhone').value = tenant.nominee_phone || '';
+                document.getElementById('tenantNomineeAadhaar').value = tenant.nominee_aadhaar || '';
+                document.getElementById('tenantNomineePan').value = tenant.nominee_pan || '';
 
                 // DO NOT auto-fill: locker, lease_start, branch
                 // These stay as user selection
@@ -4603,6 +4933,153 @@
             document.getElementById('tenantPhoneInfo').style.display = 'none';
             document.getElementById('tenantPhoneClearBtn').style.display = 'none';
             document.getElementById('tenantPhone').focus();
+        }
+
+        // ── KYC Upload Functions ────────────────────────────────────
+        const KYC_DOC_TYPES = [
+            'customer_aadhaar_front', 'customer_aadhaar_back', 'customer_pan',
+            'nominee_aadhaar_front', 'nominee_aadhaar_back', 'nominee_pan'
+        ];
+
+        // Pending files queue for new tenant creation (no ID yet)
+        let pendingKycFiles = {};
+
+        function resetKycUploadBoxes() {
+            pendingKycFiles = {};
+            KYC_DOC_TYPES.forEach(docType => {
+                const box = document.getElementById('kyc_' + docType);
+                if (!box) return;
+                box.classList.remove('uploaded', 'uploading', 'queued');
+                const content = box.querySelector('.kyc-upload-content');
+                const status = box.querySelector('.kyc-upload-status');
+                const input = box.querySelector('input[type=file]');
+                if (content) { content.style.display = 'flex'; content.querySelector('.kyc-upload-label').textContent = 'Choose file'; }
+                if (status) { status.style.display = 'none'; status.textContent = ''; status.className = 'kyc-upload-status'; }
+                if (input) input.value = '';
+            });
+        }
+
+        async function loadKycStatus(tenantId) {
+            try {
+                const data = await api('GET', `/api/tenants/${tenantId}/kyc-status`);
+                const docs = data.kyc_documents || {};
+                KYC_DOC_TYPES.forEach(docType => {
+                    const box = document.getElementById('kyc_' + docType);
+                    if (!box) return;
+                    const content = box.querySelector('.kyc-upload-content');
+                    const status = box.querySelector('.kyc-upload-status');
+                    if (docs[docType] && docs[docType].uploaded) {
+                        box.classList.add('uploaded');
+                        content.querySelector('.kyc-upload-label').textContent = 'Re-upload';
+                        status.style.display = 'block';
+                        status.className = 'kyc-upload-status success';
+                        status.textContent = 'Uploaded: ' + (docs[docType].filename || 'file');
+                    } else {
+                        box.classList.remove('uploaded');
+                        content.querySelector('.kyc-upload-label').textContent = 'Choose file';
+                        status.style.display = 'none';
+                    }
+                });
+            } catch (err) {
+                console.error('Failed to load KYC status:', err);
+            }
+        }
+
+        async function handleKycFileSelect(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const box = input.closest('.kyc-upload-box');
+            const docType = box.dataset.doc;
+            const tenantId = document.getElementById('tenantId').value;
+
+            const content = box.querySelector('.kyc-upload-content');
+            const statusEl = box.querySelector('.kyc-upload-status');
+
+            // If no tenant ID (new tenant), queue the file for upload after save
+            if (!tenantId) {
+                pendingKycFiles[docType] = file;
+                box.classList.add('queued');
+                box.classList.remove('uploaded', 'uploading');
+                content.querySelector('.kyc-upload-label').textContent = 'Change file';
+                statusEl.style.display = 'block';
+                statusEl.className = 'kyc-upload-status';
+                statusEl.textContent = file.name + ' (will upload on save)';
+                return;
+            }
+
+            // Existing tenant — upload immediately
+            box.classList.add('uploading');
+            box.classList.remove('uploaded', 'queued');
+            content.querySelector('.kyc-upload-label').textContent = 'Uploading...';
+            statusEl.style.display = 'block';
+            statusEl.className = 'kyc-upload-status';
+            statusEl.textContent = file.name;
+
+            try {
+                await uploadKycFile(tenantId, docType, file);
+                box.classList.remove('uploading');
+                box.classList.add('uploaded');
+                content.querySelector('.kyc-upload-label').textContent = 'Re-upload';
+                statusEl.className = 'kyc-upload-status success';
+                statusEl.textContent = 'Uploaded: ' + file.name;
+            } catch (err) {
+                box.classList.remove('uploading', 'uploaded');
+                content.querySelector('.kyc-upload-label').textContent = 'Retry';
+                statusEl.className = 'kyc-upload-status error';
+                statusEl.textContent = err.message;
+                input.value = '';
+            }
+        }
+
+        async function uploadKycFile(tenantId, docType, file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('doc_type', docType);
+
+            const token = localStorage.getItem('lockerhub_token');
+            const resp = await fetch(`/api/tenants/${tenantId}/kyc-upload`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token },
+                body: formData
+            });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.error || 'Upload failed');
+            return result;
+        }
+
+        // Upload all queued KYC files after tenant creation
+        async function uploadPendingKycFiles(tenantId) {
+            const docTypes = Object.keys(pendingKycFiles);
+            if (docTypes.length === 0) return;
+
+            let successCount = 0;
+            let failCount = 0;
+            for (const docType of docTypes) {
+                const file = pendingKycFiles[docType];
+                const box = document.getElementById('kyc_' + docType);
+                const content = box ? box.querySelector('.kyc-upload-content') : null;
+                const statusEl = box ? box.querySelector('.kyc-upload-status') : null;
+
+                try {
+                    if (box) { box.classList.remove('queued'); box.classList.add('uploading'); }
+                    if (content) content.querySelector('.kyc-upload-label').textContent = 'Uploading...';
+                    await uploadKycFile(tenantId, docType, file);
+                    successCount++;
+                    if (box) { box.classList.remove('uploading'); box.classList.add('uploaded'); }
+                    if (content) content.querySelector('.kyc-upload-label').textContent = 'Re-upload';
+                    if (statusEl) { statusEl.className = 'kyc-upload-status success'; statusEl.textContent = 'Uploaded: ' + file.name; }
+                } catch (err) {
+                    failCount++;
+                    if (box) box.classList.remove('uploading', 'queued');
+                    if (content) content.querySelector('.kyc-upload-label').textContent = 'Failed';
+                    if (statusEl) { statusEl.className = 'kyc-upload-status error'; statusEl.textContent = err.message; }
+                }
+            }
+            pendingKycFiles = {};
+            if (failCount > 0) {
+                alert(`KYC Upload: ${successCount} succeeded, ${failCount} failed. You can re-upload failed documents by editing the tenant.`);
+            }
         }
 
         function autoFillRent() {
@@ -4697,13 +5174,16 @@
                 bg_aadhaar: aadhaar,
                 bg_pan: pan.toUpperCase(),
                 bg_photos_collected: document.getElementById('tenantBgPhotosCollected').checked,
-                bg_status: (aadhaar && pan && document.getElementById('tenantBgPhotosCollected').checked) ? 'Verified' : 'Pending',
                 annual_rent: annualRent,
                 deposit: deposit,
                 bank_name: bankName,
                 bank_account: bankAccount,
                 bank_ifsc: bankIfsc.toUpperCase(),
-                bank_branch: bankBranch
+                bank_branch: bankBranch,
+                nominee_name: document.getElementById('tenantNomineeName').value.trim(),
+                nominee_phone: document.getElementById('tenantNomineePhone').value.trim(),
+                nominee_aadhaar: document.getElementById('tenantNomineeAadhaar').value.trim(),
+                nominee_pan: document.getElementById('tenantNomineePan').value.trim().toUpperCase()
             };
 
             showLoading('Saving tenant...');
@@ -4716,6 +5196,13 @@
                     resultData = await api('POST', '/api/tenants', data);
                     newId = resultData.id;
                 }
+
+                // Upload any queued KYC files for new tenant
+                if (newId && Object.keys(pendingKycFiles).length > 0) {
+                    showLoading('Uploading KYC documents...');
+                    await uploadPendingKycFiles(newId);
+                }
+
                 hideLoading();
                 closeModal('tenantModal');
                 await loadTenants();
@@ -5089,7 +5576,7 @@
                 locker_id: opt ? (opt.getAttribute('data-lockerid') || '') : '',
                 type: document.getElementById('paymentType').value,
                 period: document.getElementById('paymentPeriod').value,
-                amount: parseInt(document.getElementById('paymentAmount').value),
+                amount: parseFloat(document.getElementById('paymentAmount').value) || 0,
                 method: document.getElementById('paymentMethod').value,
                 ref_no: document.getElementById('paymentRefNo').value,
                 paid_on: document.getElementById('paymentDate').value,
@@ -5123,7 +5610,7 @@
                     await api('DELETE', `/api/payments/${id}`);
                     await loadPayments();
                 } catch (error) {
-                    console.error('Failed to delete payment:', error);
+                    alert('Failed to delete payment: ' + (error.message || 'Unknown error'));
                 }
             }
         }
@@ -5212,12 +5699,12 @@
         }
 
         async function deleteVisit(id) {
-            if (confirm('Are you sure?')) {
+            if (confirm('Delete this visit record? This cannot be undone.')) {
                 try {
                     await api('DELETE', `/api/visits/${id}`);
                     await loadVisits();
                 } catch (error) {
-                    console.error('Failed to delete visit:', error);
+                    alert('Failed to delete visit: ' + (error.message || 'Unknown error'));
                 }
             }
         }
@@ -5235,26 +5722,77 @@
             }
         }
 
+        function getKycDocCount(t) {
+            try {
+                const kyc = JSON.parse(t.kyc_documents || '{}');
+                const required = ['customer_aadhaar_front', 'customer_aadhaar_back', 'customer_pan',
+                    'nominee_aadhaar_front', 'nominee_aadhaar_back', 'nominee_pan'];
+                const uploaded = required.filter(d => kyc[d] && kyc[d].uploaded).length;
+                return { uploaded, total: required.length };
+            } catch(e) { return { uploaded: 0, total: 6 }; }
+        }
+
+        function getNomineeStatus(t) {
+            const fields = [t.nominee_name, t.nominee_phone, t.nominee_aadhaar, t.nominee_pan];
+            const filled = fields.filter(f => f && f.trim()).length;
+            return { filled, total: 4 };
+        }
+
+        function getMissingItems(t) {
+            const missing = [];
+            if (!t.bg_aadhaar) missing.push('Customer Aadhaar');
+            if (!t.bg_pan) missing.push('Customer PAN');
+            if (!t.nominee_name) missing.push('Nominee Name');
+            if (!t.nominee_phone) missing.push('Nominee Phone');
+            if (!t.nominee_aadhaar) missing.push('Nominee Aadhaar');
+            if (!t.nominee_pan) missing.push('Nominee PAN');
+            try {
+                const kyc = JSON.parse(t.kyc_documents || '{}');
+                const labels = {
+                    customer_aadhaar_front: 'Cust. Aadhaar Front',
+                    customer_aadhaar_back: 'Cust. Aadhaar Back',
+                    customer_pan: 'Cust. PAN Doc',
+                    nominee_aadhaar_front: 'Nom. Aadhaar Front',
+                    nominee_aadhaar_back: 'Nom. Aadhaar Back',
+                    nominee_pan: 'Nom. PAN Doc'
+                };
+                Object.entries(labels).forEach(([key, label]) => {
+                    if (!kyc[key] || !kyc[key].uploaded) missing.push(label);
+                });
+            } catch(e) {
+                missing.push('All KYC Docs');
+            }
+            return missing;
+        }
+
         function renderBGChecks(tenants) {
             if (tenants.length === 0) {
-                document.getElementById('bgchecksTable').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#7a6b5e;">No tenants found</td></tr>';
+                document.getElementById('bgchecksTable').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#7a6b5e;">No tenants found</td></tr>';
                 return;
             }
 
-            const html = tenants.map(t => `
+            const html = tenants.map(t => {
+                const nominee = getNomineeStatus(t);
+                const kyc = getKycDocCount(t);
+                const nomBadge = nominee.filled === nominee.total ? 'badge-success' : (nominee.filled > 0 ? 'badge-warning' : 'badge-danger');
+                const kycBadge = kyc.uploaded === kyc.total ? 'badge-success' : (kyc.uploaded > 0 ? 'badge-warning' : 'badge-danger');
+                const missing = getMissingItems(t);
+                const missingTip = missing.length > 0 ? 'Missing: ' + missing.join(', ') : 'All complete';
+                return `
                 <tr>
                     <td><strong>${t.name}</strong></td>
-                    <td>${maskAadhaar(t.bg_aadhaar) || '-'}</td>
-                    <td>${maskPAN(t.bg_pan) || '-'}</td>
-                    <td><span class="badge ${t.bg_photos_collected ? 'badge-success' : 'badge-warning'}">${t.bg_photos_collected ? 'Yes' : 'No'}</span></td>
-                    <td><span class="badge ${getBGStatusBadge(t.bg_status)}">${capitalize(t.bg_status)}</span></td>
+                    <td>${maskAadhaar(t.bg_aadhaar) || '<span style="color:var(--danger);">Missing</span>'}</td>
+                    <td>${maskPAN(t.bg_pan) || '<span style="color:var(--danger);">Missing</span>'}</td>
+                    <td><span class="badge ${nomBadge}">${nominee.filled}/${nominee.total}</span></td>
+                    <td><span class="badge ${kycBadge}">${kyc.uploaded}/${kyc.total}</span></td>
+                    <td><span class="badge ${getBGStatusBadge(t.bg_status)}" title="${missingTip}">${capitalize(t.bg_status || 'Pending')}</span></td>
                     <td>
                         <div class="action-buttons">
                             <button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Update</button>
                         </div>
                     </td>
-                </tr>
-            `).join('');
+                </tr>`;
+            }).join('');
 
             document.getElementById('bgchecksTable').innerHTML = html;
         }
@@ -5339,27 +5877,8 @@
         }
 
         // ===== Backup =====
-        async function downloadDbBackup() {
-            showLoading('Downloading database...');
-            try {
-                const token = localStorage.getItem('lockerhub_token');
-                const resp = await fetch('/api/backup/download', {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!resp.ok) throw new Error('Failed to download backup');
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'lockerhub_backup.db';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            } catch (err) {
-                alert('Failed to download backup: ' + err.message);
-            }
-            hideLoading();
+        function downloadDbBackup() {
+            triggerAuthDownload('/api/backup/download', 'lockerhub_backup.db', 'Downloading database...');
         }
 
         async function createServerBackup() {
@@ -5533,6 +6052,13 @@
                     alert(`Branch created successfully!\n\nBranch Manager User:\nUsername: ${result.staffUsername}\nPassword: ${result.staffPassword}\n\nLockers created: ${result.totalLockers}`);
                     await loadBranches();
                     await loadBranchSelector();
+                    // Prompt to set up room layout
+                    if (result.id && confirm('Would you like to set up the locker room floor plan now?\n(You can also do this later from Units & Cabinets)')) {
+                        // Switch to the new branch and open room builder
+                        document.getElementById('branchSelector').value = result.id;
+                        currentBranchId = result.id;
+                        await switchSection('units');
+                    }
                 }
             } catch (error) {
                 alert('Failed to save branch: ' + error.message);
@@ -5938,78 +6464,785 @@
         }
 
         async function deleteLockerType(id) {
-            if (confirm('Are you sure you want to delete this locker type?')) {
+            if (confirm('Delete this locker type? This cannot be undone.')) {
                 try {
                     await api('DELETE', `/api/locker-types/${id}`);
                     await loadLockerTypes();
                 } catch (error) {
-                    console.error('Failed to delete locker type:', error);
-                    alert('Failed to delete locker type');
+                    alert('Failed to delete locker type: ' + (error.message || 'Unknown error'));
                 }
             }
         }
 
-        // ===== Units & Cabinets =====
-        async function loadUnits() {
-            try {
-                const isHeadOffice = currentUser.role === 'headoffice';
-                const url = currentBranchId
-                    ? `/api/units?branch_id=${currentBranchId}`
-                    : '/api/units?branch_id=all';
-                const units = await api('GET', url);
+        // ===== Units & Cabinets — Room Builder =====
+        let roomCanvas = null;
+        let roomTool = 'select';
+        let roomDrawingPoints = [];
+        let roomDrawingLine = null;
+        let roomLayout = null;     // Loaded layout data
+        let roomUnitsData = [];    // Units with locker details
+        let roomEditMode = false;  // Is user allowed to edit?
+        const ROOM_PX_PER_FT = 30; // Pixels per foot on canvas
+        const ROOM_SNAP_GRID = ROOM_PX_PER_FT; // Snap to 1ft grid
+        const MM_TO_FT = 0.00328084; // millimeters to feet
 
-                if (isHeadOffice && !currentBranchId) {
+        async function loadUnits() {
+            const branchId = currentBranchId;
+            const isHeadOffice = currentUser.role === 'headoffice';
+
+            // If HO with no branch selected, fall back to old grid view
+            if (isHeadOffice && !branchId) {
+                document.getElementById('roomSetupPrompt').style.display = 'none';
+                document.getElementById('roomToolbar').style.display = 'none';
+                document.getElementById('roomBuilderContainer').style.display = 'none';
+                document.getElementById('unitsGridFallback').style.display = 'block';
+                // Load old grid view
+                try {
+                    const units = await api('GET', '/api/units?branch_id=all');
                     document.getElementById('unitBranchGroup').style.display = 'block';
                     await loadBranchSelectorForUnits();
-                } else {
-                    document.getElementById('unitBranchGroup').style.display = 'none';
-                }
-
-                renderUnits(units, isHeadOffice);
-            } catch (error) {
-                console.error('Failed to load units:', error);
-            }
-        }
-
-        function renderUnits(units, isHeadOffice) {
-            if (units.length === 0) {
-                document.getElementById('unitsGrid').innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px;">No units found</div>';
+                    renderUnitsGrid(units, true);
+                } catch(e) { console.error(e); }
                 return;
             }
 
-            // Build branch color map (assign each branch a color index 1-5)
+            document.getElementById('unitsGridFallback').style.display = 'none';
+
+            // Load room layout for this branch
+            try {
+                roomLayout = await api('GET', `/api/branches/${branchId}/room-layout`);
+                roomUnitsData = await api('GET', `/api/branches/${branchId}/room-units`);
+            } catch(e) { console.error(e); roomLayout = { status: 'none' }; roomUnitsData = []; }
+
+            // Determine if user can edit
+            roomEditMode = isHeadOffice; // For now, HO can edit; root-only restriction handled server-side
+
+            if (!roomLayout || roomLayout.status === 'none') {
+                // No layout — show setup prompt
+                document.getElementById('roomSetupPrompt').style.display = 'block';
+                document.getElementById('roomToolbar').style.display = 'none';
+                document.getElementById('roomBuilderContainer').style.display = 'none';
+                document.getElementById('btnStartRoomSetup').style.display = roomEditMode ? 'inline-block' : 'none';
+            } else {
+                // Layout exists — show the room builder
+                document.getElementById('roomSetupPrompt').style.display = 'none';
+                showRoomBuilder();
+            }
+        }
+
+        function startRoomSetup() {
+            roomLayout = {
+                room_polygon: [],
+                room_elements: [],
+                unit_placements: {},
+                room_width_ft: 20,
+                room_height_ft: 15,
+                status: 'configured'
+            };
+            showRoomBuilder();
+            setRoomTool('drawRoom');
+        }
+
+        function showRoomBuilder() {
+            document.getElementById('roomToolbar').style.display = roomEditMode ? 'block' : 'none';
+            document.getElementById('roomBuilderContainer').style.display = 'block';
+
+            const w = roomLayout.room_width_ft || 20;
+            const h = roomLayout.room_height_ft || 15;
+            document.getElementById('roomWidthFt').value = w;
+            document.getElementById('roomHeightFt').value = h;
+
+            // Show/hide palette based on edit mode
+            document.getElementById('roomPalette').style.display = roomEditMode ? 'block' : 'block';
+
+            initRoomCanvas(w, h);
+            loadRoomPalette();
+
+            if (roomLayout.room_polygon && roomLayout.room_polygon.length > 2) {
+                drawRoomPolygon(roomLayout.room_polygon);
+            }
+            if (roomLayout.room_elements) {
+                roomLayout.room_elements.forEach(el => placeRoomElement(el));
+            }
+            if (roomLayout.unit_placements) {
+                placeAllUnits(roomLayout.unit_placements);
+            }
+
+            updateRoomStatus();
+        }
+
+        function initRoomCanvas(widthFt, heightFt) {
+            const wrapEl = document.getElementById('roomCanvasWrap');
+            const cw = widthFt * ROOM_PX_PER_FT + 40; // Extra padding
+            const ch = heightFt * ROOM_PX_PER_FT + 40;
+
+            if (roomCanvas) { roomCanvas.dispose(); }
+
+            const canvasEl = document.getElementById('roomCanvas');
+            canvasEl.width = Math.max(cw, wrapEl.clientWidth);
+            canvasEl.height = Math.max(ch, 500);
+
+            roomCanvas = new fabric.Canvas('roomCanvas', {
+                selection: roomEditMode,
+                backgroundColor: '#f8f6f0',
+                width: canvasEl.width,
+                height: canvasEl.height,
+                allowTouchScrolling: false
+            });
+
+            drawGrid(widthFt, heightFt);
+            setupCanvasEvents();
+        }
+
+        function drawGrid(widthFt, heightFt) {
+            const gridGroup = [];
+            const totalW = widthFt * ROOM_PX_PER_FT;
+            const totalH = heightFt * ROOM_PX_PER_FT;
+            const ox = 20, oy = 20; // Offset for margin
+
+            // Draw vertical lines
+            for (let i = 0; i <= widthFt; i++) {
+                const x = ox + i * ROOM_PX_PER_FT;
+                const isMajor = i % 5 === 0;
+                gridGroup.push(new fabric.Line([x, oy, x, oy + totalH], {
+                    stroke: isMajor ? '#ccc' : '#e8e4dc',
+                    strokeWidth: isMajor ? 1 : 0.5,
+                    selectable: false, evented: false
+                }));
+                if (isMajor && i > 0) {
+                    gridGroup.push(new fabric.Text(i + "'", {
+                        left: x, top: oy - 14, fontSize: 9, fill: '#999',
+                        selectable: false, evented: false, originX: 'center'
+                    }));
+                }
+            }
+            // Draw horizontal lines
+            for (let j = 0; j <= heightFt; j++) {
+                const y = oy + j * ROOM_PX_PER_FT;
+                const isMajor = j % 5 === 0;
+                gridGroup.push(new fabric.Line([ox, y, ox + totalW, y], {
+                    stroke: isMajor ? '#ccc' : '#e8e4dc',
+                    strokeWidth: isMajor ? 1 : 0.5,
+                    selectable: false, evented: false
+                }));
+                if (isMajor && j > 0) {
+                    gridGroup.push(new fabric.Text(j + "'", {
+                        left: ox - 14, top: y, fontSize: 9, fill: '#999',
+                        selectable: false, evented: false, originY: 'center'
+                    }));
+                }
+            }
+
+            const group = new fabric.Group(gridGroup, {
+                selectable: false, evented: false, _isGrid: true
+            });
+            roomCanvas.add(group);
+            roomCanvas.sendToBack(group);
+        }
+
+        function snapToGrid(val) { return Math.round(val / ROOM_SNAP_GRID) * ROOM_SNAP_GRID; }
+
+        function setupCanvasEvents() {
+            // === Touch support for Fabric.js canvas ===
+            const upperCanvas = roomCanvas.upperCanvasEl;
+            let touchStartTime = 0;
+            let touchMoved = false;
+            let lastTouchDist = 0;
+
+            // Convert touch to mouse-like event for Fabric.js
+            function touchToPointer(touch) {
+                const rect = upperCanvas.getBoundingClientRect();
+                return { clientX: touch.clientX, clientY: touch.clientY, offsetX: touch.clientX - rect.left, offsetY: touch.clientY - rect.top };
+            }
+
+            upperCanvas.addEventListener('touchstart', function(e) {
+                if (e.touches.length === 1) {
+                    touchStartTime = Date.now();
+                    touchMoved = false;
+                    const touch = e.touches[0];
+                    const simEvt = touchToPointer(touch);
+                    // Let Fabric handle object selection
+                    roomCanvas._onMouseDown(simEvt);
+                    // For drawing tools, prevent scroll
+                    if (roomTool !== 'select') {
+                        e.preventDefault();
+                    }
+                } else if (e.touches.length === 2) {
+                    // Pinch zoom start
+                    e.preventDefault();
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    lastTouchDist = Math.sqrt(dx * dx + dy * dy);
+                }
+            }, { passive: false });
+
+            upperCanvas.addEventListener('touchmove', function(e) {
+                if (e.touches.length === 1) {
+                    touchMoved = true;
+                    const touch = e.touches[0];
+                    const simEvt = touchToPointer(touch);
+                    roomCanvas._onMouseMove(simEvt);
+                    if (roomTool !== 'select' || roomCanvas.getActiveObject()) {
+                        e.preventDefault();
+                    }
+                } else if (e.touches.length === 2) {
+                    // Pinch zoom
+                    e.preventDefault();
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+                    if (lastTouchDist > 0) {
+                        const factor = dist / lastTouchDist;
+                        zoomRoom(factor);
+                    }
+                    lastTouchDist = dist;
+                }
+            }, { passive: false });
+
+            upperCanvas.addEventListener('touchend', function(e) {
+                if (e.touches.length === 0) {
+                    const simEvt = e.changedTouches ? touchToPointer(e.changedTouches[0]) : {};
+                    roomCanvas._onMouseUp(simEvt);
+
+                    // Detect double-tap (for closing polygon)
+                    const now = Date.now();
+                    if (!touchMoved && (now - touchStartTime) < 300) {
+                        if (upperCanvas._lastTapTime && (now - upperCanvas._lastTapTime) < 350) {
+                            // Double tap
+                            if (roomTool === 'drawRoom' && roomDrawingPoints.length >= 3) {
+                                finishRoomPolygon();
+                            }
+                            upperCanvas._lastTapTime = 0;
+                        } else {
+                            upperCanvas._lastTapTime = now;
+                        }
+                    }
+                    lastTouchDist = 0;
+                }
+            }, { passive: true });
+
+            // === Original mouse events ===
+            roomCanvas.on('mouse:down', function(opt) {
+                if (roomTool === 'drawRoom') {
+                    const ptr = roomCanvas.getPointer(opt.e);
+                    const x = snapToGrid(ptr.x);
+                    const y = snapToGrid(ptr.y);
+
+                    // Check if closing the polygon (click near first point)
+                    if (roomDrawingPoints.length >= 3) {
+                        const first = roomDrawingPoints[0];
+                        if (Math.abs(x - first.x) < 15 && Math.abs(y - first.y) < 15) {
+                            finishRoomPolygon();
+                            return;
+                        }
+                    }
+
+                    roomDrawingPoints.push({ x, y });
+                    // Draw corner marker
+                    const marker = new fabric.Circle({
+                        left: x, top: y, radius: 4, fill: '#1a73e8', originX: 'center', originY: 'center',
+                        selectable: false, evented: false, _isDrawingMarker: true
+                    });
+                    roomCanvas.add(marker);
+
+                    // Draw line from previous point
+                    if (roomDrawingPoints.length > 1) {
+                        const prev = roomDrawingPoints[roomDrawingPoints.length - 2];
+                        const line = new fabric.Line([prev.x, prev.y, x, y], {
+                            stroke: '#1a73e8', strokeWidth: 2, strokeDashArray: [5, 3],
+                            selectable: false, evented: false, _isDrawingLine: true
+                        });
+                        roomCanvas.add(line);
+                    }
+                    roomCanvas.renderAll();
+                } else if (roomTool === 'door' && roomEditMode) {
+                    const ptr = roomCanvas.getPointer(opt.e);
+                    const x = snapToGrid(ptr.x);
+                    const y = snapToGrid(ptr.y);
+                    placeRoomElement({ type: 'door', x, y, rotation: 0 });
+                    setRoomTool('select');
+                } else if (roomTool === 'pillar' && roomEditMode) {
+                    const ptr = roomCanvas.getPointer(opt.e);
+                    const x = snapToGrid(ptr.x);
+                    const y = snapToGrid(ptr.y);
+                    placeRoomElement({ type: 'pillar', x, y, rotation: 0 });
+                    setRoomTool('select');
+                }
+            });
+
+            roomCanvas.on('mouse:dblclick', function(opt) {
+                if (roomTool === 'drawRoom' && roomDrawingPoints.length >= 3) {
+                    finishRoomPolygon();
+                }
+            });
+
+            // Object click — open unit detail popup
+            roomCanvas.on('mouse:up', function(opt) {
+                if (roomTool !== 'select') return;
+                const target = opt.target;
+                if (target && target._unitData) {
+                    showUnitPopup(target._unitData, opt.e);
+                }
+            });
+
+            // Snap rotation to 15°
+            roomCanvas.on('object:rotating', function(opt) {
+                const obj = opt.target;
+                obj.angle = Math.round(obj.angle / 15) * 15;
+            });
+
+            // Snap position to grid on move
+            roomCanvas.on('object:moving', function(opt) {
+                const obj = opt.target;
+                obj.left = snapToGrid(obj.left);
+                obj.top = snapToGrid(obj.top);
+            });
+        }
+
+        function finishRoomPolygon() {
+            // Remove drawing markers and lines
+            roomCanvas.getObjects().forEach(obj => {
+                if (obj._isDrawingMarker || obj._isDrawingLine) roomCanvas.remove(obj);
+            });
+            drawRoomPolygon(roomDrawingPoints);
+            roomDrawingPoints = [];
+            setRoomTool('select');
+        }
+
+        function drawRoomPolygon(points) {
+            if (!points || points.length < 3) return;
+            // Remove old polygon
+            roomCanvas.getObjects().forEach(obj => {
+                if (obj._isRoomPolygon) roomCanvas.remove(obj);
+            });
+
+            const poly = new fabric.Polygon(points.map(p => ({ x: p.x, y: p.y })), {
+                fill: 'rgba(255,255,255,0.85)',
+                stroke: '#4a3728',
+                strokeWidth: 3,
+                selectable: false,
+                evented: false,
+                _isRoomPolygon: true
+            });
+            roomCanvas.add(poly);
+            // Send behind units but above grid
+            const gridObj = roomCanvas.getObjects().find(o => o._isGrid);
+            if (gridObj) {
+                roomCanvas.moveTo(poly, roomCanvas.getObjects().indexOf(gridObj) + 1);
+            }
+            roomCanvas.renderAll();
+        }
+
+        function placeRoomElement(el) {
+            if (el.type === 'door') {
+                const door = new fabric.Group([
+                    new fabric.Rect({ width: 30, height: 6, fill: '#8B4513', originX: 'center', originY: 'center' }),
+                    new fabric.Text('🚪', { fontSize: 12, originX: 'center', originY: 'center', top: -12 })
+                ], {
+                    left: el.x, top: el.y, originX: 'center', originY: 'center',
+                    angle: el.rotation || 0,
+                    hasControls: roomEditMode, hasBorders: roomEditMode, selectable: roomEditMode,
+                    lockScalingX: true, lockScalingY: true,
+                    _elementType: 'door', _isRoomElement: true
+                });
+                roomCanvas.add(door);
+            } else if (el.type === 'pillar') {
+                const pillar = new fabric.Rect({
+                    left: el.x, top: el.y, width: 20, height: 20,
+                    fill: '#888', stroke: '#666', strokeWidth: 1,
+                    originX: 'center', originY: 'center',
+                    angle: el.rotation || 0,
+                    hasControls: roomEditMode, hasBorders: roomEditMode, selectable: roomEditMode,
+                    lockScalingX: true, lockScalingY: true,
+                    _elementType: 'pillar', _isRoomElement: true
+                });
+                roomCanvas.add(pillar);
+            }
+            roomCanvas.renderAll();
+        }
+
+        function placeAllUnits(placements) {
+            roomUnitsData.forEach(u => {
+                const placement = placements[u.id];
+                if (placement) {
+                    placeUnitOnCanvas(u, placement.x, placement.y, placement.rotation || 0);
+                }
+            });
+        }
+
+        function placeUnitOnCanvas(unitData, x, y, rotation) {
+            // Calculate unit size from type dimensions (mm → ft → px)
+            const wFt = (unitData.unit_width_mm || 1075) * MM_TO_FT;
+            const dFt = (unitData.unit_depth_mm || 700) * MM_TO_FT;
+            const wPx = Math.max(wFt * ROOM_PX_PER_FT, 40);
+            const hPx = Math.max(dFt * ROOM_PX_PER_FT, 25);
+
+            const occupied = unitData.occupied || 0;
+            const total = unitData.total || unitData.lockers_per_unit || 6;
+            const pct = total > 0 ? Math.round((occupied / total) * 100) : 0;
+            const fillColor = occupied === 0 ? '#e8f5e9' : (occupied === total ? '#ffebee' : '#fff8e1');
+            const borderColor = occupied === 0 ? '#4caf50' : (occupied === total ? '#e53935' : '#ff9800');
+
+            const rectBg = new fabric.Rect({
+                width: wPx, height: hPx, fill: fillColor,
+                stroke: borderColor, strokeWidth: 2, rx: 3, ry: 3,
+                originX: 'center', originY: 'center'
+            });
+
+            const label = new fabric.Text(unitData.unit_number, {
+                fontSize: 10, fontWeight: 'bold', fill: '#333',
+                originX: 'center', originY: 'center', top: -4
+            });
+
+            const info = new fabric.Text(`${occupied}/${total}`, {
+                fontSize: 8, fill: '#666',
+                originX: 'center', originY: 'center', top: 8
+            });
+
+            const group = new fabric.Group([rectBg, label, info], {
+                left: x, top: y, originX: 'center', originY: 'center',
+                angle: rotation,
+                hasControls: roomEditMode, hasBorders: true, selectable: roomEditMode,
+                lockScalingX: true, lockScalingY: true,
+                hoverCursor: 'pointer',
+                _isUnit: true, _unitData: unitData, _unitId: unitData.id
+            });
+
+            // Remove existing unit with same id
+            roomCanvas.getObjects().forEach(obj => {
+                if (obj._unitId === unitData.id) roomCanvas.remove(obj);
+            });
+
+            roomCanvas.add(group);
+            roomCanvas.renderAll();
+            return group;
+        }
+
+        function loadRoomPalette() {
+            const list = document.getElementById('roomPaletteList');
+            const placements = (roomLayout && roomLayout.unit_placements) ? roomLayout.unit_placements : {};
+
+            if (roomUnitsData.length === 0) {
+                list.innerHTML = '<p style="color:var(--text-light); font-size:12px;">No units created yet. Create units first.</p>';
+                return;
+            }
+
+            list.innerHTML = roomUnitsData.map(u => {
+                const isPlaced = !!placements[u.id];
+                const occ = u.occupied || 0;
+                const tot = u.total || u.lockers_per_unit || 0;
+                return `<div class="palette-unit ${isPlaced ? 'placed' : ''}" draggable="true"
+                    ondragstart="paletteDragStart(event, '${u.id}')"
+                    ontouchstart="paletteTouchStart(event, '${u.id}')"
+                    onclick="paletteClickPlace('${u.id}')">
+                    <div class="pu-name">${u.unit_number}</div>
+                    <div class="pu-type">${u.type_name || ''}${u.type_variant && u.type_variant !== 'Standard' ? ' (' + u.type_variant + ')' : ''}</div>
+                    <div class="pu-occ">${occ}/${tot} occupied${isPlaced ? ' — <span style="color:var(--success);">Placed</span>' : ''}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function paletteDragStart(e, unitId) {
+            e.dataTransfer.setData('text/plain', unitId);
+        }
+
+        // Touch drag from palette to canvas (mobile support)
+        let paletteTouchUnitId = null;
+        let paletteTouchGhost = null;
+
+        function paletteTouchStart(e, unitId) {
+            if (e.touches.length !== 1) return;
+            paletteTouchUnitId = unitId;
+            const touch = e.touches[0];
+            paletteTouchGhost = document.createElement('div');
+            const u = roomUnitsData.find(u => u.id === unitId);
+            paletteTouchGhost.textContent = u ? u.unit_number : '?';
+            paletteTouchGhost.style.cssText = 'position:fixed;z-index:99999;padding:6px 12px;background:var(--primary);color:#fff;border-radius:6px;font-size:13px;font-weight:600;pointer-events:none;opacity:0.85;transform:translate(-50%,-50%);';
+            paletteTouchGhost.style.left = touch.clientX + 'px';
+            paletteTouchGhost.style.top = touch.clientY + 'px';
+            document.body.appendChild(paletteTouchGhost);
+        }
+
+        document.addEventListener('touchmove', function(e) {
+            if (paletteTouchGhost && e.touches.length === 1) {
+                paletteTouchGhost.style.left = e.touches[0].clientX + 'px';
+                paletteTouchGhost.style.top = e.touches[0].clientY + 'px';
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchend', function(e) {
+            if (paletteTouchUnitId && paletteTouchGhost) {
+                const touch = e.changedTouches[0];
+                const wrap = document.getElementById('roomCanvasWrap');
+                if (wrap && roomCanvas && roomEditMode) {
+                    const rect = wrap.getBoundingClientRect();
+                    if (touch.clientX >= rect.left && touch.clientX <= rect.right &&
+                        touch.clientY >= rect.top && touch.clientY <= rect.bottom) {
+                        const u = roomUnitsData.find(u => u.id === paletteTouchUnitId);
+                        if (u) {
+                            const x = snapToGrid(touch.clientX - rect.left);
+                            const y = snapToGrid(touch.clientY - rect.top);
+                            placeUnitOnCanvas(u, x, y, 0);
+                            if (!roomLayout.unit_placements) roomLayout.unit_placements = {};
+                            roomLayout.unit_placements[paletteTouchUnitId] = { x, y, rotation: 0 };
+                            loadRoomPalette();
+                        }
+                    }
+                }
+                paletteTouchGhost.remove();
+                paletteTouchGhost = null;
+                paletteTouchUnitId = null;
+            }
+        }, { passive: true });
+
+        function paletteClickPlace(unitId) {
+            if (!roomEditMode) return;
+            const u = roomUnitsData.find(u => u.id === unitId);
+            if (!u) return;
+            const wFt = (u.unit_width_mm || 1075) * MM_TO_FT;
+            const cx = 20 + ((roomLayout.room_width_ft || 20) * ROOM_PX_PER_FT) / 2;
+            const cy = 20 + ((roomLayout.room_height_ft || 15) * ROOM_PX_PER_FT) / 2;
+            placeUnitOnCanvas(u, snapToGrid(cx), snapToGrid(cy), 0);
+            if (!roomLayout.unit_placements) roomLayout.unit_placements = {};
+            roomLayout.unit_placements[unitId] = { x: snapToGrid(cx), y: snapToGrid(cy), rotation: 0 };
+            loadRoomPalette();
+        }
+
+        // Handle drop from palette onto canvas
+        (function setupCanvasDrop() {
+            // Wait for DOM
+            setTimeout(() => {
+                const wrap = document.getElementById('roomCanvasWrap');
+                if (!wrap) return;
+                wrap.addEventListener('dragover', e => e.preventDefault());
+                wrap.addEventListener('drop', e => {
+                    e.preventDefault();
+                    const unitId = e.dataTransfer.getData('text/plain');
+                    if (!unitId || !roomCanvas || !roomEditMode) return;
+                    const u = roomUnitsData.find(u => u.id === unitId);
+                    if (!u) return;
+                    const rect = wrap.getBoundingClientRect();
+                    const x = snapToGrid(e.clientX - rect.left);
+                    const y = snapToGrid(e.clientY - rect.top);
+                    placeUnitOnCanvas(u, x, y, 0);
+                    if (!roomLayout.unit_placements) roomLayout.unit_placements = {};
+                    roomLayout.unit_placements[unitId] = { x, y, rotation: 0 };
+                    loadRoomPalette();
+                });
+            }, 500);
+        })();
+
+        function showUnitPopup(unitData, mouseEvent) {
+            // Remove existing popup
+            document.getElementById('roomUnitPopup')?.remove();
+            const u = unitData;
+            const lockers = u.lockers || [];
+            const occupied = lockers.filter(l => l.status === 'occupied');
+            const vacant = lockers.filter(l => l.status === 'vacant');
+
+            const lockerRows = lockers.map(l => {
+                const sc = l.status === 'occupied' ? 'color:#e53935;' : 'color:#4caf50;';
+                return `<tr>
+                    <td style="padding:3px 6px;font-size:12px;"><strong>${l.number}</strong></td>
+                    <td style="padding:3px 6px;font-size:12px;${sc}">${capitalize(l.status)}</td>
+                    <td style="padding:3px 6px;font-size:12px;">${l.tenant_name || '-'}</td>
+                    <td style="padding:3px 6px;font-size:12px;">${l.tenant_phone || '-'}</td>
+                </tr>`;
+            }).join('');
+
+            const popup = document.createElement('div');
+            popup.id = 'roomUnitPopup';
+            popup.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;';
+            popup.onclick = function(e) { if (e.target === this) this.remove(); };
+            popup.innerHTML = `
+                <div style="background:#fff;border-radius:12px;max-width:500px;width:100%;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:80vh;overflow-y:auto;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                        <h3 style="margin:0;font-size:16px;">Unit ${u.unit_number}</h3>
+                        <button onclick="this.closest('#roomUnitPopup').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:#999;">×</button>
+                    </div>
+                    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:13px;margin-bottom:12px;color:var(--text-light);">
+                        <span><strong>Type:</strong> ${u.type_name || '-'}${u.type_variant && u.type_variant !== 'Standard' ? ' (' + u.type_variant + ')' : ''}</span>
+                        <span><strong>Lockers:</strong> ${lockers.length} (${occupied.length} occupied, ${vacant.length} vacant)</span>
+                        ${u.type_annual_rent ? '<span><strong>Rent:</strong> ₹' + formatIndianNumber(u.type_annual_rent) + '/yr</span>' : ''}
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;">
+                        <thead><tr style="background:#f5f0e8;">
+                            <th style="padding:4px 6px;text-align:left;font-size:11px;">Locker</th>
+                            <th style="padding:4px 6px;text-align:left;font-size:11px;">Status</th>
+                            <th style="padding:4px 6px;text-align:left;font-size:11px;">Tenant</th>
+                            <th style="padding:4px 6px;text-align:left;font-size:11px;">Phone</th>
+                        </tr></thead>
+                        <tbody>${lockerRows}</tbody>
+                    </table>
+                </div>
+            `;
+            document.body.appendChild(popup);
+        }
+
+        function setRoomTool(tool) {
+            roomTool = tool;
+            document.querySelectorAll('.room-tool-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tool === tool);
+            });
+
+            const hint = document.getElementById('roomCanvasHint');
+            if (tool === 'drawRoom') hint.textContent = 'Click corners to draw walls • Double-click or click first corner to close shape';
+            else if (tool === 'door') hint.textContent = 'Click on a wall to place a door';
+            else if (tool === 'pillar') hint.textContent = 'Click to place a structural pillar';
+            else hint.textContent = 'Click a unit to view details • Drag to reposition';
+
+            // In select mode, make canvas objects selectable
+            if (roomCanvas) {
+                roomCanvas.selection = (tool === 'select') && roomEditMode;
+                roomCanvas.getObjects().forEach(obj => {
+                    if (obj._isUnit || obj._isRoomElement) {
+                        obj.selectable = (tool === 'select') && roomEditMode;
+                        obj.evented = true;
+                    }
+                });
+                roomCanvas.renderAll();
+            }
+        }
+
+        function zoomRoom(factor) {
+            if (!roomCanvas) return;
+            const z = roomCanvas.getZoom() * factor;
+            roomCanvas.setZoom(Math.min(Math.max(z, 0.3), 3));
+            roomCanvas.renderAll();
+        }
+
+        function resetRoomView() {
+            if (!roomCanvas) return;
+            roomCanvas.setZoom(1);
+            roomCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+            roomCanvas.renderAll();
+        }
+
+        function undoRoom() {
+            if (roomDrawingPoints.length > 0) {
+                roomDrawingPoints.pop();
+                // Remove last marker and line
+                const objs = roomCanvas.getObjects();
+                for (let i = objs.length - 1; i >= 0; i--) {
+                    if (objs[i]._isDrawingMarker || objs[i]._isDrawingLine) {
+                        roomCanvas.remove(objs[i]);
+                        break;
+                    }
+                }
+                roomCanvas.renderAll();
+            }
+        }
+
+        function clearRoomWalls() {
+            if (!confirm('Clear the room walls? You will need to redraw them.')) return;
+            roomCanvas.getObjects().forEach(obj => {
+                if (obj._isRoomPolygon || obj._isDrawingMarker || obj._isDrawingLine) roomCanvas.remove(obj);
+            });
+            roomDrawingPoints = [];
+            if (roomLayout) roomLayout.room_polygon = [];
+            roomCanvas.renderAll();
+        }
+
+        function updateRoomDimensions() {
+            const w = parseInt(document.getElementById('roomWidthFt').value) || 20;
+            const h = parseInt(document.getElementById('roomHeightFt').value) || 15;
+            if (roomLayout) {
+                roomLayout.room_width_ft = w;
+                roomLayout.room_height_ft = h;
+            }
+            // Reinit canvas with new dimensions
+            showRoomBuilder();
+        }
+
+        function updateRoomStatus() {
+            const label = document.getElementById('roomStatusLabel');
+            if (!roomLayout) return;
+            const placed = Object.keys(roomLayout.unit_placements || {}).length;
+            const total = roomUnitsData.length;
+            label.textContent = `${placed}/${total} units placed • ${roomLayout.status || 'pending'}`;
+        }
+
+        async function saveRoomLayout() {
+            if (!roomLayout || !currentBranchId) return;
+
+            // Collect polygon from canvas
+            const poly = roomCanvas.getObjects().find(o => o._isRoomPolygon);
+            if (poly) {
+                roomLayout.room_polygon = poly.points.map(p => ({ x: p.x, y: p.y }));
+            }
+
+            // Collect room elements
+            const elements = [];
+            roomCanvas.getObjects().forEach(obj => {
+                if (obj._isRoomElement) {
+                    elements.push({
+                        type: obj._elementType,
+                        x: Math.round(obj.left),
+                        y: Math.round(obj.top),
+                        rotation: Math.round(obj.angle || 0)
+                    });
+                }
+            });
+            roomLayout.room_elements = elements;
+
+            // Collect unit placements
+            const placements = {};
+            roomCanvas.getObjects().forEach(obj => {
+                if (obj._isUnit && obj._unitId) {
+                    placements[obj._unitId] = {
+                        x: Math.round(obj.left),
+                        y: Math.round(obj.top),
+                        rotation: Math.round(obj.angle || 0)
+                    };
+                }
+            });
+            roomLayout.unit_placements = placements;
+
+            const hasWalls = roomLayout.room_polygon && roomLayout.room_polygon.length >= 3;
+            roomLayout.status = hasWalls ? 'active' : 'configured';
+
+            showLoading('Saving room layout...');
+            try {
+                await api('PUT', `/api/branches/${currentBranchId}/room-layout`, roomLayout);
+                hideLoading();
+                updateRoomStatus();
+                loadRoomPalette();
+            } catch (err) {
+                hideLoading();
+                alert('Failed to save: ' + err.message);
+            }
+        }
+
+        // Old grid view renderer (for HO "All Branches" view)
+        function renderUnitsGrid(units, isHeadOffice) {
+            const grid = document.getElementById('unitsGrid');
+            if (units.length === 0) {
+                grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 40px;">No units found</div>';
+                return;
+            }
             const branchNames = [...new Set(units.map(u => u.branch_name).filter(Boolean))];
             const branchColorMap = {};
             branchNames.forEach((name, i) => { branchColorMap[name] = (i % 5) + 1; });
 
-            const html = units.map(u => {
+            grid.innerHTML = units.map(u => {
                 const occupied = u.occupied_count || 0;
                 const total = u.locker_count || 0;
                 const occupancyPct = total > 0 ? Math.round((occupied / total) * 100) : 0;
                 const branchColor = branchColorMap[u.branch_name] || 1;
                 const showBranch = isHeadOffice && !currentBranchId;
-
-                // Badge: show branch name if viewing all branches, otherwise show status
                 const badgeHtml = showBranch
                     ? `<span class="unit-card-badge branch-badge" data-color="${branchColor}">${u.branch_name}</span>`
                     : (u.status === 'upcoming' ? `<span class="unit-card-badge upcoming">Upcoming</span>` : '');
-
-                const colorAttr = showBranch ? `data-branch-color="${branchColor}"` : '';
-
                 return `
-                    <div class="unit-card ${u.status === 'upcoming' ? 'upcoming' : 'active'}" ${colorAttr} onclick="openUnitDetail('${u.id}', '${u.unit_number}')" style="cursor:pointer;">
+                    <div class="unit-card ${u.status === 'upcoming' ? 'upcoming' : 'active'}" onclick="openUnitDetail('${u.id}', '${u.unit_number}')" style="cursor:pointer;">
                         <div class="unit-card-header">
                             <div class="unit-card-number">${u.unit_number}</div>
                             ${badgeHtml}
                         </div>
-                        <div class="unit-card-type">
-                            <strong>${u.type_name || '-'}</strong>${u.variant ? ` (${u.variant})` : ''}
-                        </div>
+                        <div class="unit-card-type"><strong>${u.type_name || '-'}</strong>${u.variant ? ` (${u.variant})` : ''}</div>
                         <div class="unit-card-occupancy">
                             <span>${occupied}/${total}</span>
-                            <div class="unit-card-occupancy-bar">
-                                <div class="unit-card-occupancy-fill" style="width: ${occupancyPct}%"></div>
-                            </div>
+                            <div class="unit-card-occupancy-bar"><div class="unit-card-occupancy-fill" style="width: ${occupancyPct}%"></div></div>
                             <span>${occupancyPct}%</span>
                         </div>
                         ${u.location ? `<div class="unit-card-location">${u.location}</div>` : ''}
@@ -6017,11 +7250,8 @@
                             ${u.status === 'upcoming' ? `<button class="btn btn-primary" onclick="activateUnit('${u.id}')">Activate</button>` : ''}
                             <button class="btn btn-danger" onclick="deleteUnit('${u.id}')">Delete</button>
                         </div>
-                    </div>
-                `;
+                    </div>`;
             }).join('');
-
-            document.getElementById('unitsGrid').innerHTML = html;
         }
 
         async function openUnitDetail(unitId, unitNumber) {
@@ -6226,8 +7456,9 @@
         }
 
         function getBGStatusBadge(status) {
-            if (status === 'verified') return 'badge-success';
-            if (status === 'pending') return 'badge-warning';
+            const s = (status || '').toLowerCase();
+            if (s === 'verified') return 'badge-success';
+            if (s === 'pending') return 'badge-warning';
             return 'badge-danger';
         }
 
@@ -6342,6 +7573,53 @@
             }));
         }
 
+        // Universal download helper — works in both browser and Android WebView
+        function isWebView() {
+            return /LockerHub-Android/i.test(navigator.userAgent);
+        }
+        async function triggerAuthDownload(apiPath, fallbackFilename, loadingMsg) {
+            const token = localStorage.getItem('lockerhub_token');
+            const sep = apiPath.includes('?') ? '&' : '?';
+            const url = apiPath + sep + 'token=' + encodeURIComponent(token);
+
+            if (isWebView()) {
+                // WebView: navigate directly — DownloadListener handles the file
+                if (loadingMsg) showLoading(loadingMsg);
+                // Brief delay so loading spinner shows before navigation
+                setTimeout(() => {
+                    window.location.href = url;
+                    setTimeout(() => hideLoading(), 1500);
+                }, 100);
+            } else {
+                // Browser: use fetch to detect errors, then trigger download
+                if (loadingMsg) showLoading(loadingMsg);
+                try {
+                    const resp = await fetch(url);
+                    if (!resp.ok) {
+                        const errBody = await resp.json().catch(() => ({}));
+                        throw new Error(errBody.error || `Download failed (${resp.status})`);
+                    }
+                    const contentType = resp.headers.get('content-type') || '';
+                    if (contentType.includes('application/json')) {
+                        const errBody = await resp.json();
+                        throw new Error(errBody.error || 'Server returned an error');
+                    }
+                    const blob = await resp.blob();
+                    const blobUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = blobUrl;
+                    a.download = fallbackFilename;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+                } catch (err) {
+                    alert('Download failed: ' + err.message);
+                }
+                hideLoading();
+            }
+        }
+
         function downloadExcel(data, fileName) {
             if (!data || data.length === 0) {
                 alert('No data to export');
@@ -6354,67 +7632,13 @@
         }
 
         // ===== SOA Download (Ledger Style) =====
-        async function downloadAllotmentForm(tenantId) {
-            showLoading('Generating Allotment Form...');
-            try {
-                const token = localStorage.getItem('lockerhub_token');
-                const resp = await fetch(`/api/allotment-form/${tenantId}`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!resp.ok) {
-                    const errData = await resp.json().catch(() => ({}));
-                    throw new Error(errData.error || `Server error ${resp.status}`);
-                }
-                const contentType = resp.headers.get('content-type') || '';
-                if (contentType.includes('application/json')) {
-                    const errData = await resp.json();
-                    throw new Error(errData.error || 'Server returned JSON instead of PDF');
-                }
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `allotment-form-${tenantId}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            } catch (err) {
-                alert('Failed to download allotment form: ' + err.message);
-            }
-            hideLoading();
+        function downloadAllotmentForm(tenantId) {
+            triggerAuthDownload(`/api/allotment-form/${tenantId}`, `allotment-form-${tenantId}.pdf`, 'Generating Allotment Form...');
         }
 
-        async function downloadReceipt(paymentId, customerCopyOnly) {
-            showLoading('Generating Receipt...');
-            try {
-                const token = localStorage.getItem('lockerhub_token');
-                const url = `/api/receipt/${paymentId}${customerCopyOnly ? '?copy=customer' : ''}`;
-                const resp = await fetch(url, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!resp.ok) {
-                    const errData = await resp.json().catch(() => ({}));
-                    throw new Error(errData.error || `Server error ${resp.status}`);
-                }
-                const contentType = resp.headers.get('content-type') || '';
-                if (contentType.includes('application/json')) {
-                    const errData = await resp.json();
-                    throw new Error(errData.error || 'Server returned JSON instead of PDF');
-                }
-                const blob = await resp.blob();
-                const blobUrl = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = blobUrl;
-                a.download = `receipt-${paymentId}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(blobUrl);
-            } catch (err) {
-                alert('Failed to download receipt: ' + err.message);
-            }
-            hideLoading();
+        function downloadReceipt(paymentId, customerCopyOnly) {
+            const path = `/api/receipt/${paymentId}${customerCopyOnly ? '?copy=customer' : ''}`;
+            triggerAuthDownload(path, `receipt-${paymentId}.pdf`, 'Generating Receipt...');
         }
 
         async function downloadSOA(tenantId) {
@@ -6573,6 +7797,25 @@
         const SLOT_START_HOUR = 9;  // 9:00 AM
         const SLOT_END_HOUR = 18;   // 6:00 PM
         const SLOT_DURATION = 30;   // minutes
+        const BOOKING_MAX_MONTHS = 3; // customers can book up to 3 months ahead
+        function getMaxBookingDate() {
+            const d = new Date();
+            d.setMonth(d.getMonth() + BOOKING_MAX_MONTHS);
+            return d.toISOString().split('T')[0];
+        }
+        function isSlotInPast(date, slotTime) {
+            const now = new Date();
+            const todayStr = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+            // If date is in the future, no slots are past
+            if (date > todayStr) return false;
+            // If date is in the past, all slots are past
+            if (date < todayStr) return true;
+            // Same day: compare hours and minutes
+            const [h, m] = slotTime.split(':').map(Number);
+            const nowMinutes = now.getHours() * 60 + now.getMinutes();
+            const slotMinutes = h * 60 + m;
+            return slotMinutes <= nowMinutes;
+        }
         function generateTimeSlots() {
             const slots = [];
             for (let h = SLOT_START_HOUR; h < SLOT_END_HOUR; h++) {
@@ -6608,7 +7851,7 @@
             html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
                 <button onclick="_calMonth--;if(_calMonth<0){_calMonth=11;_calYear--;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:13px;font-weight:600;color:#555;">&larr;</button>
                 <span style="font-weight:700;font-size:13px;color:#333;">${monthName}</span>
-                <button onclick="_calMonth++;if(_calMonth>11){_calMonth=0;_calYear++;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:13px;font-weight:600;color:#555;">&rarr;</button>
+                <button onclick="const mx=new Date();mx.setMonth(mx.getMonth()+BOOKING_MAX_MONTHS);if(_calYear>mx.getFullYear()||(_calYear===mx.getFullYear()&&_calMonth>=mx.getMonth()))return;_calMonth++;if(_calMonth>11){_calMonth=0;_calYear++;}renderAppointmentCalendar();" style="border:none;background:#f0f0f0;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:13px;font-weight:600;color:#555;">&rarr;</button>
             </div>`;
 
             html += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;">';
@@ -6768,6 +8011,7 @@
             const dateEl = document.getElementById('apptDate');
             dateEl.value = new Date().toISOString().split('T')[0];
             dateEl.min = new Date().toISOString().split('T')[0];
+            dateEl.max = getMaxBookingDate();
             document.getElementById('apptTime').innerHTML = '<option value="">— Select date first —</option>';
             document.getElementById('apptSlotStatus').textContent = '';
             document.getElementById('apptPurpose').value = 'Locker Access';
@@ -6805,7 +8049,10 @@
                     const ampm = h >= 12 ? 'PM' : 'AM';
                     const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
                     const label = `${h12}:${m} ${ampm}`;
-                    if (s.status === 'booked') {
+                    const past = isSlotInPast(date, s.time);
+                    if (past) {
+                        sel.innerHTML += `<option value="${s.time}" disabled style="color:#ccc;">${label} — Past</option>`;
+                    } else if (s.status === 'booked') {
                         sel.innerHTML += `<option value="${s.time}" disabled style="color:#999;">⛔ ${label} — Booked</option>`;
                     } else if (s.status === 'pending') {
                         sel.innerHTML += `<option value="${s.time}" style="color:#d97706;">⏳ ${label} — Pending request</option>`;
@@ -6844,7 +8091,10 @@
                     const ampm = h >= 12 ? 'PM' : 'AM';
                     const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
                     const label = `${h12}:${m} ${ampm}`;
-                    if (s.status === 'booked') {
+                    const past = isSlotInPast(date, s.time);
+                    if (past) {
+                        sel.innerHTML += `<option value="${s.time}" disabled style="color:#ccc;">${label} — Past</option>`;
+                    } else if (s.status === 'booked') {
                         sel.innerHTML += `<option value="${s.time}" disabled style="color:#999;">⛔ ${label} — Booked</option>`;
                     } else if (s.status === 'pending') {
                         sel.innerHTML += `<option value="${s.time}" disabled style="color:#d97706;">⏳ ${label} — Reserved</option>`;
@@ -7144,47 +8394,13 @@
             }
         }
 
-        async function downloadSignedDoc(esignId) {
-            showLoading('Downloading signed document...');
-            try {
-                const token = localStorage.getItem('lockerhub_token');
-                const resp = await fetch(`/api/esign/${esignId}/download`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!resp.ok) throw new Error('Failed to download document');
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `signed-doc-${esignId}.pdf`;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-            } catch (err) {
-                alert('Failed to download: ' + err.message);
-            }
-            hideLoading();
+        function downloadSignedDoc(esignId) {
+            triggerAuthDownload(`/api/esign/${esignId}/download`, `signed-doc-${esignId}.pdf`, 'Downloading signed document...');
         }
 
-        async function previewSignedDoc(esignId) {
-            showLoading('Loading preview...');
-            try {
-                const token = localStorage.getItem('lockerhub_token');
-                const resp = await fetch(`/api/esign/${esignId}/download`, {
-                    headers: { 'Authorization': `Bearer ${token}` }
-                });
-                if (!resp.ok) {
-                    const errData = await resp.json().catch(() => ({}));
-                    throw new Error(errData.error || `Server error ${resp.status}`);
-                }
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                window.open(url, '_blank');
-            } catch (err) {
-                alert('Failed to preview: ' + err.message);
-            }
-            hideLoading();
+        function previewSignedDoc(esignId) {
+            const token = localStorage.getItem('lockerhub_token');
+            window.open(`/api/esign/${esignId}/download?token=${encodeURIComponent(token)}`, '_blank');
         }
 
         async function saveToRepo(esignId) {
@@ -7359,6 +8575,7 @@
             const dateEl = document.getElementById('custVisitDate');
             dateEl.value = '';
             dateEl.min = new Date().toISOString().split('T')[0];
+            dateEl.max = getMaxBookingDate();
             document.getElementById('custVisitTime').innerHTML = '<option value="">— Select date first —</option>';
             document.getElementById('custSlotStatus').textContent = '';
             document.getElementById('custVisitPurpose').value = 'Locker Access';

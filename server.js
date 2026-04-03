@@ -8,6 +8,23 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const multer = require('multer');
+
+// Multer setup for KYC file uploads (memory storage — files go to SharePoint, not disk)
+const kycUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (req, file, cb) => {
+    // Allow common document/image types
+    const allowed = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf',
+      'image/heic', 'image/heif'];
+    if (allowed.includes(file.mimetype) || file.mimetype.startsWith('image/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only images and PDF files are allowed'), false);
+    }
+  }
+});
 
 // Load .env file
 require('dotenv').config();
@@ -102,22 +119,22 @@ app.use(cors({
 // Body parser with reasonable limit
 app.use(express.json({ limit: '10mb' }));
 
-// General API rate limiting
+// General API rate limiting — 1000 requests per 15 min per IP (generous for SPA)
 const apiLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 min
-  max: parseInt(process.env.RATE_LIMIT_MAX) || 100,
+  max: parseInt(process.env.RATE_LIMIT_MAX) || 1000,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many requests, please try again later' }
 });
 
-// Strict rate limiting for login endpoints
+// Rate limiting for login endpoints — 30 attempts per 5 min per IP
 const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 min
-  max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX) || 5,
+  windowMs: 5 * 60 * 1000, // 5 min window (resets faster)
+  max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX) || 30,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many login attempts, please try again in 15 minutes' }
+  message: { error: 'Too many login attempts, please wait 5 minutes and try again' }
 });
 
 // Apply general rate limit to all API routes
@@ -136,12 +153,19 @@ function verifyToken(token) {
 
 // Middleware: require valid JWT token
 function requireAuth(req, res, next) {
+  // Support token via Authorization header OR query param (for WebView downloads)
+  let token = null;
   const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.split(' ')[1];
+  } else if (req.query.token) {
+    token = req.query.token;
+    delete req.query.token; // Remove from query to prevent logging
+  }
+  if (!token) {
     return res.status(401).json({ error: 'Authentication required' });
   }
   try {
-    const token = authHeader.split(' ')[1];
     const decoded = verifyToken(token);
     req.user = decoded;
     next();
@@ -264,6 +288,21 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (branch_id) REFERENCES branches(id),
     FOREIGN KEY (locker_type_id) REFERENCES locker_types(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS room_layouts (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT NOT NULL UNIQUE,
+    room_polygon TEXT DEFAULT '[]',
+    room_elements TEXT DEFAULT '[]',
+    unit_placements TEXT DEFAULT '{}',
+    room_width_ft REAL DEFAULT 20,
+    room_height_ft REAL DEFAULT 15,
+    status TEXT DEFAULT 'pending',
+    created_by TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
   );
 
   CREATE TABLE IF NOT EXISTS lockers (
@@ -501,6 +540,15 @@ addColumnIfMissing('leads', 'visit_time', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'converted_tenant_id', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'source', "TEXT DEFAULT ''");
 
+// Nominee details
+addColumnIfMissing('tenants', 'nominee_name', "TEXT DEFAULT ''");
+addColumnIfMissing('tenants', 'nominee_phone', "TEXT DEFAULT ''");
+addColumnIfMissing('tenants', 'nominee_aadhaar', "TEXT DEFAULT ''");
+addColumnIfMissing('tenants', 'nominee_pan', "TEXT DEFAULT ''");
+
+// KYC document tracking (JSON: { docType: { uploaded: true, filename, sharepoint_url, uploaded_at } })
+addColumnIfMissing('tenants', 'kyc_documents', "TEXT DEFAULT '{}'");
+
 // Lead telecalling notes table
 db.exec(`
   CREATE TABLE IF NOT EXISTS lead_notes (
@@ -587,6 +635,34 @@ logInfo('Database migrations complete');
       logInfo('Migration: created lead agent', { name, username: name.toLowerCase() });
     }
   });
+})();
+
+// Helper: compute bg_status based on all verification criteria
+function computeBgStatus(tenant) {
+  const hasCustomerDocs = tenant.bg_aadhaar && tenant.bg_pan;
+  const hasNominee = tenant.nominee_name && tenant.nominee_phone && tenant.nominee_aadhaar && tenant.nominee_pan;
+  let kycComplete = false;
+  try {
+    const kyc = typeof tenant.kyc_documents === 'string' ? JSON.parse(tenant.kyc_documents || '{}') : (tenant.kyc_documents || {});
+    const required = ['customer_aadhaar_front', 'customer_aadhaar_back', 'customer_pan',
+      'nominee_aadhaar_front', 'nominee_aadhaar_back', 'nominee_pan'];
+    kycComplete = required.every(d => kyc[d] && kyc[d].uploaded);
+  } catch(e) {}
+  return (hasCustomerDocs && hasNominee && kycComplete) ? 'Verified' : 'Pending';
+}
+
+// Auto-fix bg_status on startup: recompute for all tenants
+(function fixBgStatus() {
+  const tenants = db.prepare(`SELECT id, bg_aadhaar, bg_pan, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan, kyc_documents, bg_status FROM tenants`).all();
+  let fixed = 0;
+  for (const t of tenants) {
+    const correctStatus = computeBgStatus(t);
+    if (t.bg_status !== correctStatus) {
+      db.prepare('UPDATE tenants SET bg_status = ? WHERE id = ?').run(correctStatus, t.id);
+      fixed++;
+    }
+  }
+  if (fixed > 0) console.log(`  Fixed bg_status for ${fixed} tenant(s)`);
 })();
 
 // Guarantee root admin always exists (even if lead agents were seeded first)
@@ -939,6 +1015,14 @@ app.put('/api/locker-types/:id', requireAuth, requireRole('headoffice'), (req, r
 });
 
 app.delete('/api/locker-types/:id', requireAuth, requireRole('headoffice'), (req, res) => {
+  const inUse = db.prepare('SELECT COUNT(*) as cnt FROM units WHERE locker_type_id = ?').get(req.params.id);
+  if (inUse && inUse.cnt > 0) {
+    return res.status(400).json({ error: `Cannot delete — this locker type is used by ${inUse.cnt} unit(s). Remove those units first.` });
+  }
+  const lockerRef = db.prepare('SELECT COUNT(*) as cnt FROM lockers WHERE locker_type_id = ?').get(req.params.id);
+  if (lockerRef && lockerRef.cnt > 0) {
+    return res.status(400).json({ error: `Cannot delete — ${lockerRef.cnt} locker(s) still reference this type.` });
+  }
   db.prepare('DELETE FROM locker_types WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
@@ -990,12 +1074,19 @@ function getNextUnitNumber(branch_id, locker_type_id) {
   return `${prefix}-${String(nextNum).padStart(2, '0')}`;
 }
 
-// Helper: generate next receipt number
+// Helper: generate next receipt number (ensures uniqueness)
 function getNextReceiptNo() {
-  const last = db.prepare("SELECT receipt_no FROM payments WHERE receipt_no != '' ORDER BY created_at DESC LIMIT 1").get();
+  const last = db.prepare("SELECT receipt_no FROM payments WHERE receipt_no LIKE 'RCP-%' ORDER BY receipt_no DESC LIMIT 1").get();
   if (!last || !last.receipt_no) return 'RCP-0001';
   const num = parseInt(last.receipt_no.replace('RCP-', '')) || 0;
-  return 'RCP-' + String(num + 1).padStart(4, '0');
+  let next = num + 1;
+  let receiptNo = 'RCP-' + String(next).padStart(4, '0');
+  // Ensure uniqueness
+  while (db.prepare('SELECT 1 FROM payments WHERE receipt_no = ?').get(receiptNo)) {
+    next++;
+    receiptNo = 'RCP-' + String(next).padStart(4, '0');
+  }
+  return receiptNo;
 }
 
 // GET next available unit number
@@ -1057,6 +1148,10 @@ app.put('/api/units/:id', requireAuth, requireRole('headoffice', 'branch'), (req
 });
 
 app.delete('/api/units/:id', requireAuth, requireRole('headoffice'), (req, res) => {
+  const occupied = db.prepare("SELECT COUNT(*) as cnt FROM lockers l JOIN tenants t ON t.locker_id = l.id WHERE l.unit_id = ? AND (t.account_status IS NULL OR t.account_status != 'Closed')").get(req.params.id);
+  if (occupied && occupied.cnt > 0) {
+    return res.status(400).json({ error: `Cannot delete — this unit has ${occupied.cnt} locker(s) with active tenants. Close or reassign those tenants first.` });
+  }
   db.prepare('DELETE FROM lockers WHERE unit_id = ?').run(req.params.id);
   db.prepare('DELETE FROM units WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
@@ -1161,6 +1256,100 @@ app.delete('/api/lockers/:id', requireAuth, requireRole('headoffice'), (req, res
 });
 
 // ============================
+//  ROOM LAYOUTS (Floor Plan Builder)
+// ============================
+
+// Get room layout for a branch
+app.get('/api/branches/:id/room-layout', requireAuth, (req, res) => {
+  try {
+    const layout = db.prepare('SELECT * FROM room_layouts WHERE branch_id = ?').get(req.params.id);
+    if (!layout) return res.json({ status: 'none' });
+    // Parse JSON fields
+    layout.room_polygon = JSON.parse(layout.room_polygon || '[]');
+    layout.room_elements = JSON.parse(layout.room_elements || '[]');
+    layout.unit_placements = JSON.parse(layout.unit_placements || '{}');
+    res.json(layout);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save/update room layout (root/headoffice only for edits after initial setup)
+app.put('/api/branches/:id/room-layout', requireAuth, requireRole('headoffice'), (req, res) => {
+  try {
+    const d = req.body;
+    const existing = db.prepare('SELECT * FROM room_layouts WHERE branch_id = ?').get(req.params.id);
+
+    // If layout already exists and is active, only superuser (root) can edit
+    if (existing && existing.status === 'active') {
+      const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.id);
+      if (!user || user.role !== 'headoffice') {
+        return res.status(403).json({ error: 'Only root user can modify an active room layout' });
+      }
+      // Additional check: is this the superuser (first HO user)?
+      const superUser = db.prepare("SELECT id FROM users WHERE role = 'headoffice' ORDER BY created_at ASC LIMIT 1").get();
+      if (superUser && superUser.id !== req.user.id) {
+        return res.status(403).json({ error: 'Only the root admin can modify an active room layout' });
+      }
+    }
+
+    const polygon = JSON.stringify(d.room_polygon || []);
+    const elements = JSON.stringify(d.room_elements || []);
+    const placements = JSON.stringify(d.unit_placements || {});
+    const width = d.room_width_ft || 20;
+    const height = d.room_height_ft || 15;
+    const status = d.status || 'configured';
+
+    if (existing) {
+      db.prepare(`UPDATE room_layouts SET room_polygon = ?, room_elements = ?, unit_placements = ?,
+        room_width_ft = ?, room_height_ft = ?, status = ?, updated_at = datetime('now') WHERE branch_id = ?`).run(
+        polygon, elements, placements, width, height, status, req.params.id
+      );
+    } else {
+      const id = genId();
+      db.prepare(`INSERT INTO room_layouts (id, branch_id, room_polygon, room_elements, unit_placements,
+        room_width_ft, room_height_ft, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, req.params.id, polygon, elements, placements, width, height, status, req.user.id
+      );
+    }
+
+    logInfo('Room layout saved', { branch_id: req.params.id, status });
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Room layout save failed', { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get units with locker details for the room view
+app.get('/api/branches/:id/room-units', requireAuth, (req, res) => {
+  try {
+    const units = db.prepare(`SELECT u.*, lt.name as type_name, lt.variant as type_variant,
+      lt.lockers_per_unit, lt.unit_width_mm, lt.unit_depth_mm, lt.unit_height_mm,
+      lt.annual_rent as type_annual_rent, lt.deposit as type_deposit
+      FROM units u JOIN locker_types lt ON u.locker_type_id = lt.id
+      WHERE u.branch_id = ? ORDER BY u.unit_number`).all(req.params.id);
+
+    // For each unit, get lockers with tenant info
+    const getLockers = db.prepare(`SELECT l.id, l.number, l.size, l.status, l.rent,
+      t.name as tenant_name, t.phone as tenant_phone, t.bg_status
+      FROM lockers l LEFT JOIN tenants t ON t.locker_id = l.id
+      WHERE l.unit_id = ? ORDER BY l.number`);
+
+    const result = units.map(u => {
+      const lockers = getLockers.all(u.id);
+      const occupied = lockers.filter(l => l.status === 'occupied').length;
+      const vacant = lockers.filter(l => l.status === 'vacant').length;
+      return { ...u, lockers, occupied, vacant, total: lockers.length };
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============================
 //  TENANTS
 // ============================
 app.get('/api/tenants', requireAuth, enforceBranchScope, (req, res) => {
@@ -1183,6 +1372,9 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req,
     if (d.phone) d.phone = d.phone.replace(/[^0-9]/g, '').slice(0, 10);
     if (d.bg_aadhaar) d.bg_aadhaar = d.bg_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
     if (d.bg_pan) d.bg_pan = d.bg_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+    if (d.nominee_aadhaar) d.nominee_aadhaar = d.nominee_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
+    if (d.nominee_pan) d.nominee_pan = d.nominee_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+    if (d.nominee_phone) d.nominee_phone = d.nominee_phone.replace(/[^0-9]/g, '').slice(0, 10);
     // Check locker availability
     if (d.locker_id) {
       const existingTenant = db.prepare("SELECT id, name FROM tenants WHERE locker_id = ?").get(d.locker_id);
@@ -1200,11 +1392,13 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req,
       }
       db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end,
         annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch,
-        bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes,
+        nominee_name, nominee_phone, nominee_aadhaar, nominee_pan)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency_name || '', d.emergency || '', d.locker_id || '', d.lease_start || '', lease_end,
         d.annual_rent || 0, d.deposit || 0, d.bank_name || '', d.bank_account || '', d.bank_ifsc || '', d.bank_branch || '',
-        d.bg_aadhaar || '', d.bg_pan || '', d.bg_photos_collected ? 1 : 0, d.bg_status || 'Pending', d.bg_notes || ''
+        d.bg_aadhaar || '', d.bg_pan || '', d.bg_photos_collected ? 1 : 0, d.bg_status || 'Pending', d.bg_notes || '',
+        d.nominee_name || '', d.nominee_phone || '', d.nominee_aadhaar || '', d.nominee_pan || ''
       );
       // Mark locker as occupied
       if (d.locker_id) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('occupied', d.locker_id);
@@ -1264,6 +1458,10 @@ app.get('/api/tenants/:id', requireAuth, (req, res) => {
 app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   try {
     const d = req.body;
+    // Sanitize nominee fields
+    if (d.nominee_aadhaar) d.nominee_aadhaar = d.nominee_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
+    if (d.nominee_pan) d.nominee_pan = d.nominee_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+    if (d.nominee_phone) d.nominee_phone = d.nominee_phone.replace(/[^0-9]/g, '').slice(0, 10);
     // Handle locker status changes
     const oldTenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(req.params.id);
     const oldLockerId = oldTenant ? oldTenant.locker_id : '';
@@ -1284,7 +1482,24 @@ app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (r
       logInfo('Locker reassigned', { tenant: req.params.id, from: oldLockerId, to: newLockerId });
     }
 
-    const allowedFields = ['name', 'phone', 'email', 'address', 'emergency_name', 'emergency', 'locker_id', 'lease_start', 'lease_end', 'annual_rent', 'deposit', 'bank_name', 'bank_account', 'bank_ifsc', 'bank_branch', 'bg_aadhaar', 'bg_pan', 'bg_photos_collected', 'bg_status', 'bg_notes', 'customer_password', 'account_status'];
+    // Auto-compute bg_status based on ALL verification criteria
+    {
+      const existing = db.prepare('SELECT bg_aadhaar, bg_pan, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan, kyc_documents FROM tenants WHERE id = ?').get(req.params.id);
+      if (existing) {
+        const merged = {
+          bg_aadhaar: d.bg_aadhaar !== undefined ? d.bg_aadhaar : existing.bg_aadhaar,
+          bg_pan: d.bg_pan !== undefined ? d.bg_pan : existing.bg_pan,
+          nominee_name: d.nominee_name !== undefined ? d.nominee_name : existing.nominee_name,
+          nominee_phone: d.nominee_phone !== undefined ? d.nominee_phone : existing.nominee_phone,
+          nominee_aadhaar: d.nominee_aadhaar !== undefined ? d.nominee_aadhaar : existing.nominee_aadhaar,
+          nominee_pan: d.nominee_pan !== undefined ? d.nominee_pan : existing.nominee_pan,
+          kyc_documents: existing.kyc_documents // KYC docs updated via separate upload endpoint
+        };
+        d.bg_status = computeBgStatus(merged);
+      }
+    }
+
+    const allowedFields = ['name', 'phone', 'email', 'address', 'emergency_name', 'emergency', 'locker_id', 'lease_start', 'lease_end', 'annual_rent', 'deposit', 'bank_name', 'bank_account', 'bank_ifsc', 'bank_branch', 'bg_aadhaar', 'bg_pan', 'bg_photos_collected', 'bg_status', 'bg_notes', 'customer_password', 'account_status', 'nominee_name', 'nominee_phone', 'nominee_aadhaar', 'nominee_pan'];
     const fields = [];
     const vals = [];
     for (const [k, v] of Object.entries(d)) {
@@ -1300,6 +1515,91 @@ app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (r
     res.json({ ok: true });
   } catch (err) {
     logError('Error updating tenant', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── KYC Document Upload ─────────────────────────────────────────
+// Upload a KYC document for a tenant to SharePoint → LockerHub → KYC → {Branch} → {TenantName} → {Customer|Nominee}
+app.post('/api/tenants/:id/kyc-upload', requireAuth, requireRole('headoffice', 'branch'), kycUpload.single('file'), async (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT t.*, b.name as branch_name FROM tenants t JOIN branches b ON t.branch_id = b.id WHERE t.id = ?').get(req.params.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const docType = req.body.doc_type; // e.g. 'customer_aadhaar_front', 'nominee_pan'
+    const validDocTypes = [
+      'customer_aadhaar_front', 'customer_aadhaar_back', 'customer_pan',
+      'nominee_aadhaar_front', 'nominee_aadhaar_back', 'nominee_pan'
+    ];
+    if (!docType || !validDocTypes.includes(docType)) {
+      return res.status(400).json({ error: 'Invalid document type' });
+    }
+
+    // Determine subfolder: KYC/{BranchName}/{TenantName}/{Customer or Nominee}
+    const isNominee = docType.startsWith('nominee_');
+    const personFolder = isNominee ? 'Nominee' : 'Customer';
+    const safeBranch = tenant.branch_name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+    const safeTenant = tenant.name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+    const subfolder = `KYC/${safeBranch}/${safeTenant}/${personFolder}`;
+
+    // Build filename: DocType_TenantName.ext
+    const ext = path.extname(req.file.originalname) || '.jpg';
+    const docLabel = docType.replace('customer_', '').replace('nominee_', '');
+    const fileName = `${docLabel}${ext}`;
+
+    // Upload to SharePoint
+    const sharePointUrl = await uploadToSharePoint(
+      req.file.buffer,
+      fileName,
+      subfolder,
+      req.file.mimetype
+    );
+
+    // Update kyc_documents JSON in DB
+    let kycDocs = {};
+    try { kycDocs = JSON.parse(tenant.kyc_documents || '{}'); } catch(e) {}
+    kycDocs[docType] = {
+      uploaded: true,
+      filename: req.file.originalname,
+      sharepoint_url: sharePointUrl,
+      uploaded_at: new Date().toISOString(),
+      mimetype: req.file.mimetype
+    };
+    const updatedKycJson = JSON.stringify(kycDocs);
+    db.prepare('UPDATE tenants SET kyc_documents = ? WHERE id = ?').run(updatedKycJson, req.params.id);
+
+    // Recompute bg_status after KYC upload
+    const updatedTenant = db.prepare('SELECT bg_aadhaar, bg_pan, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan FROM tenants WHERE id = ?').get(req.params.id);
+    if (updatedTenant) {
+      updatedTenant.kyc_documents = updatedKycJson;
+      const newStatus = computeBgStatus(updatedTenant);
+      db.prepare('UPDATE tenants SET bg_status = ? WHERE id = ?').run(newStatus, req.params.id);
+    }
+
+    logInfo('KYC document uploaded', { tenantId: req.params.id, docType, sharePointUrl });
+    res.json({ ok: true, doc_type: docType, sharepoint_url: sharePointUrl });
+  } catch (err) {
+    logError('KYC upload failed', { tenantId: req.params.id, error: err.message || JSON.stringify(err) });
+    res.status(500).json({ error: 'Upload failed: ' + (err.message || 'Unknown error') });
+  }
+});
+
+// Get KYC document status for a tenant
+app.get('/api/tenants/:id/kyc-status', requireAuth, (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT kyc_documents, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan FROM tenants WHERE id = ?').get(req.params.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    let kycDocs = {};
+    try { kycDocs = JSON.parse(tenant.kyc_documents || '{}'); } catch(e) {}
+    res.json({
+      kyc_documents: kycDocs,
+      nominee_name: tenant.nominee_name,
+      nominee_phone: tenant.nominee_phone,
+      nominee_aadhaar: tenant.nominee_aadhaar,
+      nominee_pan: tenant.nominee_pan
+    });
+  } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
@@ -1513,7 +1813,7 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
   const d = req.body;
   if (!d.branch_id) return res.status(400).json({ error: 'Branch is required' });
   if (!d.tenant_id) return res.status(400).json({ error: 'Tenant is required' });
-  if (!d.amount || parseFloat(d.amount) <= 0) return res.status(400).json({ error: 'Amount must be greater than 0' });
+  if (!d.amount || isNaN(parseFloat(d.amount)) || parseFloat(d.amount) <= 0) return res.status(400).json({ error: 'Amount must be a valid number greater than 0' });
   const type = d.type || 'rent';
   if (!['rent', 'deposit', 'penalty', 'other'].includes(type)) return res.status(400).json({ error: 'Invalid payment type' });
 
@@ -1589,8 +1889,9 @@ app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (
 
 app.delete('/api/payments/:id', requireAuth, requireRole('headoffice'), (req, res) => {
   const payment = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
+  if (!payment) return res.status(404).json({ error: 'Payment record not found' });
   db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
-  logWarn('Payment deleted', { id: req.params.id, receipt: payment ? payment.receipt_no : '', amount: payment ? payment.amount : 0 });
+  logWarn('Payment deleted', { id: req.params.id, receipt: payment.receipt_no, amount: payment.amount });
   res.json({ ok: true });
 });
 
@@ -1934,27 +2235,33 @@ app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => 
 //  BACKUP & RESTORE
 // ============================
 app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
-  const backup = {
-    version: 5,
-    export_date: new Date().toISOString(),
-    branches: db.prepare('SELECT * FROM branches').all(),
-    users: db.prepare('SELECT id, username, name, role, branch_id, created_at FROM users').all(),
-    locker_types: db.prepare('SELECT * FROM locker_types').all(),
-    units: db.prepare('SELECT * FROM units').all(),
-    lockers: db.prepare('SELECT * FROM lockers').all(),
-    tenants: db.prepare('SELECT id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end, annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch, bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes, account_status, closed_at, closed_reason, created_at FROM tenants').all(),
-    payments: db.prepare('SELECT * FROM payments').all(),
-    payouts: db.prepare('SELECT * FROM payouts').all(),
-    appointments: db.prepare('SELECT * FROM appointments').all(),
-    visits: db.prepare('SELECT * FROM visits').all(),
-    activities: db.prepare('SELECT * FROM activities').all(),
-    config: db.prepare('SELECT * FROM config').all(),
-    esign_requests: db.prepare('SELECT * FROM esign_requests').all(),
-    feedback: db.prepare('SELECT * FROM feedback').all(),
-    leads: db.prepare('SELECT * FROM leads').all(),
-    lead_notes: db.prepare('SELECT * FROM lead_notes').all()
-  };
-  res.json(backup);
+  try {
+    const backup = {
+      version: 6,
+      export_date: new Date().toISOString(),
+      branches: db.prepare('SELECT * FROM branches').all(),
+      users: db.prepare('SELECT id, username, name, role, branch_id, created_at FROM users').all(),
+      locker_types: db.prepare('SELECT * FROM locker_types').all(),
+      units: db.prepare('SELECT * FROM units').all(),
+      lockers: db.prepare('SELECT * FROM lockers').all(),
+      tenants: db.prepare('SELECT id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end, annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch, bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes, account_status, closed_at, closed_reason, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan, kyc_documents, created_at FROM tenants').all(),
+      payments: db.prepare('SELECT * FROM payments').all(),
+      payouts: db.prepare('SELECT * FROM payouts').all(),
+      appointments: db.prepare('SELECT * FROM appointments').all(),
+      visits: db.prepare('SELECT * FROM visits').all(),
+      activities: db.prepare('SELECT * FROM activities').all(),
+      config: db.prepare('SELECT * FROM config').all(),
+      esign_requests: db.prepare('SELECT * FROM esign_requests').all(),
+      feedback: db.prepare('SELECT * FROM feedback').all(),
+      leads: db.prepare('SELECT * FROM leads').all(),
+      lead_notes: db.prepare('SELECT * FROM lead_notes').all(),
+      room_layouts: db.prepare('SELECT * FROM room_layouts').all()
+    };
+    res.json(backup);
+  } catch (err) {
+    logError('Backup export failed', { error: err.message });
+    res.status(500).json({ error: 'Backup export failed: ' + err.message });
+  }
 });
 
 // ============================
@@ -2139,9 +2446,20 @@ app.get('/api/backup/create', requireAuth, requireRole('headoffice'), (req, res)
 });
 
 app.get('/api/backup/download', requireAuth, requireRole('headoffice'), (req, res) => {
-  const dbPath = path.join(DATA_DIR, 'lockerhub.db');
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  res.download(dbPath, `lockerhub_backup_${timestamp}.db`);
+  try {
+    const dbPath = path.join(DATA_DIR, 'lockerhub.db');
+    if (!fs.existsSync(dbPath)) {
+      return res.status(404).json({ error: 'Database file not found' });
+    }
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    res.download(dbPath, `lockerhub_backup_${timestamp}.db`, (err) => {
+      if (err && !res.headersSent) {
+        res.status(500).json({ error: 'Download failed' });
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Backup download failed: ' + err.message });
+  }
 });
 
 app.get('/api/backup/list', requireAuth, requireRole('headoffice'), (req, res) => {
@@ -2650,12 +2968,34 @@ app.post('/api/appointments', requireAuth, (req, res) => {
     return res.status(400).json({ error: 'Please select a time slot' });
   }
 
+  // Validate date is not in the past
+  const today = new Date().toISOString().split('T')[0];
+  if (d.requested_date < today) {
+    return res.status(400).json({ error: 'Cannot book appointments in the past' });
+  }
+
+  // Validate date is within 3 months
+  const maxDate = new Date();
+  maxDate.setMonth(maxDate.getMonth() + 3);
+  if (d.requested_date > maxDate.toISOString().split('T')[0]) {
+    return res.status(400).json({ error: 'Appointments can only be booked up to 3 months in advance' });
+  }
+
   // Validate the time slot is within operating hours (09:00 - 17:30)
   const [hh, mm] = (d.requested_time || '').split(':').map(Number);
   if (isNaN(hh) || hh < 9 || hh > 17 || (hh === 17 && mm > 30) || (mm !== 0 && mm !== 30)) {
     return res.status(400).json({ error: 'Invalid time slot. Slots are every 30 minutes from 9:00 AM to 5:30 PM' });
   }
   const slotTime = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+
+  // Validate time slot is not in the past (for today's date)
+  if (d.requested_date === today) {
+    const now = new Date();
+    const slotDateTime = new Date(d.requested_date + 'T' + slotTime + ':00');
+    if (slotDateTime <= now) {
+      return res.status(400).json({ error: 'This time slot has already passed. Please choose a later slot.' });
+    }
+  }
 
   // Check for conflicts: is there already a confirmed (Approved/Completed) appointment at this slot?
   const conflict = db.prepare(
@@ -2730,7 +3070,7 @@ app.put('/api/appointments/:id/status', requireAuth, requireRole('headoffice', '
   res.json({ success: true });
 });
 
-app.delete('/api/appointments/:id', requireAuth, (req, res) => {
+app.delete('/api/appointments/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const appt = db.prepare('SELECT * FROM appointments WHERE id = ?').get(req.params.id);
   if (!appt) return res.status(404).json({ error: 'Appointment not found' });
   db.prepare('UPDATE appointments SET status = ? WHERE id = ?').run('Cancelled', req.params.id);
@@ -2890,7 +3230,7 @@ function msGraphRequest(method, apiPath, body) {
   });
 }
 
-function msGraphUpload(apiPath, buffer, token) {
+function msGraphUpload(apiPath, buffer, token, contentType) {
   return new Promise((resolve, reject) => {
     const url = new URL(`https://graph.microsoft.com${apiPath}`);
     const req = https.request({
@@ -2899,7 +3239,7 @@ function msGraphUpload(apiPath, buffer, token) {
       method: 'PUT',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/pdf',
+        'Content-Type': contentType || 'application/pdf',
         'Content-Length': buffer.length
       }
     }, (res) => {
@@ -2924,7 +3264,7 @@ function msGraphUpload(apiPath, buffer, token) {
 const SP_DRIVE_ID = process.env.SP_DRIVE_ID || 'b!fTFvCiz6zE-llOUnFj-hq13WSlu_wi9DhOZmzoXbbKHqXSKxXxhHSYHoWokQoP03';
 
 // Upload a signed PDF to SharePoint → Dhanam Repository → Locker Applications
-async function uploadToSharePoint(pdfBuffer, fileName, subfolder) {
+async function uploadToSharePoint(fileBuffer, fileName, subfolder, contentType) {
   try {
     const token = await getMsGraphToken();
 
@@ -2933,9 +3273,9 @@ async function uploadToSharePoint(pdfBuffer, fileName, subfolder) {
       : SHAREPOINT_CONFIG.baseFolder;
     const safeName = fileName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
 
-    // Simple upload (files < 4MB — our PDFs are well under)
+    // Simple upload (files < 4MB)
     const uploadPath = `/v1.0/drives/${SP_DRIVE_ID}/root:/${folderPath}/${safeName}:/content`;
-    const result = await msGraphUpload(uploadPath, pdfBuffer, token);
+    const result = await msGraphUpload(uploadPath, fileBuffer, token, contentType || 'application/pdf');
     logInfo('SharePoint upload success', { fileName: safeName, webUrl: result.webUrl });
     return result.webUrl || result.id || 'uploaded';
   } catch (err) {
@@ -3037,8 +3377,8 @@ app.post('/api/esign/initiate', requireAuth, requireRole('headoffice', 'branch')
     // Call Digio API to upload PDF and create sign request
     const fileBase64 = pdfBuffer.toString('base64');
 
-    // Prefer email as identifier for Digio (their sign_coordinates examples use email)
-    // Fall back to phone if no email
+    // Use email as primary identifier; phone as fallback
+    // Digio sends signing link to the identifier channel (email or SMS)
     const digioIdentifier = tenant.email || tenant.phone;
     if (!digioIdentifier) return res.status(400).json({ error: 'Tenant has no email or phone for signing' });
 
@@ -3052,13 +3392,23 @@ app.post('/api/esign/initiate', requireAuth, requireRole('headoffice', 'branch')
     }
     const signCoords = { [digioIdentifier]: signerPages };
 
+    // Build signer object with both email and phone so Digio notifies on both channels
+    const signerObj = {
+      identifier: digioIdentifier,
+      name: tenant.name,
+      sign_type: 'aadhaar',
+      reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
+    };
+    // Explicitly set both channels so Digio sends signing link via email AND SMS
+    if (tenant.email) signerObj.email = tenant.email;
+    if (tenant.phone) {
+      // Digio expects phone with country code (e.g., +91XXXXXXXXXX)
+      const phone = tenant.phone.startsWith('+') ? tenant.phone : '+91' + tenant.phone.replace(/^0+/, '');
+      signerObj.phone = phone;
+    }
+
     const digioPayload = {
-      signers: [{
-        identifier: digioIdentifier,
-        name: tenant.name,
-        sign_type: 'aadhaar',
-        reason: document_type === 'receipt' ? 'Payment receipt acknowledgement' : 'Locker rental agreement'
-      }],
+      signers: [signerObj],
       expire_in_days: 10,
       display_on_page: 'custom',
       notify_signers: true,
