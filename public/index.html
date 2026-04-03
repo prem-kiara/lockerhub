@@ -2183,6 +2183,28 @@
                         <button class="btn btn-primary" onclick="openAddTenantModal()">+ Add Tenant</button>
                         <input type="text" class="search-box" id="tenantSearch" placeholder="Search by name or phone..." onkeyup="filterTenants()">
                     </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; font-size:13px;">
+                        <label style="color:var(--text-light); font-weight:500;">Filters:</label>
+                        <select id="tenantFilterStatus" onchange="filterTenants()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:#fff;">
+                            <option value="">All Status</option>
+                            <option value="active">Active</option>
+                            <option value="closed">Closed</option>
+                        </select>
+                        <select id="tenantFilterBG" onchange="filterTenants()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:#fff;">
+                            <option value="">All BG Status</option>
+                            <option value="verified">Verified</option>
+                            <option value="pending">Pending</option>
+                        </select>
+                        <select id="tenantFilterLease" onchange="filterTenants()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:#fff;">
+                            <option value="">All Lease</option>
+                            <option value="expired">Expired</option>
+                            <option value="expiring30">Expiring in 30 days</option>
+                            <option value="expiring90">Expiring in 90 days</option>
+                            <option value="valid">Valid</option>
+                        </select>
+                        <button class="btn btn-secondary" onclick="clearTenantFilters()" style="padding:4px 10px; font-size:12px;">Clear</button>
+                        <span id="tenantFilterCount" style="color:var(--text-light); font-size:12px; margin-left:auto;"></span>
+                    </div>
                     <div class="table-container">
                         <table>
                             <thead>
@@ -3980,7 +4002,7 @@
                 document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navPayments').style.display = 'block';
                 document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('navEsign').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navEsign').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navAppointments').style.display = 'block';
@@ -3998,7 +4020,7 @@
                 }
                 const savedSection = localStorage.getItem('lockerhub_section');
                 const hoSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
-                const branchSections = ['dashboard','tenants','payments','visits','appointments','reminders','feedback','leads'];
+                const branchSections = ['dashboard','tenants','payments','visits','esign','appointments','reminders','feedback','leads'];
                 const validSections = isHeadOffice ? hoSections : branchSections;
                 try { await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard'); } catch(e) { console.warn('Section load failed:', e.message); }
             }
@@ -4691,16 +4713,68 @@
         }
 
         // ===== Tenants =====
+        let allTenantsData = []; // Cached for client-side filtering
+
         async function loadTenants() {
             try {
                 const url = currentBranchId
                     ? `/api/tenants?branch_id=${currentBranchId}`
                     : '/api/tenants?branch_id=all';
-                const tenants = await api('GET', url);
-                renderTenants(tenants);
+                allTenantsData = await api('GET', url);
+                filterTenants(); // Apply any active filters
             } catch (error) {
                 console.error('Failed to load tenants:', error);
             }
+        }
+
+        function filterTenants() {
+            const search = (document.getElementById('tenantSearch').value || '').toLowerCase().trim();
+            const statusFilter = (document.getElementById('tenantFilterStatus') || {}).value || '';
+            const bgFilter = (document.getElementById('tenantFilterBG') || {}).value || '';
+            const leaseFilter = (document.getElementById('tenantFilterLease') || {}).value || '';
+            const today = new Date();
+
+            const filtered = allTenantsData.filter(t => {
+                // Text search
+                if (search) {
+                    const haystack = `${t.name} ${t.phone} ${t.locker_number || ''} ${t.email || ''}`.toLowerCase();
+                    if (!haystack.includes(search)) return false;
+                }
+                // Account status filter
+                if (statusFilter === 'active' && t.account_status === 'Closed') return false;
+                if (statusFilter === 'closed' && t.account_status !== 'Closed') return false;
+                // BG status filter
+                if (bgFilter === 'verified' && (t.bg_status || '').toLowerCase() !== 'verified') return false;
+                if (bgFilter === 'pending' && (t.bg_status || '').toLowerCase() !== 'pending') return false;
+                // Lease expiry filter
+                if (leaseFilter && t.lease_end) {
+                    const daysLeft = Math.ceil((new Date(t.lease_end) - today) / (1000 * 60 * 60 * 24));
+                    if (leaseFilter === 'expired' && daysLeft >= 0) return false;
+                    if (leaseFilter === 'expiring30' && (daysLeft < 0 || daysLeft > 30)) return false;
+                    if (leaseFilter === 'expiring90' && (daysLeft < 0 || daysLeft > 90)) return false;
+                    if (leaseFilter === 'valid' && daysLeft < 0) return false;
+                } else if (leaseFilter === 'expired' || leaseFilter === 'expiring30' || leaseFilter === 'expiring90') {
+                    return false; // No lease date set, exclude from expiry filters
+                }
+                return true;
+            });
+
+            renderTenants(filtered);
+
+            // Update count label
+            const countEl = document.getElementById('tenantFilterCount');
+            if (countEl) {
+                const hasFilters = search || statusFilter || bgFilter || leaseFilter;
+                countEl.textContent = hasFilters ? `Showing ${filtered.length} of ${allTenantsData.length}` : '';
+            }
+        }
+
+        function clearTenantFilters() {
+            document.getElementById('tenantSearch').value = '';
+            document.getElementById('tenantFilterStatus').value = '';
+            document.getElementById('tenantFilterBG').value = '';
+            document.getElementById('tenantFilterLease').value = '';
+            filterTenants();
         }
 
         function renderTenants(tenants) {
@@ -4736,7 +4810,7 @@
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
                               <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
-                              ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="quickEsign('${t.id}', '${t.branch_id}', 'agreement')" style="font-size:11px;padding:4px 8px;background:#6366f1;">E-Sign</button>` : ''}
+                              ${(currentUser.role === 'headoffice' || currentUser.role === 'branch') ? `<button class="btn btn-primary" onclick="quickEsign('${t.id}', '${t.branch_id}', 'agreement')" style="font-size:11px;padding:4px 8px;background:#6366f1;">E-Sign</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openSetPasswordModal('${t.id}', '${(t.name||'').replace(/'/g, "\\'")}', '${t.phone||''}')" style="font-size:11px;padding:4px 8px;">🔑 Login</button>` : ''}
                               ${(currentUser.role === 'headoffice' || currentUser.role === 'branch') ? `<button class="btn btn-secondary" onclick="closeAccount('${t.id}','${(t.name||'').replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 8px;background:#dc2626;color:#fff;">Close</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deleteTenant('${t.id}')">Delete</button>` : ''}
@@ -4747,14 +4821,6 @@
             }).join('');
 
             document.getElementById('tenantsTable').innerHTML = html;
-        }
-
-        function filterTenants() {
-            const search = document.getElementById('tenantSearch').value.toLowerCase();
-            document.querySelectorAll('#tenantsTable tr').forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(search) ? '' : 'none';
-            });
         }
 
         async function openAddTenantModal() {
