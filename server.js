@@ -2040,6 +2040,73 @@ app.post('/api/renewals/:id/renew', requireAuth, requireRole('headoffice', 'bran
 });
 
 // ============================
+//  LEASE RENEWAL REMINDERS (auto-check)
+// ============================
+// Runs once per day: finds tenants where lease is 2 months from ending
+// and both rent + deposit have been paid, then sends a renewal notification
+let _lastRenewalCheck = '';
+
+function checkLeaseRenewalReminders() {
+  const today = new Date().toISOString().split('T')[0];
+  if (_lastRenewalCheck === today) return; // already ran today
+  _lastRenewalCheck = today;
+
+  try {
+    // Find active tenants whose lease_end is within 60 days (≈ 2 months)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() + 60);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+
+    const tenants = db.prepare(`
+      SELECT t.id, t.name, t.phone, t.branch_id, t.lease_start, t.lease_end, t.annual_rent, t.locker_id,
+             l.number as locker_number, b.name as branch_name
+      FROM tenants t
+      LEFT JOIN lockers l ON t.locker_id = l.id
+      LEFT JOIN branches b ON t.branch_id = b.id
+      WHERE t.lease_end != '' AND t.lease_end <= ?
+        AND (t.account_status IS NULL OR t.account_status NOT IN ('Closed', 'Closure Requested'))
+      ORDER BY t.lease_end ASC
+    `).all(cutoffStr);
+
+    for (const t of tenants) {
+      // Check if rent and deposit are both paid for this tenant
+      const paidRent = db.prepare("SELECT COUNT(*) as cnt FROM payments WHERE tenant_id = ? AND type = 'rent' AND status = 'Paid'").get(t.id);
+      const paidDeposit = db.prepare("SELECT COUNT(*) as cnt FROM payments WHERE tenant_id = ? AND type = 'deposit' AND status = 'Paid'").get(t.id);
+
+      if ((!paidRent || paidRent.cnt === 0) || (!paidDeposit || paidDeposit.cnt === 0)) continue;
+
+      // Check if we already sent a renewal reminder for this lease period
+      const existing = db.prepare(
+        "SELECT id FROM notifications WHERE tenant_id = ? AND type = 'lease_renewal' AND message LIKE ? LIMIT 1"
+      ).get(t.id, `%${t.lease_end}%`);
+
+      if (existing) continue; // already notified for this lease_end
+
+      const daysLeft = Math.ceil((new Date(t.lease_end) - new Date(today)) / (1000 * 60 * 60 * 24));
+      const urgency = daysLeft <= 0 ? 'EXPIRED' : daysLeft <= 7 ? 'URGENT' : 'Upcoming';
+
+      createNotification(
+        t.branch_id,
+        'all',
+        'lease_renewal',
+        `Lease Renewal ${urgency}: ${t.name}`,
+        `${t.name} (${t.phone}) — Locker ${t.locker_number || 'N/A'} at ${t.branch_name || 'Branch'} — Lease ends ${new Date(t.lease_end).toLocaleDateString('en-IN')} (${daysLeft <= 0 ? 'EXPIRED ' + Math.abs(daysLeft) + 'd ago' : daysLeft + ' days left'}). Rent & deposit are paid. Due for renewal.`,
+        t.id
+      );
+
+      logInfo('Auto renewal reminder sent', { tenant: t.name, lease_end: t.lease_end, days_left: daysLeft });
+    }
+  } catch (err) {
+    logError('Renewal reminder check failed', { error: err.message });
+  }
+}
+
+// Run on server start and then on renewals API access
+checkLeaseRenewalReminders();
+// Also run every hour via setInterval
+setInterval(checkLeaseRenewalReminders, 60 * 60 * 1000);
+
+// ============================
 //  PAYOUTS (INTEREST)
 // ============================
 app.get('/api/payouts', requireAuth, enforceBranchScope, (req, res) => {
@@ -2986,6 +3053,50 @@ app.post('/api/customer/:tenantId/request-closure', requireAuth, (req, res) => {
   } catch (err) {
     logError('Closure request failed', { error: err.message });
     res.status(500).json({ error: 'Failed to submit closure request' });
+  }
+});
+
+// ============================
+//  CUSTOMER: REQUEST NEW LOCKER
+// ============================
+app.post('/api/customer/request-new-locker', requireAuth, (req, res) => {
+  try {
+    if (req.user.role !== 'customer') return res.status(403).json({ error: 'Customer access only' });
+
+    const tenant = db.prepare('SELECT id, name, phone, email, branch_id FROM tenants WHERE id = ?').get(req.user.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+    const { locker_size, branch_id, notes } = req.body;
+    const targetBranch = branch_id || tenant.branch_id || '';
+
+    // Rate limit: max 2 requests per day
+    const today = new Date().toISOString().slice(0, 10);
+    const recentCount = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE phone = ? AND source = 'Existing Customer' AND created_at >= ?").get(tenant.phone, today + ' 00:00:00');
+    if (recentCount && recentCount.cnt >= 2) {
+      return res.status(429).json({ error: 'You have already submitted a request today. Our team will contact you shortly.' });
+    }
+
+    const id = genId();
+    db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, tenant.name, tenant.phone, tenant.email || '', locker_size || '', targetBranch,
+      notes || 'Existing customer requesting additional locker', 'New',
+      tenant.id, tenant.name, 'Existing Customer'
+    );
+
+    // Notify branch + HO
+    const branch = targetBranch ? db.prepare('SELECT name FROM branches WHERE id = ?').get(targetBranch) : null;
+    createNotification(
+      targetBranch, 'all', 'new_locker_request',
+      'New Locker Request (Existing Customer)',
+      `${tenant.name} (${tenant.phone}) — an existing customer — is requesting a new locker${locker_size ? ' (Size: ' + locker_size + ')' : ''}${branch ? ' at ' + branch.name : ''}. Check Leads for details.`,
+      tenant.id
+    );
+
+    logInfo('Customer requested new locker', { tenant: tenant.name, phone: tenant.phone, locker_size });
+    res.json({ success: true, message: 'Your request has been submitted! Our team will contact you shortly to assist with your new locker.' });
+  } catch (err) {
+    logError('New locker request failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to submit request' });
   }
 });
 

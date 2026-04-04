@@ -2173,6 +2173,7 @@
                 <li id="navCustDashboard" style="display: none;"><a onclick="switchSection('custDashboard')" class="nav-link" data-section="custDashboard">My Dashboard</a></li>
                 <li id="navCustAppointments" style="display: none;"><a onclick="switchSection('custAppointments')" class="nav-link" data-section="custAppointments">My Appointments</a></li>
                 <li id="navCustPayments" style="display: none;"><a onclick="switchSection('custPayments')" class="nav-link" data-section="custPayments">My Payments</a></li>
+                <li id="navCustNewLocker" style="display: none;"><a onclick="openNewLockerRequestModal()" class="nav-link" style="color:#27ae60;">+ Request New Locker</a></li>
                 <li id="navCustDelete" style="display: none;"><a onclick="requestAccountClosure()" class="nav-link" style="color:#e74c3c;">📋 Request Closure</a></li>
                 <li id="navFeedback" style="display:none;"><a onclick="switchSection('feedback')" class="nav-link" data-section="feedback">Feedback</a></li>
                 <li id="navLeads" style="display:none;"><a onclick="switchSection('leads')" class="nav-link" data-section="leads">Leads</a></li>
@@ -4060,6 +4061,7 @@
                 document.getElementById('navCustDashboard').style.display = 'block';
                 document.getElementById('navCustAppointments').style.display = 'block';
                 document.getElementById('navCustPayments').style.display = 'block';
+                document.getElementById('navCustNewLocker').style.display = 'block';
                 document.getElementById('navCustDelete').style.display = 'block';
                 document.getElementById('lockerAddBtns').style.display = 'none';
                 document.getElementById('branchSelectorContainer').style.display = 'none';
@@ -4289,6 +4291,72 @@
                 return;
             }
             hideLoading();
+        }
+
+        // ===== Request New Locker (Customer) =====
+        function openNewLockerRequestModal() {
+            const tenants = currentUser.tenants || [currentUser];
+            // Load branches from tenants (they may have multiple)
+            let branchOptions = '';
+            const seen = {};
+            tenants.forEach(t => {
+                if (t.branch_id && !seen[t.branch_id]) {
+                    seen[t.branch_id] = true;
+                    branchOptions += `<option value="${t.branch_id}">${t.branch_name || 'Branch'}</option>`;
+                }
+            });
+
+            const modal = `
+            <div id="newLockerReqModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
+                <div style="background:#fff;border-radius:16px;max-width:420px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+                    <h3 style="margin:0 0 6px;font-size:18px;color:#2c1810;">Request New Locker</h3>
+                    <p style="color:#888;font-size:13px;margin:0 0 20px;">Already a customer? Request an additional locker below.</p>
+                    <div style="margin-bottom:14px;">
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Preferred Branch</label>
+                        <select id="nlrBranch" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                            ${branchOptions}
+                            <option value="">Other / No Preference</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Locker Size</label>
+                        <select id="nlrSize" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                            <option value="">Any</option>
+                            <option value="Large (L6)">Large (L6)</option>
+                            <option value="Medium (L10)">Medium (L10)</option>
+                            <option value="Small">Small</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Notes (optional)</label>
+                        <textarea id="nlrNotes" rows="2" placeholder="Any specific requirements..." style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;"></textarea>
+                    </div>
+                    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px;">
+                        <button class="btn btn-secondary" onclick="document.getElementById('newLockerReqModal').remove()" style="padding:8px 20px;">Cancel</button>
+                        <button class="btn btn-primary" onclick="submitNewLockerRequest()" style="padding:8px 20px;background:#27ae60;border-color:#27ae60;">Submit Request</button>
+                    </div>
+                </div>
+            </div>`;
+            const existing = document.getElementById('newLockerReqModal');
+            if (existing) existing.remove();
+            document.body.insertAdjacentHTML('beforeend', modal);
+        }
+
+        async function submitNewLockerRequest() {
+            try {
+                showLoading('Submitting request...');
+                const result = await api('POST', '/api/customer/request-new-locker', {
+                    branch_id: document.getElementById('nlrBranch').value,
+                    locker_size: document.getElementById('nlrSize').value,
+                    notes: document.getElementById('nlrNotes').value.trim()
+                });
+                hideLoading();
+                document.getElementById('newLockerReqModal').remove();
+                alert(result.message || 'Request submitted successfully!');
+            } catch (err) {
+                hideLoading();
+                alert('Error: ' + (err.message || 'Failed to submit request'));
+            }
         }
 
         // ===== Account Closure Request =====
@@ -9467,7 +9535,7 @@
                         <td>${r.phone || '-'}</td>
                         <td>${r.locker_size || '-'}</td>
                         <td>${r.branch_name || '-'}</td>
-                        <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${r.source === 'Mobile App' ? '#1a73e8' : r.source === 'Web App' ? '#0d9488' : '#6b7280'};color:#fff;">${r.source || 'Staff'}</span></td>
+                        <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${r.source === 'Existing Customer' ? '#27ae60' : r.source === 'Mobile App' ? '#1a73e8' : r.source === 'Web App' ? '#0d9488' : '#6b7280'};color:#fff;font-weight:${r.source === 'Existing Customer' ? '700' : '400'};">${r.source || 'Staff'}</span></td>
                         <td><span style="font-size:12px;">${r.created_by_name || '-'}</span></td>
                         <td>
                             <select onchange="updateLeadStatus('${r.id}', this.value)" style="padding:4px 8px;border:2px solid ${sColor};border-radius:6px;font-size:12px;font-weight:600;color:${sColor};background:#fff;cursor:pointer;">
@@ -9578,7 +9646,7 @@
 
                         <!-- Save + Convert + Close buttons -->
                         <div style="border-top:1px solid #eee;padding-top:14px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;">
-                            <div style="font-size:11px;color:#888;align-self:center;">Created: ${createdDate} by ${r.created_by_name || '-'}${r.source ? ` &bull; <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${r.source === 'Mobile App' ? '#1a73e8' : r.source === 'Web App' ? '#0d9488' : '#6b7280'};color:#fff;">${r.source}</span>` : ''}</div>
+                            <div style="font-size:11px;color:#888;align-self:center;">Created: ${createdDate} by ${r.created_by_name || '-'}${r.source ? ` &bull; <span style="font-size:10px;padding:1px 6px;border-radius:3px;background:${r.source === 'Existing Customer' ? '#27ae60' : r.source === 'Mobile App' ? '#1a73e8' : r.source === 'Web App' ? '#0d9488' : '#6b7280'};color:#fff;font-weight:${r.source === 'Existing Customer' ? '700' : '400'};">${r.source}</span>` : ''}</div>
                             <div style="display:flex;gap:8px;">
                                 ${!isConverted ? `<button class="btn btn-primary" onclick="saveLeadDetail('${r.id}')" style="padding:7px 16px;font-size:12px;background:#b8860b;border-color:#b8860b;">Save</button>
                                 <button class="btn btn-primary" onclick="convertLeadToTenant('${r.id}')" style="padding:7px 16px;font-size:12px;background:#27ae60;border-color:#27ae60;">Convert to Tenant</button>` : `<span style="color:#27ae60;font-weight:600;font-size:12px;align-self:center;">Converted to Tenant</span>`}
