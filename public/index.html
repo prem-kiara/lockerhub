@@ -3999,7 +3999,7 @@
                 document.getElementById('userMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('lockerTypesMgmt').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
-                document.getElementById('navUnits').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navUnits').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navPayments').style.display = 'block';
                 document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navEsign').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
@@ -4020,7 +4020,7 @@
                 }
                 const savedSection = localStorage.getItem('lockerhub_section');
                 const hoSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
-                const branchSections = ['dashboard','tenants','payments','visits','esign','appointments','reminders','feedback','leads'];
+                const branchSections = ['dashboard','units','tenants','payments','visits','esign','appointments','reminders','feedback','leads'];
                 const validSections = isHeadOffice ? hoSections : branchSections;
                 try { await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard'); } catch(e) { console.warn('Section load failed:', e.message); }
             }
