@@ -5672,8 +5672,8 @@
             if (!bankAccount) { alert('Bank account number is mandatory'); return; }
             // For new tenants, confirm account must match; for edit, confirm field may be empty (pre-filled)
             const bankAccountConfirm = document.getElementById('tenantBankAccountConfirm').value.trim();
-            const tenantId = document.getElementById('tenantId').value;
-            if (!tenantId && !bankAccountConfirm) { alert('Please re-enter the account number to confirm'); return; }
+            const _tenantIdVal = document.getElementById('tenantId').value;
+            if (!_tenantIdVal && !bankAccountConfirm) { alert('Please re-enter the account number to confirm'); return; }
             if (bankAccountConfirm && bankAccount !== bankAccountConfirm) { alert('Account numbers do not match. Please re-enter carefully.'); return; }
             if (!bankIfsc) { alert('IFSC code is mandatory'); return; }
             if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc.toUpperCase())) { alert('Invalid IFSC format. Must be 11 characters (e.g., SBIN0001234)'); return; }
