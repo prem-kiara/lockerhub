@@ -8640,10 +8640,10 @@
                 const isPast = dateStr < todayStr;
 
                 const borderColor = isToday ? '#b8860b' : total > 0 ? '#c084fc' : '#e5e5e5';
-                const bgColor = isToday ? '#fdf8e8' : isPast ? '#fafafa' : '#fff';
-                const textColor = isPast ? '#aaa' : isToday ? '#b8860b' : '#333';
+                const bgColor = isToday ? '#fdf8e8' : isPast ? '#f5f5f5' : '#fff';
+                const textColor = isPast ? '#ccc' : isToday ? '#b8860b' : '#333';
 
-                html += `<div onclick="showDaySlots('${dateStr}')" style="height:38px;border:1px solid ${borderColor};border-radius:4px;padding:2px 3px;background:${bgColor};cursor:pointer;transition:box-shadow 0.15s;display:flex;flex-direction:column;overflow:hidden;" onmouseover="this.style.boxShadow='0 1px 4px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
+                html += `<div ${isPast ? '' : `onclick="showDaySlots('${dateStr}')"`} style="height:38px;border:1px solid ${isPast ? '#eee' : borderColor};border-radius:4px;padding:2px 3px;background:${bgColor};cursor:${isPast ? 'not-allowed' : 'pointer'};transition:box-shadow 0.15s;display:flex;flex-direction:column;overflow:hidden;${isPast ? 'opacity:0.5;' : ''}" ${isPast ? '' : `onmouseover="this.style.boxShadow='0 1px 4px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'"`}>
                     <div style="font-size:11px;font-weight:700;color:${textColor};line-height:1;">${day}</div>
                     ${total > 0 ? `<div style="display:flex;gap:1px;flex-wrap:wrap;margin-top:auto;">
                         ${pending ? `<span style="font-size:7px;background:#fef3c7;color:#b45309;border-radius:2px;padding:0 2px;line-height:1.4;">${pending}P</span>` : ''}
