@@ -2114,8 +2114,8 @@
                       <input type="email" id="signupEmail" placeholder="Enter your email (optional)">
                   </div>
                   <div class="form-group">
-                      <label for="signupBranch">Preferred Branch</label>
-                      <select id="signupBranch"><option value="">Select branch...</option></select>
+                      <label for="signupBranch">Preferred Branch *</label>
+                      <select id="signupBranch" required><option value="">Select branch...</option></select>
                   </div>
                   <div class="form-group">
                       <label for="signupLockerSize">Locker Size</label>
@@ -4224,6 +4224,7 @@
 
             if (!name) { alert('Please enter your name'); return; }
             if (!/^\d{10}$/.test(phone)) { alert('Please enter a valid 10-digit phone number'); return; }
+            if (!branch_id) { alert('Please select a branch'); return; }
 
             showLoading('Submitting enquiry...');
             try {
