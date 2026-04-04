@@ -1851,6 +1851,8 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
     "SELECT id, receipt_no FROM payments WHERE tenant_id = ? AND type = ? AND (status = 'Pending' OR status = 'Overdue') LIMIT 1"
   ).get(d.tenant_id, type) : null;
 
+  const isRoot = req.user.username === 'root';
+
   if (existingPending) {
     // Update the existing pending record instead of creating a duplicate
     db.prepare(`UPDATE payments SET locker_id = ?, period = ?, amount = ?, due_date = ?, status = ?, paid_on = ?, method = ?, ref_no = ?, notes = ? WHERE id = ?`).run(
@@ -1859,13 +1861,27 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
     logInfo('Payment updated (matched pending)', { id: existingPending.id, receipt_no: existingPending.receipt_no, type, tenant: d.tenant_id, amount: d.amount, status: d.status });
     res.json({ id: existingPending.id, receipt_no: existingPending.receipt_no, updated: true });
   } else {
-    // No pending match — create a new payment record
+    // No pending/overdue payment exists — restrict who can create new entries
+    if (!isRoot) {
+      // Allow first-time payments for a new tenant (post-allotment: rent + deposit)
+      const anyPayments = db.prepare("SELECT COUNT(*) as cnt FROM payments WHERE tenant_id = ?").get(d.tenant_id);
+      const isFirstPayment = !anyPayments || anyPayments.cnt === 0;
+      // Allow deposit if none exists yet, and rent if none exists yet (covers initial allotment)
+      const typeExists = db.prepare("SELECT COUNT(*) as cnt FROM payments WHERE tenant_id = ? AND type = ?").get(d.tenant_id, type);
+      const isFirstOfType = !typeExists || typeExists.cnt === 0;
+
+      if (!isFirstPayment && !isFirstOfType) {
+        return res.status(403).json({ error: `No pending ${type} payment found for this tenant. Only the system admin (root) can create ad-hoc payment entries. Use the Renewals section to generate scheduled payments.` });
+      }
+    }
+
+    // Create a new payment record
     const id = genId();
     const receipt_no = d.receipt_no || getNextReceiptNo();
     db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
       id, d.branch_id, d.tenant_id, locker_id, type, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || ''
     );
-    logInfo('Payment recorded', { id, receipt_no, type, tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status });
+    logInfo('Payment recorded', { id, receipt_no, type, tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status, by: req.user.username });
     res.json({ id, receipt_no });
   }
   } catch (err) {
