@@ -2669,7 +2669,7 @@
                                 <p style="font-size:11px; color:var(--text-light); margin-bottom:12px;">Drag units onto the room or click to place at center.</p>
                                 <div id="roomPaletteList"></div>
                                 <hr style="border:none; border-top:1px solid var(--border); margin:12px 0;">
-                                <button class="btn btn-primary" style="width:100%; font-size:13px;" onclick="openAddUnitModal()">+ Create New Unit</button>
+                                <button id="createNewUnitBtn" class="btn btn-primary" style="width:100%; font-size:13px; display:none;" onclick="openAddUnitModal()">+ Create New Unit</button>
                             </div>
                         </div>
                     </div>
@@ -4220,6 +4220,7 @@
                 document.getElementById('navFeedback').style.display = 'block';
                 document.getElementById('navLeads').style.display = 'block';
                 document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
+                document.getElementById('createNewUnitBtn').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
 
                 document.getElementById('navLeadCapture').style.display = 'none';

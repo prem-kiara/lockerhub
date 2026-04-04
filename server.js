@@ -1258,14 +1258,14 @@ app.get('/api/units/:id/lockers', requireAuth, (req, res) => {
   res.json(lockers);
 });
 
-app.post('/api/lockers', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+app.post('/api/lockers', requireAuth, requireRole('headoffice'), (req, res) => {
   const { branch_id, number, size, location, rent, notes } = req.body;
   const id = genId();
   db.prepare('INSERT INTO lockers (id, branch_id, number, size, location, rent, status, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, branch_id, number, size || 'Large', location || '', rent || 0, 'vacant', notes || '');
   res.json({ id });
 });
 
-app.post('/api/lockers/bulk', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+app.post('/api/lockers/bulk', requireAuth, requireRole('headoffice'), (req, res) => {
   const { branch_id, prefix, count, size, rent, location } = req.body;
   const insert = db.prepare('INSERT INTO lockers (id, branch_id, number, size, location, rent, status) VALUES (?, ?, ?, ?, ?, ?, ?)');
   const existing = db.prepare('SELECT number FROM lockers WHERE branch_id = ? AND number = ?');
