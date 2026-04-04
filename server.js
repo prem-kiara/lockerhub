@@ -577,6 +577,22 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity_type, entity_id);
 `);
 
+// Notifications table (for real-time alerts to staff)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS notifications (
+    id TEXT PRIMARY KEY,
+    branch_id TEXT DEFAULT '',
+    target_role TEXT DEFAULT 'all',
+    type TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    tenant_id TEXT DEFAULT '',
+    read INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_notif_branch ON notifications(branch_id, read);
+`);
+
 // Migration: Update locker type rates (L10 Large: 20k/3L, L6 Medium: 10k/2L)
 // Only updates the locker_types template — existing tenants keep their original rates
 (function updateLockerTypeRates() {
@@ -1619,11 +1635,14 @@ app.post('/api/tenants/:id/close', requireAuth, requireRole('headoffice', 'branc
         db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(tenant.locker_id);
       }
       // Update tenant: clear locker, set closed status
-      db.prepare("UPDATE tenants SET account_status = 'Closed', closed_at = datetime('now'), closed_reason = ?, locker_id = '' WHERE id = ?").run(reason, req.params.id);
+      db.prepare("UPDATE tenants SET account_status = 'Closed', closed_at = datetime('now'), closed_reason = ?, locker_id = '', customer_password = '' WHERE id = ?").run(reason, req.params.id);
       logInfo('Tenant account closed', { id: req.params.id, name: tenant.name, locker_freed: tenant.locker_id, reason });
     })();
 
-    res.json({ ok: true, message: 'Account closed. Locker has been freed.' });
+    // Notify about closure completion
+    createNotification(tenant.branch_id, 'all', 'account_closed', 'Account Closed', `${tenant.name}'s account has been closed. Reason: ${reason || 'N/A'}`, req.params.id);
+
+    res.json({ ok: true, message: 'Account closed. Locker has been freed. Customer portal access has been disabled.' });
   } catch (err) {
     logError('Account close failed', { id: req.params.id, error: err.message });
     res.status(500).json({ error: 'Failed to close account' });
@@ -1789,11 +1808,11 @@ app.get('/api/payments', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let payments;
   if (branch_id && branch_id !== 'all') {
-    payments = db.prepare(`SELECT p.*, t.name as tenant_name, l.number as locker_number
+    payments = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number
       FROM payments p LEFT JOIN tenants t ON p.tenant_id = t.id LEFT JOIN lockers l ON p.locker_id = l.id
       WHERE p.branch_id = ? ORDER BY p.created_at DESC`).all(branch_id);
   } else {
-    payments = db.prepare(`SELECT p.*, t.name as tenant_name, l.number as locker_number, b.name as branch_name
+    payments = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number, b.name as branch_name
       FROM payments p LEFT JOIN tenants t ON p.tenant_id = t.id LEFT JOIN lockers l ON p.locker_id = l.id
       JOIN branches b ON p.branch_id = b.id ORDER BY p.created_at DESC`).all();
   }
@@ -2712,6 +2731,12 @@ app.post('/api/customer-login', loginLimiter, async (req, res) => {
       return res.status(401).json({ error: 'Invalid phone number or password' });
     }
 
+    // Block login if account is closed
+    if (firstMatch.account_status === 'Closed') {
+      logWarn('Customer login blocked - account closed', { phone, ip: req.ip });
+      return res.status(403).json({ error: 'Your account has been closed. Please contact the branch office if you need assistance.' });
+    }
+
     // Support both bcrypt hashed and legacy plaintext passwords
     let passwordValid = false;
     if (firstMatch.customer_password.startsWith('$2a$') || firstMatch.customer_password.startsWith('$2b$')) {
@@ -2808,6 +2833,9 @@ app.get('/api/customer/:tenantId/export-data', requireAuth, (req, res) => {
     // Strip sensitive fields
     const exportData = {
       personal: { name: tenant.name, phone: tenant.phone, email: tenant.email, address: tenant.address },
+      emergency_contact: { name: tenant.emergency_name, phone: tenant.emergency },
+      nominee: { name: tenant.nominee_name, phone: tenant.nominee_phone, aadhaar: tenant.nominee_aadhaar, pan: tenant.nominee_pan },
+      bank: { bank_name: tenant.bank_name, account: tenant.bank_account, ifsc: tenant.bank_ifsc, branch: tenant.bank_branch },
       locker: { locker_id: tenant.locker_id, lease_start: tenant.lease_start, lease_end: tenant.lease_end, annual_rent: tenant.annual_rent, deposit: tenant.deposit },
       payments, visits, appointments, feedback,
       exported_at: new Date().toISOString()
@@ -2854,6 +2882,110 @@ app.post('/api/account/request-deletion', (req, res) => {
     res.json({ success: true, message: 'Deletion request received.' });
   } catch (err) {
     res.status(500).json({ error: 'Request failed' });
+  }
+});
+
+// ============================
+//  REAL-TIME NOTIFICATIONS (SSE)
+// ============================
+const sseClients = new Map(); // Map<clientId, { res, userId, role, branchId }>
+
+function createNotification(branchId, targetRole, type, title, message, tenantId) {
+  const id = genId();
+  db.prepare(`INSERT INTO notifications (id, branch_id, target_role, type, title, message, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+    id, branchId || '', targetRole || 'all', type, title, message, tenantId || ''
+  );
+  // Push to connected SSE clients
+  const payload = JSON.stringify({ id, branch_id: branchId, target_role: targetRole, type, title, message, tenant_id: tenantId, created_at: new Date().toISOString() });
+  sseClients.forEach((client) => {
+    // Send to headoffice always, branch only if matching branch_id
+    if (client.role === 'headoffice' || (client.role === 'branch' && (!branchId || client.branchId === branchId))) {
+      try { client.res.write(`data: ${payload}\n\n`); } catch(e) { /* client disconnected */ }
+    }
+  });
+  return id;
+}
+
+// SSE endpoint — staff connects to receive live notifications
+app.get('/api/notifications/stream', requireAuth, (req, res) => {
+  if (req.user.role === 'customer') return res.status(403).json({ error: 'Not available' });
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+  res.write('retry: 10000\n\n');
+  const clientId = genId();
+  sseClients.set(clientId, { res, userId: req.user.id, role: req.user.role, branchId: req.user.branch_id });
+  // Send heartbeat every 30s to keep connection alive
+  const heartbeat = setInterval(() => {
+    try { res.write(': heartbeat\n\n'); } catch(e) { clearInterval(heartbeat); sseClients.delete(clientId); }
+  }, 30000);
+  req.on('close', () => { clearInterval(heartbeat); sseClients.delete(clientId); });
+});
+
+// Get unread notifications
+app.get('/api/notifications', requireAuth, (req, res) => {
+  if (req.user.role === 'customer') return res.status(403).json({ error: 'Not available' });
+  let notifs;
+  if (req.user.role === 'headoffice') {
+    notifs = db.prepare(`SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50`).all();
+  } else {
+    notifs = db.prepare(`SELECT * FROM notifications WHERE branch_id = ? OR branch_id = '' ORDER BY created_at DESC LIMIT 50`).all(req.user.branch_id);
+  }
+  res.json(notifs);
+});
+
+// Mark notification as read
+app.put('/api/notifications/:id/read', requireAuth, (req, res) => {
+  db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Mark all as read
+app.put('/api/notifications/read-all', requireAuth, (req, res) => {
+  if (req.user.role === 'headoffice') {
+    db.prepare('UPDATE notifications SET read = 1 WHERE read = 0').run();
+  } else {
+    db.prepare('UPDATE notifications SET read = 1 WHERE read = 0 AND (branch_id = ? OR branch_id = ?)').run(req.user.branch_id, '');
+  }
+  res.json({ ok: true });
+});
+
+// ============================
+//  CUSTOMER CLOSURE REQUEST
+// ============================
+app.post('/api/customer/:tenantId/request-closure', requireAuth, (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT id, name, phone, branch_id, account_status FROM tenants WHERE id = ?').get(req.params.tenantId);
+    if (!tenant) return res.status(404).json({ error: 'Not found' });
+    if (req.user.role === 'customer' && req.user.id !== req.params.tenantId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (tenant.account_status === 'Closed') return res.status(400).json({ error: 'Account is already closed' });
+    if (tenant.account_status === 'Closure Requested') return res.status(400).json({ error: 'Closure request already submitted. The branch team will contact you shortly.' });
+
+    // Mark as closure requested
+    db.prepare("UPDATE tenants SET account_status = 'Closure Requested', closed_reason = ? WHERE id = ?").run(req.body.reason || 'Customer requested', req.params.tenantId);
+
+    // Create notification for branch + headoffice
+    const reason = req.body.reason || 'Not specified';
+    createNotification(
+      tenant.branch_id,
+      'all',
+      'closure_request',
+      'Account Closure Request',
+      `${tenant.name} (${tenant.phone}) has requested account closure. Reason: ${reason}`,
+      tenant.id
+    );
+
+    auditLog('CLOSURE_REQUESTED', 'tenant', req.params.tenantId, req, { name: tenant.name, phone: tenant.phone, reason });
+    logInfo('Account closure requested', { tenantId: req.params.tenantId, name: tenant.name, reason });
+    res.json({ success: true, message: 'Closure request submitted successfully. The branch team will review your request and contact you shortly.' });
+  } catch (err) {
+    logError('Closure request failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to submit closure request' });
   }
 });
 
@@ -3792,6 +3924,17 @@ app.put('/api/leads/:id', requireAuth, (req, res) => {
   try {
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+    // Prevent backdated visit times
+    if (req.body.visit_time) {
+      const visitDate = new Date(req.body.visit_time);
+      const now = new Date();
+      now.setMinutes(now.getMinutes() - 5); // 5 min grace
+      if (visitDate < now) {
+        return res.status(400).json({ error: 'Visit date/time cannot be in the past' });
+      }
+    }
+
     const fields = ['status', 'notes', 'branch_id', 'visit_time', 'name', 'phone', 'email', 'locker_size', 'converted_tenant_id'];
     fields.forEach(f => {
       if (req.body[f] !== undefined) {

@@ -193,6 +193,9 @@ function page1(doc, t, branch) {
   y = sectionTitle(doc, 'Nominee Details', y);
   y += 3;
   y = field(doc, 'Full Name:', M, y, t.nominee_name || '', W - 2 * M - 100, 70);
+  y = field(doc, 'Phone:', M, y, t.nominee_phone || '', 140, 42);
+  field(doc, 'Aadhaar:', M + 200, y - 16, t.nominee_aadhaar || '', 140, 55);
+  y = field(doc, 'PAN:', M, y, t.nominee_pan || '', 140, 30);
   y += 3;
 
   labeledBox(doc, 'Paste Passport Size Photo', W - M - 95, y, 95, 110);
@@ -745,6 +748,8 @@ function pageDeclaration(doc, t) {
   y = field(doc, 'State:', M, y, '', 145, 38);
   field(doc, 'Country:', M + 240, y - 16, '', 75, 55);
   y = field(doc, 'Mobile (+91) *:', M, y, t.nominee_phone || '', 140, 85);
+  y = field(doc, 'Aadhaar No.:', M, y, t.nominee_aadhaar || '', 140, 75);
+  field(doc, 'PAN No.:', M + 240, y - 16, t.nominee_pan || '', 120, 50);
   y = field(doc, 'Date of Birth:', M, y, '', 95, 80);
   field(doc, 'Relationship with Hirer:', M + 240, y - 16, t.nominee_relation || '', 95, 135);
 

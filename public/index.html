@@ -198,6 +198,73 @@
             background: rgba(220, 38, 38, 0.08);
         }
 
+        /* Notification Bell */
+        .notif-bell-wrap {
+            position: relative;
+            cursor: pointer;
+            padding: 6px 10px;
+            margin-right: 8px;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+        }
+        .notif-bell-wrap:hover { opacity: 0.8; }
+        .notif-badge {
+            position: absolute;
+            top: 2px; right: 4px;
+            background: #dc2626;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            min-width: 18px;
+            height: 18px;
+            line-height: 18px;
+            text-align: center;
+            border-radius: 9px;
+            padding: 0 4px;
+        }
+        .notif-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            width: 340px;
+            max-height: 420px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+            z-index: 1000;
+            overflow: hidden;
+        }
+        .notif-bell-wrap.open .notif-dropdown { display: block; }
+        .notif-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+        }
+        .notif-header a { font-size: 12px; color: var(--gold); text-decoration: none; }
+        .notif-list {
+            max-height: 360px;
+            overflow-y: auto;
+        }
+        .notif-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .notif-item:hover { background: rgba(184,134,11,0.05); }
+        .notif-item.unread { background: rgba(184,134,11,0.08); }
+        .notif-item-title { font-size: 13px; font-weight: 600; color: var(--text); }
+        .notif-item-msg { font-size: 12px; color: #888; margin-top: 2px; }
+        .notif-item-time { font-size: 11px; color: #aaa; margin-top: 4px; }
+        .notif-empty { padding: 24px; text-align: center; color: #888; font-size: 13px; }
+        .notif-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); margin-right: 6px; }
+
         .main-content {
             flex: 1;
             margin-left: 250px;
@@ -581,6 +648,10 @@
                 transform: translateY(0);
                 opacity: 1;
             }
+        }
+        @keyframes slideInRight {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
 
         .modal-header {
@@ -1080,6 +1151,11 @@
             .branch-selector {
                 max-width: 180px;
                 font-size: 13px;
+            }
+
+            .notif-dropdown {
+                width: calc(100vw - 32px);
+                right: -60px;
             }
 
             /* Table scroll indicator */
@@ -2097,7 +2173,7 @@
                 <li id="navCustDashboard" style="display: none;"><a onclick="switchSection('custDashboard')" class="nav-link" data-section="custDashboard">My Dashboard</a></li>
                 <li id="navCustAppointments" style="display: none;"><a onclick="switchSection('custAppointments')" class="nav-link" data-section="custAppointments">My Appointments</a></li>
                 <li id="navCustPayments" style="display: none;"><a onclick="switchSection('custPayments')" class="nav-link" data-section="custPayments">My Payments</a></li>
-                <li id="navCustDelete" style="display: none;"><a onclick="requestAccountDeletion()" class="nav-link" style="color:#e74c3c;">🗑️ Delete My Account</a></li>
+                <li id="navCustDelete" style="display: none;"><a onclick="requestAccountClosure()" class="nav-link" style="color:#e74c3c;">📋 Request Closure</a></li>
                 <li id="navFeedback" style="display:none;"><a onclick="switchSection('feedback')" class="nav-link" data-section="feedback">Feedback</a></li>
                 <li id="navLeads" style="display:none;"><a onclick="switchSection('leads')" class="nav-link" data-section="leads">Leads</a></li>
                 <li id="navLeadCapture" style="display:none;"><a onclick="switchSection('leadCapture')" class="nav-link" data-section="leadCapture">Capture Lead</a></li>
@@ -2126,6 +2202,17 @@
                     </div>
                 </div>
                 <div class="topbar-right">
+                    <div id="notifBellWrap" class="notif-bell-wrap" style="display:none;" onclick="toggleNotifDropdown(event)">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                        <span id="notifBadge" class="notif-badge" style="display:none;">0</span>
+                        <div id="notifDropdown" class="notif-dropdown">
+                            <div class="notif-header">
+                                <strong>Notifications</strong>
+                                <a href="#" onclick="markAllNotifsRead(event)">Mark all read</a>
+                            </div>
+                            <div id="notifList" class="notif-list"><div class="notif-empty">No notifications</div></div>
+                        </div>
+                    </div>
                     <div class="user-menu" id="userMenu" onclick="toggleUserDropdown()">
                         <span id="userInfo"></span>
                         <span class="user-menu-arrow">▾</span>
@@ -2188,6 +2275,7 @@
                         <select id="tenantFilterStatus" onchange="filterTenants()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:#fff;">
                             <option value="">All Status</option>
                             <option value="active">Active</option>
+                            <option value="closure_requested">Closure Requested</option>
                             <option value="closed">Closed</option>
                         </select>
                         <select id="tenantFilterBG" onchange="filterTenants()" style="padding:5px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:#fff;">
@@ -4001,7 +4089,7 @@
                 document.getElementById('branchSelectorContainer').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navUnits').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navPayments').style.display = 'block';
-                document.getElementById('navBgChecks').style.display = isHeadOffice ? 'block' : 'none';
+                document.getElementById('navBgChecks').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navEsign').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
@@ -4020,11 +4108,19 @@
                 }
                 const savedSection = localStorage.getItem('lockerhub_section');
                 const hoSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
-                const branchSections = ['dashboard','units','tenants','payments','visits','esign','appointments','reminders','feedback','leads'];
+                const branchSections = ['dashboard','units','tenants','payments','visits','bgchecks','esign','appointments','reminders','feedback','leads'];
                 const validSections = isHeadOffice ? hoSections : branchSections;
                 try { await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard'); } catch(e) { console.warn('Section load failed:', e.message); }
             }
             resetInactivityTimer();
+
+            // Start real-time notifications for staff
+            const isStaff = result.role === 'headoffice' || result.role === 'branch';
+            document.getElementById('notifBellWrap').style.display = isStaff ? 'flex' : 'none';
+            if (isStaff) {
+                loadNotifications();
+                connectNotifSSE();
+            }
         }
 
         // Restore session on page load
@@ -4170,27 +4266,175 @@
         function logout() {
             currentUser = null;
             currentBranchId = null;
+            window._sessionRestored = false;
             clearSession();
+            // Close any SSE connection
+            if (window._sseSource) { try { window._sseSource.close(); } catch(e) {} window._sseSource = null; }
             try { localStorage.removeItem('lockerhub_section'); } catch(e) {}
             try { localStorage.removeItem('lockerhub_token'); } catch(e) {}
             if (inactivityTimer) clearTimeout(inactivityTimer);
+            // Reset UI to clean login state
             document.getElementById('loginScreen').style.display = 'flex';
             document.getElementById('appContainer').style.display = 'none';
             document.getElementById('username').value = '';
             document.getElementById('password').value = '';
+            document.getElementById('loginError').classList.remove('show');
+            document.getElementById('loginError').textContent = '';
+            document.getElementById('loginPanel').style.display = 'block';
+            document.getElementById('signupPanel').style.display = 'none';
+            // Restore signup panel if it was replaced by success message
+            const sp = document.getElementById('signupPanel');
+            if (!sp.querySelector('#signupForm')) {
+                location.reload();
+                return;
+            }
+            hideLoading();
         }
 
-        // ===== Account Deletion =====
-        async function requestAccountDeletion() {
-          if (!confirm('Are you sure you want to request account deletion? This action cannot be undone. Your data will be removed within 30 days.')) return;
-          if (!confirm('This will permanently delete all your data including payment history, appointments, and locker records. Continue?')) return;
+        // ===== Account Closure Request =====
+        async function requestAccountClosure() {
+          const reason = prompt('Why do you want to close your locker account?\n\n(e.g. "No longer need locker", "Relocating", "Switching provider")');
+          if (reason === null) return; // cancelled
+          if (!confirm('Are you sure you want to request account closure? The branch team will review your request and contact you.')) return;
           try {
-            const result = await api('POST', '/api/customer/' + currentUser.id + '/request-deletion');
-            alert(result.message || 'Deletion request submitted successfully.');
+            showLoading('Submitting closure request...');
+            const result = await api('POST', '/api/customer/' + currentUser.id + '/request-closure', { reason: reason || 'Not specified' });
+            hideLoading();
+            alert(result.message || 'Closure request submitted. The branch team will contact you shortly.');
           } catch (e) {
-            alert('Failed to submit deletion request. Please contact support.');
+            hideLoading();
+            alert('Failed to submit closure request: ' + (e.message || 'Please contact support.'));
           }
         }
+
+        // ===== Real-Time Notifications =====
+        let notifData = [];
+
+        function connectNotifSSE() {
+            if (window._sseSource) { try { window._sseSource.close(); } catch(e) {} }
+            const token = localStorage.getItem('lockerhub_token');
+            if (!token || !currentUser || currentUser.role === 'customer' || currentUser.role === 'lead_agent') return;
+
+            const evtSource = new EventSource('/api/notifications/stream?token=' + encodeURIComponent(token));
+            window._sseSource = evtSource;
+
+            evtSource.onmessage = (event) => {
+                try {
+                    const notif = JSON.parse(event.data);
+                    notifData.unshift(notif);
+                    renderNotifications();
+                    // Show a brief toast
+                    showNotifToast(notif.title, notif.message);
+                } catch(e) {}
+            };
+            evtSource.onerror = () => {
+                // Reconnect after 10s on error
+                evtSource.close();
+                window._sseSource = null;
+                setTimeout(() => { if (currentUser && currentUser.role !== 'customer') connectNotifSSE(); }, 10000);
+            };
+        }
+
+        async function loadNotifications() {
+            if (!currentUser || currentUser.role === 'customer' || currentUser.role === 'lead_agent') return;
+            try {
+                notifData = await api('GET', '/api/notifications');
+                renderNotifications();
+            } catch(e) {}
+        }
+
+        function renderNotifications() {
+            const list = document.getElementById('notifList');
+            const badge = document.getElementById('notifBadge');
+            const unreadCount = notifData.filter(n => !n.read).length;
+
+            if (unreadCount > 0) {
+                badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+                badge.style.display = 'inline-block';
+            } else {
+                badge.style.display = 'none';
+            }
+
+            if (notifData.length === 0) {
+                list.innerHTML = '<div class="notif-empty">No notifications</div>';
+                return;
+            }
+
+            list.innerHTML = notifData.slice(0, 30).map(n => {
+                const timeAgo = getTimeAgo(n.created_at);
+                return `<div class="notif-item ${n.read ? '' : 'unread'}" onclick="markNotifRead('${n.id}')">
+                    <div class="notif-item-title">${!n.read ? '<span class="notif-dot"></span>' : ''}${escapeHtml(n.title)}</div>
+                    <div class="notif-item-msg">${escapeHtml(n.message)}</div>
+                    <div class="notif-item-time">${timeAgo}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function getTimeAgo(dateStr) {
+            const diff = Date.now() - new Date(dateStr + (dateStr.includes('Z') ? '' : 'Z')).getTime();
+            const mins = Math.floor(diff / 60000);
+            if (mins < 1) return 'Just now';
+            if (mins < 60) return mins + 'm ago';
+            const hrs = Math.floor(mins / 60);
+            if (hrs < 24) return hrs + 'h ago';
+            const days = Math.floor(hrs / 24);
+            return days + 'd ago';
+        }
+
+        function escapeHtml(str) {
+            const d = document.createElement('div');
+            d.textContent = str || '';
+            return d.innerHTML;
+        }
+
+        function toggleNotifDropdown(e) {
+            e.stopPropagation();
+            const wrap = document.getElementById('notifBellWrap');
+            const isOpening = !wrap.classList.contains('open');
+            wrap.classList.toggle('open');
+            // Close user menu if open
+            document.getElementById('userMenu').classList.remove('open');
+            // Auto-mark all as read when opening the dropdown
+            if (isOpening) {
+                const unread = notifData.filter(n => !n.read);
+                if (unread.length > 0) {
+                    unread.forEach(n => n.read = 1);
+                    renderNotifications();
+                    api('PUT', '/api/notifications/read-all').catch(() => {});
+                }
+            }
+        }
+
+        async function markNotifRead(id) {
+            const n = notifData.find(x => x.id === id);
+            if (n && !n.read) {
+                n.read = 1;
+                renderNotifications();
+                try { await api('PUT', '/api/notifications/' + id + '/read'); } catch(e) {}
+            }
+        }
+
+        async function markAllNotifsRead(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            notifData.forEach(n => n.read = 1);
+            renderNotifications();
+            try { await api('PUT', '/api/notifications/read-all'); } catch(e) {}
+        }
+
+        function showNotifToast(title, message) {
+            const toast = document.createElement('div');
+            toast.style.cssText = 'position:fixed;top:16px;right:16px;z-index:10000;background:var(--card-bg);border:1px solid var(--gold);border-radius:10px;padding:14px 18px;box-shadow:0 8px 24px rgba(0,0,0,0.15);max-width:340px;animation:slideInRight 0.3s ease;';
+            toast.innerHTML = `<div style="font-weight:600;font-size:13px;color:var(--gold);margin-bottom:4px;">${escapeHtml(title)}</div><div style="font-size:12px;color:var(--text);">${escapeHtml(message)}</div>`;
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(() => toast.remove(), 500); }, 5000);
+        }
+
+        // Close notif dropdown on outside click
+        document.addEventListener('click', (e) => {
+            const wrap = document.getElementById('notifBellWrap');
+            if (wrap && !wrap.contains(e.target)) wrap.classList.remove('open');
+        });
 
         // ===== Navigation =====
         async function switchSection(section) {
@@ -4741,7 +4985,8 @@
                     if (!haystack.includes(search)) return false;
                 }
                 // Account status filter
-                if (statusFilter === 'active' && t.account_status === 'Closed') return false;
+                if (statusFilter === 'active' && (t.account_status === 'Closed' || t.account_status === 'Closure Requested')) return false;
+                if (statusFilter === 'closure_requested' && t.account_status !== 'Closure Requested') return false;
                 if (statusFilter === 'closed' && t.account_status !== 'Closed') return false;
                 // BG status filter
                 if (bgFilter === 'verified' && (t.bg_status || '').toLowerCase() !== 'verified') return false;
@@ -4792,8 +5037,8 @@
                     daysLeft <= 30 ? `<span class="badge badge-warning">${daysLeft}d left</span>` :
                     new Date(t.lease_end).toLocaleDateString('en-IN');
                 return `
-                <tr${t.account_status === 'Closed' ? ' style="opacity:0.6;"' : ''}>
-                    <td><strong>${t.name}</strong>${t.account_status === 'Closed' ? ' <span style="font-size:10px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:3px;">Closed</span>' : ''}</td>
+                <tr${t.account_status === 'Closed' ? ' style="opacity:0.6;"' : ''}${t.account_status === 'Closure Requested' ? ' style="background:rgba(234,179,8,0.08);"' : ''}>
+                    <td><strong>${t.name}</strong>${t.account_status === 'Closed' ? ' <span style="font-size:10px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:3px;">Closed</span>' : ''}${t.account_status === 'Closure Requested' ? ' <span style="font-size:10px;padding:1px 6px;background:#eab308;color:#000;border-radius:3px;font-weight:600;">Closure Requested</span>' : ''}</td>
                     <td>${t.phone.startsWith('+91') ? t.phone : '+91 ' + t.phone}</td>
                     <td>${t.locker_number || '-'}</td>
                     <td>₹${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
@@ -7642,11 +7887,15 @@
                 'Phone': '+91 ' + t.phone,
                 Email: t.email || '-',
                 Address: t.address || '-',
-                'Emergency Contact': t.emergency || '-',
+                'Emergency Name': t.emergency_name || '-',
+                'Emergency Phone': t.emergency || '-',
                 'Locker': t.locker_number || '-',
-                'Lease Start': t.lease_start,
+                'Lease Start': t.lease_start || '-',
+                'Lease End': t.lease_end || '-',
                 'Annual Rent (₹)': t.annual_rent || '-',
-                'BG Status': capitalize(t.bg_status)
+                'Nominee': t.nominee_name || '-',
+                'Account Status': capitalize(t.account_status || 'active'),
+                'BG Status': capitalize(t.bg_status || 'pending')
             }));
         }
 
@@ -7655,22 +7904,34 @@
                 ...(isHeadOffice && { Branch: p.branch_name }),
                 Tenant: p.tenant_name,
                 Locker: p.locker_number,
+                Type: capitalize(p.type || 'rent'),
+                Period: p.period || '-',
                 'Amount (₹)': p.amount,
-                Method: capitalize(p.payment_method),
-                Date: p.payment_date,
+                Method: capitalize(p.method || ''),
+                'Paid On': p.paid_on || '-',
+                'Due Date': p.due_date || '-',
                 Status: capitalize(p.status),
+                'Receipt No': p.receipt_no || '',
                 Notes: p.notes || ''
             }));
         }
 
         function formatOverdueReport(payments, isHeadOffice) {
-            return payments.map(p => ({
-                ...(isHeadOffice && { Branch: p.branch_name }),
-                Tenant: p.tenant_name,
-                Locker: p.locker_number,
-                'Amount Due (₹)': p.amount,
-                'Days Overdue': Math.floor((Date.now() - new Date(p.payment_date)) / (1000 * 60 * 60 * 24))
-            }));
+            return payments.map(p => {
+                const dueDate = p.due_date || p.paid_on || '';
+                const daysOverdue = dueDate ? Math.max(0, Math.floor((Date.now() - new Date(dueDate)) / (1000 * 60 * 60 * 24))) : '-';
+                return {
+                    ...(isHeadOffice && { Branch: p.branch_name }),
+                    Tenant: p.tenant_name,
+                    Phone: p.tenant_phone || '',
+                    Locker: p.locker_number,
+                    Type: capitalize(p.type || 'rent'),
+                    Period: p.period || '-',
+                    'Amount Due (₹)': p.amount,
+                    'Due Date': p.due_date || '-',
+                    'Days Overdue': daysOverdue
+                };
+            });
         }
 
         function formatVisitLogReport(visits, isHeadOffice) {
@@ -7678,8 +7939,9 @@
                 ...(isHeadOffice && { Branch: v.branch_name }),
                 Tenant: v.tenant_name,
                 Locker: v.locker_number,
-                'Visit Date': v.visit_date,
+                'Visit Date': v.datetime || '',
                 Purpose: capitalize(v.purpose),
+                Duration: v.duration || '',
                 Notes: v.notes || ''
             }));
         }
@@ -7688,21 +7950,44 @@
             return tenants.map(t => ({
                 ...(isHeadOffice && { Branch: t.branch_name }),
                 Name: t.name,
+                Phone: t.phone || '-',
                 'Aadhaar': maskAadhaar(t.bg_aadhaar) || '-',
                 'PAN': maskPAN(t.bg_pan) || '-',
                 'Photos Collected': t.bg_photos_collected ? 'Yes' : 'No',
-                Status: capitalize(t.bg_status)
+                Status: capitalize(t.bg_status || 'pending'),
+                Notes: t.bg_notes || ''
             }));
         }
 
         function formatOccupancyReport(lockers, isHeadOffice) {
+            if (isHeadOffice) {
+                // Group by branch for head office
+                const byBranch = {};
+                lockers.forEach(l => {
+                    const bn = l.branch_name || 'Unknown';
+                    if (!byBranch[bn]) byBranch[bn] = { total: 0, occupied: 0 };
+                    byBranch[bn].total++;
+                    if (l.status === 'occupied') byBranch[bn].occupied++;
+                });
+                const rows = Object.entries(byBranch).map(([branch, d]) => ({
+                    Branch: branch,
+                    'Total Lockers': d.total,
+                    'Occupied': d.occupied,
+                    'Vacant': d.total - d.occupied,
+                    'Occupancy %': d.total > 0 ? Math.round((d.occupied / d.total) * 100) : 0
+                }));
+                // Add grand total row
+                const totalAll = lockers.length;
+                const occAll = lockers.filter(l => l.status === 'occupied').length;
+                rows.push({ Branch: 'TOTAL', 'Total Lockers': totalAll, 'Occupied': occAll, 'Vacant': totalAll - occAll, 'Occupancy %': totalAll > 0 ? Math.round((occAll / totalAll) * 100) : 0 });
+                return rows;
+            }
             const occupied = lockers.filter(l => l.status === 'occupied').length;
             return [{
-                ...(isHeadOffice && { Branch: lockers[0]?.branch_name || 'All' }),
                 'Total Lockers': lockers.length,
                 'Occupied': occupied,
                 'Vacant': lockers.length - occupied,
-                'Occupancy %': Math.round((occupied / lockers.length) * 100)
+                'Occupancy %': lockers.length > 0 ? Math.round((occupied / lockers.length) * 100) : 0
             }];
         }
 
@@ -7711,10 +7996,14 @@
                 ...(isHeadOffice && { Branch: t.branch_name }),
                 'Tenant': t.name,
                 'Phone': t.phone,
-                'Locker': t.locker_number || '-',
-                'Lease Start': t.lease_start,
                 'Email': t.email || '-',
-                'Status': t.bg_status
+                'Locker': t.locker_number || '-',
+                'Lease Start': t.lease_start || '-',
+                'Lease End': t.lease_end || '-',
+                'Annual Rent (₹)': t.annual_rent || '-',
+                'Deposit (₹)': t.deposit || '-',
+                'Account Status': capitalize(t.account_status || 'active'),
+                'BG Status': capitalize(t.bg_status || 'pending')
             }));
         }
 
@@ -9270,7 +9559,7 @@
                                 </select>
                             </div>
                             <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Customer Visit Date/Time</label>
-                                <input type="datetime-local" id="ldVisitTime" value="${r.visit_time||''}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}>
+                                <input type="datetime-local" id="ldVisitTime" value="${r.visit_time||''}" min="${new Date().toISOString().slice(0,16)}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}>
                             </div>
                         </div>
 
@@ -9318,6 +9607,10 @@
                     visit_time: document.getElementById('ldVisitTime').value
                 };
                 if (!data.name) return alert('Name is required');
+                // Prevent backdated visit times
+                if (data.visit_time && new Date(data.visit_time) < new Date()) {
+                    return alert('Customer visit date/time cannot be in the past. Please select a future date.');
+                }
                 await api('PUT', `/api/leads/${id}`, data);
                 await loadLeads();
                 // Refresh the modal
@@ -9332,7 +9625,7 @@
                 const currentStatus = statusEl.value;
                 // Check if there are unsaved changes
                 const visitTime = document.getElementById('ldVisitTime')?.value;
-                if (visitTime && currentStatus !== 'Visit Scheduled' && currentStatus !== 'Converted') {
+                if (visitTime && new Date(visitTime) >= new Date() && currentStatus !== 'Visit Scheduled' && currentStatus !== 'Converted') {
                     await api('PUT', `/api/leads/${id}`, { status: 'Visit Scheduled', visit_time: visitTime });
                 } else if (currentStatus !== document.getElementById('ldStatus')?.dataset?.original) {
                     // Save current status on close
