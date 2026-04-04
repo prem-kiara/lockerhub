@@ -792,6 +792,42 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
+// ── Verhoeff Algorithm for Aadhaar validation ──────────────────
+const verhoeffD = [
+  [0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],
+  [3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],
+  [6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],
+  [9,8,7,6,5,4,3,2,1,0]
+];
+const verhoeffP = [
+  [0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],
+  [8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],
+  [2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]
+];
+const verhoeffInv = [0,4,3,2,1,5,6,7,8,9];
+
+function validateAadhaar(num) {
+  if (!num || !/^\d{12}$/.test(num)) return false;
+  // Aadhaar cannot start with 0 or 1
+  if (num[0] === '0' || num[0] === '1') return false;
+  let c = 0;
+  const digits = num.split('').map(Number).reverse();
+  for (let i = 0; i < digits.length; i++) {
+    c = verhoeffD[c][verhoeffP[i % 8][digits[i]]];
+  }
+  return c === 0;
+}
+
+// PAN validation: AAAAA9999A — 4th char must be valid entity type
+function validatePAN(pan) {
+  if (!pan) return false;
+  pan = pan.toUpperCase();
+  if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) return false;
+  // 4th character = entity type: A,B,C,F,G,H,J,L,P,T
+  const validTypes = 'ABCFGHJLPT';
+  return validTypes.includes(pan[3]);
+}
+
 // Audit logging for compliance
 function auditLog(action, entityType, entityId, req, details = '') {
   try {
@@ -1391,10 +1427,30 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req,
     if (d.nominee_aadhaar) d.nominee_aadhaar = d.nominee_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
     if (d.nominee_pan) d.nominee_pan = d.nominee_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
     if (d.nominee_phone) d.nominee_phone = d.nominee_phone.replace(/[^0-9]/g, '').slice(0, 10);
+    // Validate Aadhaar with Verhoeff algorithm
+    if (d.bg_aadhaar && !validateAadhaar(d.bg_aadhaar)) return res.status(400).json({ error: 'Invalid Aadhaar number. Please check and re-enter.' });
+    if (d.nominee_aadhaar && !validateAadhaar(d.nominee_aadhaar)) return res.status(400).json({ error: 'Invalid Nominee Aadhaar number. Please check and re-enter.' });
+    // Validate PAN format + entity type
+    if (d.bg_pan && !validatePAN(d.bg_pan)) return res.status(400).json({ error: 'Invalid PAN number. Format: ABCDE1234F (4th letter must be a valid entity type).' });
+    if (d.nominee_pan && !validatePAN(d.nominee_pan)) return res.status(400).json({ error: 'Invalid Nominee PAN number. Format: ABCDE1234F (4th letter must be a valid entity type).' });
+    // Validate IFSC format: 4 letters + 0 + 6 alphanumeric
+    if (d.bank_ifsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(d.bank_ifsc.toUpperCase())) return res.status(400).json({ error: 'Invalid IFSC code format. Must be 11 characters (e.g., SBIN0001234).' });
     // Check locker availability
     if (d.locker_id) {
       const existingTenant = db.prepare("SELECT id, name FROM tenants WHERE locker_id = ?").get(d.locker_id);
       if (existingTenant) return res.status(400).json({ error: `Locker is already assigned to ${existingTenant.name}` });
+    }
+
+    // Branch staff cannot set custom rent/deposit — enforce from locker type config
+    if (req.user.role === 'branch' && d.locker_id) {
+      const locker = db.prepare('SELECT locker_type_id FROM lockers WHERE id = ?').get(d.locker_id);
+      if (locker && locker.locker_type_id) {
+        const lt = db.prepare('SELECT annual_rent, deposit FROM locker_types WHERE id = ?').get(locker.locker_type_id);
+        if (lt) {
+          d.annual_rent = lt.annual_rent || 0;
+          d.deposit = lt.deposit || 0;
+        }
+      }
     }
 
     const txResult = db.transaction(() => {
@@ -1475,9 +1531,17 @@ app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (r
   try {
     const d = req.body;
     // Sanitize nominee fields
+    if (d.bg_aadhaar) d.bg_aadhaar = d.bg_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
+    if (d.bg_pan) d.bg_pan = d.bg_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
     if (d.nominee_aadhaar) d.nominee_aadhaar = d.nominee_aadhaar.replace(/[^0-9]/g, '').slice(0, 12);
     if (d.nominee_pan) d.nominee_pan = d.nominee_pan.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
     if (d.nominee_phone) d.nominee_phone = d.nominee_phone.replace(/[^0-9]/g, '').slice(0, 10);
+    // Validate Aadhaar with Verhoeff algorithm
+    if (d.bg_aadhaar && !validateAadhaar(d.bg_aadhaar)) return res.status(400).json({ error: 'Invalid Aadhaar number. Please check and re-enter.' });
+    if (d.nominee_aadhaar && !validateAadhaar(d.nominee_aadhaar)) return res.status(400).json({ error: 'Invalid Nominee Aadhaar number. Please check and re-enter.' });
+    // Validate PAN format + entity type
+    if (d.bg_pan && !validatePAN(d.bg_pan)) return res.status(400).json({ error: 'Invalid PAN number. Format: ABCDE1234F (4th letter must be a valid entity type).' });
+    if (d.nominee_pan && !validatePAN(d.nominee_pan)) return res.status(400).json({ error: 'Invalid Nominee PAN number. Format: ABCDE1234F (4th letter must be a valid entity type).' });
     // Handle locker status changes
     const oldTenant = db.prepare('SELECT locker_id FROM tenants WHERE id = ?').get(req.params.id);
     const oldLockerId = oldTenant ? oldTenant.locker_id : '';
@@ -1516,10 +1580,14 @@ app.put('/api/tenants/:id', requireAuth, requireRole('headoffice', 'branch'), (r
     }
 
     const allowedFields = ['name', 'phone', 'email', 'address', 'emergency_name', 'emergency', 'locker_id', 'lease_start', 'lease_end', 'annual_rent', 'deposit', 'bank_name', 'bank_account', 'bank_ifsc', 'bank_branch', 'bg_aadhaar', 'bg_pan', 'bg_photos_collected', 'bg_status', 'bg_notes', 'customer_password', 'account_status', 'nominee_name', 'nominee_phone', 'nominee_aadhaar', 'nominee_pan'];
+    // Branch staff cannot change rent or deposit — only HO/root can
+    const isBranch = req.user.role === 'branch';
+    const branchRestrictedFields = ['annual_rent', 'deposit'];
     const fields = [];
     const vals = [];
     for (const [k, v] of Object.entries(d)) {
       if (!allowedFields.includes(k)) continue;
+      if (isBranch && branchRestrictedFields.includes(k)) continue;
       fields.push(`${k} = ?`);
       // SQLite does not accept JS booleans — convert to 1/0
       vals.push(typeof v === 'boolean' ? (v ? 1 : 0) : v);
@@ -2973,6 +3041,17 @@ app.post('/api/account/request-deletion', (req, res) => {
 // ============================
 const sseClients = new Map(); // Map<clientId, { res, userId, role, branchId }>
 
+// Broadcast a new lead event to connected staff SSE clients
+function broadcastNewLead(lead) {
+  const payload = JSON.stringify({ _type: 'new_lead', lead });
+  sseClients.forEach((client) => {
+    // Send to headoffice always, branch only if matching branch_id or no branch
+    if (client.role === 'headoffice' || (client.role === 'branch' && (!lead.branch_id || client.branchId === lead.branch_id))) {
+      try { client.res.write(`data: ${payload}\n\n`); } catch(e) { /* client disconnected */ }
+    }
+  });
+}
+
 function createNotification(branchId, targetRole, type, title, message, tenantId) {
   const id = genId();
   db.prepare(`INSERT INTO notifications (id, branch_id, target_role, type, title, message, tenant_id) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
@@ -3109,6 +3188,9 @@ app.post('/api/customer/request-new-locker', requireAuth, (req, res) => {
     );
 
     logInfo('Customer requested new locker', { tenant: tenant.name, phone: tenant.phone, locker_size });
+    // Broadcast live lead to connected staff
+    const newLead = db.prepare('SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id WHERE l.id = ?').get(id);
+    if (newLead) broadcastNewLead(newLead);
     res.json({ success: true, message: 'Your request has been submitted! Our team will contact you shortly to assist with your new locker.' });
   } catch (err) {
     logError('New locker request failed', { error: err.message });
@@ -3150,6 +3232,9 @@ app.post('/api/public/enquiry', (req, res) => {
       id, name.trim(), cleanPhone, (email || '').trim(), locker_size || '', branch_id || '', (notes || '').trim(), 'New', 'self-signup', 'Customer Enquiry', leadSource
     );
     logInfo('Public enquiry submitted', { id, name: name.trim(), phone: cleanPhone, source: leadSource });
+    // Broadcast live lead to connected staff
+    const newLead = db.prepare('SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id WHERE l.id = ?').get(id);
+    if (newLead) broadcastNewLead(newLead);
     res.json({ success: true, message: 'Thank you for your enquiry! Our team will contact you shortly.' });
   } catch (err) {
     logError('Public enquiry failed', { error: err.message });
@@ -4019,6 +4104,9 @@ app.post('/api/leads', requireAuth, (req, res) => {
       id, name, phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name, 'Staff'
     );
     logInfo('Lead created', { id, name, phone, created_by: created_by_name });
+    // Broadcast live lead to connected staff
+    const newLead = db.prepare('SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id WHERE l.id = ?').get(id);
+    if (newLead) broadcastNewLead(newLead);
     res.json({ id, success: true });
   } catch (err) {
     logError('Lead creation failed', { error: err.message });

@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
+import android.content.res.Configuration
 import android.os.Bundle
 import android.os.Environment
 import android.view.KeyEvent
@@ -89,6 +90,9 @@ class MainActivity : AppCompatActivity() {
             allowContentAccess = true
             loadWithOverviewMode = true
             useWideViewPort = true
+            setSupportZoom(false)
+            builtInZoomControls = false
+            displayZoomControls = false
             setSupportMultipleWindows(false)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = if (isOnline()) {
@@ -228,6 +232,17 @@ class MainActivity : AppCompatActivity() {
     private fun hideOffline() {
         offlineView.visibility = View.GONE
         webView.visibility = View.VISIBLE
+    }
+
+    // ── Orientation change — reset zoom ────────────────────────────
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Reset WebView zoom to prevent stuck-zoom on orientation change
+        webView.setInitialScale(0)
+        webView.evaluateJavascript(
+            "document.querySelector('meta[name=viewport]').setAttribute('content','width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no');",
+            null
+        )
     }
 
     // ── Lifecycle ───────────────────────────────────────────────────

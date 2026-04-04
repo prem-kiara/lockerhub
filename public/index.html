@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LockerHub - Locker Management System</title>
     <link rel="icon" type="image/png" href="/logo.png">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1221,7 +1221,12 @@
             }
 
             .topbar-right #userInfo {
-                display: none;
+                display: inline-block;
+                max-width: 120px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                font-size: 11px;
             }
 
             .user-menu {
@@ -1396,6 +1401,13 @@
                 z-index: 10;
                 border-top: 1px solid var(--border);
                 box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
+            }
+
+            /* Prevent zoom issues on orientation change */
+            html, body {
+                touch-action: manipulation;
+                -ms-touch-action: manipulation;
+                overflow-x: hidden;
             }
 
             /* Prevent iOS zoom on form focus */
@@ -3064,16 +3076,16 @@
                         <label for="tenantAddress">Address <span style="color:var(--danger);">*</span></label>
                         <textarea id="tenantAddress" required></textarea>
                     </div>
-                    <div style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border);">
-                        <h4 style="margin-bottom: 12px;">Emergency Contact <span style="color:var(--danger);">*</span></h4>
+                    <div id="emergencyContactSection" style="background: var(--bg-warm); padding: 16px; border-radius: 6px; margin-bottom: 16px; border: 1px solid var(--border); display: none;">
+                        <h4 style="margin-bottom: 12px;">Emergency Contact</h4>
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="tenantEmergencyName">Contact Name <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantEmergencyName" placeholder="e.g., Spouse / Parent name" required>
+                                <label for="tenantEmergencyName">Contact Name</label>
+                                <input type="text" id="tenantEmergencyName" placeholder="e.g., Spouse / Parent name">
                             </div>
                             <div class="form-group">
-                                <label for="tenantEmergency">Phone Number <span style="color:var(--danger);">*</span></label>
-                                <input type="tel" id="tenantEmergency" maxlength="10" pattern="[0-9]{10}" placeholder="9876543210" required oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
+                                <label for="tenantEmergency">Phone Number</label>
+                                <input type="tel" id="tenantEmergency" maxlength="10" pattern="[0-9]{10}" placeholder="9876543210" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)">
                             </div>
                         </div>
                     </div>
@@ -3087,22 +3099,30 @@
                         <h4 style="margin-bottom: 12px;">Bank Account Details <span style="color:var(--danger);">*</span></h4>
                         <div class="form-row">
                             <div class="form-group">
-                                <label for="tenantBankName">Bank Name <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBankName" placeholder="e.g., State Bank of India" required>
+                                <label for="tenantBankAccount">Account Number <span style="color:var(--danger);">*</span></label>
+                                <input type="password" id="tenantBankAccount" maxlength="18" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,18); checkAccountMatch()" placeholder="Account number (masked)" autocomplete="off" required>
                             </div>
                             <div class="form-group">
-                                <label for="tenantBankAccount">Account Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBankAccount" maxlength="18" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,18)" placeholder="Account number (digits only)" required>
+                                <label for="tenantBankAccountConfirm">Re-enter Account Number <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBankAccountConfirm" maxlength="18" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,18); checkAccountMatch()" placeholder="Re-enter to confirm (visible)" autocomplete="off" required>
+                                <small id="bankAccountMatchMsg" style="font-size:11px;margin-top:2px;display:none;"></small>
                             </div>
                         </div>
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="tenantBankIfsc">IFSC Code <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBankIfsc" placeholder="e.g., SBIN0001234" maxlength="11" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,11)" style="text-transform:uppercase;" required>
+                                <input type="text" id="tenantBankIfsc" placeholder="e.g., SBIN0001234" maxlength="11" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,11)" onblur="lookupIFSC()" style="text-transform:uppercase;" required>
+                                <small id="ifscMsg" style="font-size:11px;margin-top:2px;display:none;"></small>
                             </div>
                             <div class="form-group">
+                                <label for="tenantBankName">Bank Name <span style="color:var(--danger);">*</span></label>
+                                <input type="text" id="tenantBankName" placeholder="Auto-filled from IFSC or enter manually" required>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
                                 <label for="tenantBankBranch">Bank Branch <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBankBranch" required>
+                                <input type="text" id="tenantBankBranch" placeholder="Auto-filled from IFSC or enter manually" required>
                             </div>
                         </div>
                     </div>
@@ -3111,11 +3131,13 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="tenantBgAadhaar">Aadhaar Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBgAadhaar" placeholder="e.g., 123456789012" maxlength="12" pattern="[0-9]{12}" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,12)" required>
+                                <input type="text" id="tenantBgAadhaar" placeholder="e.g., 123456789012" maxlength="12" pattern="[0-9]{12}" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,12); liveValidateAadhaar(this)" required>
+                                <small id="tenantBgAadhaarMsg" style="font-size:11px;margin-top:2px;display:none;"></small>
                             </div>
                             <div class="form-group">
                                 <label for="tenantBgPan">PAN Number <span style="color:var(--danger);">*</span></label>
-                                <input type="text" id="tenantBgPan" placeholder="e.g., ABCDE1234F" maxlength="10" pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10)" style="text-transform:uppercase;" required>
+                                <input type="text" id="tenantBgPan" placeholder="e.g., ABCPP1234F" maxlength="10" pattern="[A-Z]{5}[0-9]{4}[A-Z]{1}" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10); liveValidatePAN(this)" style="text-transform:uppercase;" required>
+                                <small id="tenantBgPanMsg" style="font-size:11px;margin-top:2px;display:none;"></small>
                             </div>
                         </div>
                         <div class="checkbox-group" style="margin-top: 8px;">
@@ -3143,11 +3165,13 @@
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="tenantNomineeAadhaar">Nominee Aadhaar</label>
-                                <input type="text" id="tenantNomineeAadhaar" placeholder="12-digit number" maxlength="12" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,12)">
+                                <input type="text" id="tenantNomineeAadhaar" placeholder="12-digit number" maxlength="12" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,12); liveValidateAadhaar(this)">
+                                <small id="tenantNomineeAadhaarMsg" style="font-size:11px;margin-top:2px;display:none;"></small>
                             </div>
                             <div class="form-group">
                                 <label for="tenantNomineePan">Nominee PAN</label>
-                                <input type="text" id="tenantNomineePan" placeholder="e.g., ABCDE1234F" maxlength="10" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10)" style="text-transform:uppercase;">
+                                <input type="text" id="tenantNomineePan" placeholder="e.g., ABCPP1234F" maxlength="10" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10); liveValidatePAN(this)" style="text-transform:uppercase;">
+                                <small id="tenantNomineePanMsg" style="font-size:11px;margin-top:2px;display:none;"></small>
                             </div>
                         </div>
                     </div>
@@ -3958,6 +3982,102 @@
             }
         }
 
+        // ===== Verhoeff Algorithm for Aadhaar Validation =====
+        const _vD = [[0,1,2,3,4,5,6,7,8,9],[1,2,3,4,0,6,7,8,9,5],[2,3,4,0,1,7,8,9,5,6],[3,4,0,1,2,8,9,5,6,7],[4,0,1,2,3,9,5,6,7,8],[5,9,8,7,6,0,4,3,2,1],[6,5,9,8,7,1,0,4,3,2],[7,6,5,9,8,2,1,0,4,3],[8,7,6,5,9,3,2,1,0,4],[9,8,7,6,5,4,3,2,1,0]];
+        const _vP = [[0,1,2,3,4,5,6,7,8,9],[1,5,7,6,2,8,3,0,9,4],[5,8,0,3,7,9,6,1,4,2],[8,9,1,6,0,4,3,5,2,7],[9,4,5,3,1,2,6,8,7,0],[4,2,8,6,5,7,3,9,0,1],[2,7,9,3,8,0,6,4,1,5],[7,0,4,6,9,1,3,2,5,8]];
+
+        function validateAadhaar(num) {
+            if (!num || !/^\d{12}$/.test(num)) return false;
+            if (num[0] === '0' || num[0] === '1') return false;
+            let c = 0;
+            const digits = num.split('').map(Number).reverse();
+            for (let i = 0; i < digits.length; i++) c = _vD[c][_vP[i % 8][digits[i]]];
+            return c === 0;
+        }
+
+        function validatePAN(pan) {
+            if (!pan) return false;
+            pan = pan.toUpperCase();
+            if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) return false;
+            return 'ABCFGHJLPT'.includes(pan[3]);
+        }
+
+        // Live inline validation feedback for Aadhaar & PAN fields
+        function liveValidateAadhaar(input) {
+            const msg = document.getElementById(input.id + 'Msg');
+            if (!msg) return;
+            const val = input.value.replace(/[^0-9]/g, '');
+            if (val.length < 12) { msg.style.display = 'none'; input.style.borderColor = ''; return; }
+            if (validateAadhaar(val)) {
+                msg.textContent = '\u2713 Valid Aadhaar'; msg.style.color = '#27ae60'; msg.style.display = 'block';
+                input.style.borderColor = '#27ae60';
+            } else {
+                msg.textContent = '\u2717 Invalid Aadhaar — checksum failed'; msg.style.color = '#e74c3c'; msg.style.display = 'block';
+                input.style.borderColor = '#e74c3c';
+            }
+        }
+        function liveValidatePAN(input) {
+            const msg = document.getElementById(input.id + 'Msg');
+            if (!msg) return;
+            const val = input.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            if (val.length < 10) { msg.style.display = 'none'; input.style.borderColor = ''; return; }
+            if (validatePAN(val)) {
+                msg.textContent = '\u2713 Valid PAN'; msg.style.color = '#27ae60'; msg.style.display = 'block';
+                input.style.borderColor = '#27ae60';
+            } else {
+                const reason = !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(val) ? 'Invalid format' : 'Invalid entity type (4th letter)';
+                msg.textContent = '\u2717 ' + reason; msg.style.color = '#e74c3c'; msg.style.display = 'block';
+                input.style.borderColor = '#e74c3c';
+            }
+        }
+
+        // ===== Bank Account Match Check =====
+        function checkAccountMatch() {
+            const acc1 = document.getElementById('tenantBankAccount').value;
+            const acc2 = document.getElementById('tenantBankAccountConfirm').value;
+            const msg = document.getElementById('bankAccountMatchMsg');
+            if (!acc1 || !acc2) { msg.style.display = 'none'; return; }
+            if (acc1 === acc2) {
+                msg.textContent = '\u2713 Account numbers match'; msg.style.color = '#27ae60'; msg.style.display = 'block';
+            } else {
+                msg.textContent = '\u2717 Account numbers do not match'; msg.style.color = '#e74c3c'; msg.style.display = 'block';
+            }
+        }
+
+        // ===== IFSC Code Lookup (Razorpay free API) =====
+        let _ifscLookupTimeout = null;
+        async function lookupIFSC() {
+            const ifsc = document.getElementById('tenantBankIfsc').value.trim().toUpperCase();
+            const msg = document.getElementById('ifscMsg');
+            if (!ifsc || ifsc.length !== 11) {
+                if (ifsc.length > 0 && ifsc.length < 11) {
+                    msg.textContent = 'IFSC must be 11 characters'; msg.style.color = '#e74c3c'; msg.style.display = 'block';
+                } else { msg.style.display = 'none'; }
+                return;
+            }
+            // Format check: first 4 letters, 5th is 0, then 6 alphanumeric
+            if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) {
+                msg.textContent = '\u2717 Invalid IFSC format (e.g., SBIN0001234)'; msg.style.color = '#e74c3c'; msg.style.display = 'block';
+                document.getElementById('tenantBankIfsc').style.borderColor = '#e74c3c';
+                return;
+            }
+            msg.textContent = 'Looking up IFSC...'; msg.style.color = '#7a6b5e'; msg.style.display = 'block';
+            try {
+                const resp = await fetch('https://ifsc.razorpay.com/' + ifsc);
+                if (!resp.ok) throw new Error('Not found');
+                const data = await resp.json();
+                // Auto-fill bank name and branch
+                document.getElementById('tenantBankName').value = data.BANK || '';
+                document.getElementById('tenantBankBranch').value = (data.BRANCH || '') + (data.CITY ? ', ' + data.CITY : '') + (data.STATE ? ', ' + data.STATE : '');
+                msg.innerHTML = '\u2713 <strong>' + escapeHtml(data.BANK) + '</strong> — ' + escapeHtml(data.BRANCH || '') + (data.CITY ? ', ' + data.CITY : '');
+                msg.style.color = '#27ae60'; msg.style.display = 'block';
+                document.getElementById('tenantBankIfsc').style.borderColor = '#27ae60';
+            } catch(e) {
+                msg.textContent = '\u2717 IFSC not found — please verify the code'; msg.style.color = '#e74c3c'; msg.style.display = 'block';
+                document.getElementById('tenantBankIfsc').style.borderColor = '#e74c3c';
+            }
+        }
+
         // ===== Data Masking Functions =====
         function maskAadhaar(val) { return val && val.length >= 8 ? 'XXXX-XXXX-' + val.slice(-4) : val || ''; }
         function maskPAN(val) { return val && val.length >= 6 ? val.slice(0, 2) + 'XXXXX' + val.slice(-3) : val || ''; }
@@ -4389,11 +4509,21 @@
 
             evtSource.onmessage = (event) => {
                 try {
-                    const notif = JSON.parse(event.data);
-                    notifData.unshift(notif);
+                    const data = JSON.parse(event.data);
+                    // Handle live lead broadcast
+                    if (data._type === 'new_lead') {
+                        // If Leads section is currently visible, reload leads table
+                        const leadsSection = document.getElementById('leadsSection');
+                        if (leadsSection && leadsSection.style.display !== 'none') {
+                            loadLeads();
+                        }
+                        return;
+                    }
+                    // Regular notification
+                    notifData.unshift(data);
                     renderNotifications();
                     // Show a brief toast
-                    showNotifToast(notif.title, notif.message);
+                    showNotifToast(data.title, data.message);
                 } catch(e) {}
             };
             evtSource.onerror = () => {
@@ -5144,6 +5274,15 @@
             document.getElementById('tenantForm').reset();
             document.getElementById('tenantId').value = '';
             document.getElementById('tenantLeaseStart').valueAsDate = new Date();
+            // Hide emergency contact for new tenant creation (only shown during edit)
+            document.getElementById('emergencyContactSection').style.display = 'none';
+            // Reset validation messages
+            ['bankAccountMatchMsg','ifscMsg','tenantBgAadhaarMsg','tenantBgPanMsg','tenantNomineeAadhaarMsg','tenantNomineePanMsg'].forEach(id => {
+                const el = document.getElementById(id); if (el) el.style.display = 'none';
+            });
+            ['tenantBankIfsc','tenantBankAccount','tenantBankAccountConfirm','tenantBgAadhaar','tenantBgPan','tenantNomineeAadhaar','tenantNomineePan'].forEach(id => {
+                const el = document.getElementById(id); if (el) el.style.borderColor = '';
+            });
 
             // Ensure locker types are cached for rent/deposit lookup
             if (cachedLockerTypes.length === 0) {
@@ -5204,6 +5343,9 @@
                     document.getElementById('tenantBranch').value = tenant.branch_id;
                 }
 
+                // Show emergency contact section when editing
+                document.getElementById('emergencyContactSection').style.display = 'block';
+
                 document.getElementById('tenantName').value = tenant.name;
                 document.getElementById('tenantPhone').value = tenant.phone;
                 document.getElementById('tenantEmail').value = tenant.email || '';
@@ -5214,6 +5356,7 @@
                 document.getElementById('tenantAnnualRent').value = tenant.annual_rent || '';
                 document.getElementById('tenantBankName').value = tenant.bank_name || '';
                 document.getElementById('tenantBankAccount').value = tenant.bank_account || '';
+                document.getElementById('tenantBankAccountConfirm').value = tenant.bank_account || '';
                 document.getElementById('tenantBankIfsc').value = tenant.bank_ifsc || '';
                 document.getElementById('tenantBankBranch').value = tenant.bank_branch || '';
                 document.getElementById('tenantBgAadhaar').value = tenant.bg_aadhaar || '';
@@ -5283,6 +5426,7 @@
                 document.getElementById('tenantEmergency').value = tenant.emergency || '';
                 document.getElementById('tenantBankName').value = tenant.bank_name || '';
                 document.getElementById('tenantBankAccount').value = tenant.bank_account || '';
+                document.getElementById('tenantBankAccountConfirm').value = tenant.bank_account || '';
                 document.getElementById('tenantBankIfsc').value = tenant.bank_ifsc || '';
                 document.getElementById('tenantBankBranch').value = tenant.bank_branch || '';
                 document.getElementById('tenantBgAadhaar').value = tenant.bg_aadhaar || '';
@@ -5519,14 +5663,30 @@
             if (!phone || phone.length !== 10) { alert('Please enter a valid 10-digit phone number'); return; }
             if (!lockerId) { alert('Please select a locker'); return; }
             if (!address) { alert('Address is mandatory'); return; }
-            if (!emergencyName) { alert('Emergency contact name is mandatory'); return; }
-            if (!emergencyPhone || emergencyPhone.length !== 10) { alert('Please enter a valid 10-digit emergency contact phone number'); return; }
-            if (!bankName) { alert('Bank name is mandatory'); return; }
+            // Emergency contact only mandatory when editing (section visible)
+            const emergencyVisible = document.getElementById('emergencyContactSection').style.display !== 'none';
+            if (emergencyVisible) {
+                if (!emergencyName) { alert('Emergency contact name is mandatory'); return; }
+                if (!emergencyPhone || emergencyPhone.length !== 10) { alert('Please enter a valid 10-digit emergency contact phone number'); return; }
+            }
             if (!bankAccount) { alert('Bank account number is mandatory'); return; }
+            // For new tenants, confirm account must match; for edit, confirm field may be empty (pre-filled)
+            const bankAccountConfirm = document.getElementById('tenantBankAccountConfirm').value.trim();
+            const tenantId = document.getElementById('tenantId').value;
+            if (!tenantId && !bankAccountConfirm) { alert('Please re-enter the account number to confirm'); return; }
+            if (bankAccountConfirm && bankAccount !== bankAccountConfirm) { alert('Account numbers do not match. Please re-enter carefully.'); return; }
             if (!bankIfsc) { alert('IFSC code is mandatory'); return; }
+            if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(bankIfsc.toUpperCase())) { alert('Invalid IFSC format. Must be 11 characters (e.g., SBIN0001234)'); return; }
+            if (!bankName) { alert('Bank name is mandatory'); return; }
             if (!bankBranch) { alert('Bank branch is mandatory'); return; }
-            if (!aadhaar || aadhaar.replace(/[^0-9]/g, '').length !== 12) { alert('Please enter a valid 12-digit Aadhaar number'); return; }
-            if (!pan || !/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan.toUpperCase())) { alert('Please enter a valid PAN number (e.g., ABCDE1234F)'); return; }
+            if (!aadhaar || !validateAadhaar(aadhaar.replace(/[^0-9]/g, ''))) { alert('Invalid Aadhaar number. Please check and re-enter — the number must pass Verhoeff checksum validation.'); return; }
+            if (!pan || !validatePAN(pan)) { alert('Invalid PAN number. Must be format ABCDE1234F with a valid entity type as 4th character.'); return; }
+
+            // Validate nominee Aadhaar & PAN if filled
+            const nomineeAadhaar = document.getElementById('tenantNomineeAadhaar').value.trim();
+            const nomineePan = document.getElementById('tenantNomineePan').value.trim();
+            if (nomineeAadhaar && !validateAadhaar(nomineeAadhaar.replace(/[^0-9]/g, ''))) { alert('Invalid Nominee Aadhaar number. Please check and re-enter.'); return; }
+            if (nomineePan && !validatePAN(nomineePan)) { alert('Invalid Nominee PAN number. Must be format ABCDE1234F with a valid entity type.'); return; }
 
             const tenantId = document.getElementById('tenantId').value;
             let branchId = isHO ? document.getElementById('tenantBranch').value : currentBranchId;
@@ -8530,6 +8690,29 @@
             if (apptDateEl) apptDateEl.addEventListener('change', loadStaffSlots);
             const custDateEl = document.getElementById('custVisitDate');
             if (custDateEl) custDateEl.addEventListener('change', loadCustSlots);
+
+            // Fix orientation change zoom issue — reset viewport on rotation
+            function resetViewportZoom() {
+                const viewport = document.querySelector('meta[name="viewport"]');
+                if (viewport) {
+                    viewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+                }
+                // Force layout recalculation
+                document.body.style.width = '100%';
+                document.body.style.overflow = 'hidden';
+                setTimeout(() => { document.body.style.overflow = ''; }, 50);
+            }
+            window.addEventListener('orientationchange', () => {
+                setTimeout(resetViewportZoom, 100);
+                setTimeout(resetViewportZoom, 300);
+            });
+            window.addEventListener('resize', () => {
+                // Catch orientation changes that don't fire orientationchange
+                if (window._lastWidth && window._lastWidth !== window.innerWidth) {
+                    resetViewportZoom();
+                }
+                window._lastWidth = window.innerWidth;
+            });
         });
 
         async function loadStaffSlots() {
