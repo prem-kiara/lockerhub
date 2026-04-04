@@ -7209,35 +7209,9 @@
 
         function highlightUnitOnCanvas(unitId) {
             if (!roomCanvas) return;
-            const objs = roomCanvas.getObjects();
-            // Reset all highlights
-            objs.forEach(o => { if (o._isUnit && o._highlightRect) { roomCanvas.remove(o._highlightRect); o._highlightRect = null; } });
-            // Find and highlight the target unit
-            const target = objs.find(o => o._isUnit && o._unitId === unitId);
+            const target = roomCanvas.getObjects().find(o => o._isUnit && o._unitId === unitId);
             if (target) {
-                const bound = target.getBoundingRect();
-                const highlight = new fabric.Rect({
-                    left: bound.left - 4, top: bound.top - 4,
-                    width: bound.width + 8, height: bound.height + 8,
-                    fill: 'transparent', stroke: '#1a73e8', strokeWidth: 3,
-                    strokeDashArray: [6, 3], rx: 4, ry: 4,
-                    selectable: false, evented: false
-                });
-                roomCanvas.add(highlight);
-                target._highlightRect = highlight;
-                // Pan canvas to center on the unit
-                const vpt = roomCanvas.viewportTransform;
-                const canvasCenter = { x: roomCanvas.width / 2, y: roomCanvas.height / 2 };
-                const unitCenter = { x: bound.left + bound.width / 2, y: bound.top + bound.height / 2 };
-                // Scroll into view
-                roomCanvas.absolutePan({ x: unitCenter.x - canvasCenter.x, y: unitCenter.y - canvasCenter.y });
-                roomCanvas.renderAll();
-                // Auto-show popup
                 showUnitPopup(target._unitData);
-                // Remove highlight after 3 seconds
-                setTimeout(() => {
-                    if (target._highlightRect) { roomCanvas.remove(target._highlightRect); target._highlightRect = null; roomCanvas.renderAll(); }
-                }, 3000);
             }
         }
 
