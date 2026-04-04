@@ -4221,6 +4221,13 @@
                     const fbStatus = await api('GET', `/api/customer/${result.id}/feedback/status`);
                     if (!fbStatus.submitted) showFeedbackModal(result);
                 } catch(e) { console.log('Feedback check skipped'); }
+                // Re-register FCM token on session restore (Android app)
+                if (window.LockerHubAndroid) {
+                  try {
+                    const fcmToken = window.LockerHubAndroid.getFcmToken();
+                    if (fcmToken) api('POST', '/api/customer/fcm-token', { token: fcmToken }).catch(() => {});
+                  } catch(e) {}
+                }
             } else if (result.role === 'lead_agent') {
                 document.getElementById('navLeadCapture').style.display = 'block';
                 document.getElementById('lockerAddBtns').style.display = 'none';
@@ -4324,6 +4331,16 @@
                 saveSession(result);
                 await applySession(result);
                 window._sessionRestored = true;
+
+                // Register FCM token for customer push notifications (Android app only)
+                if (isPhone && result.role === 'customer' && window.LockerHubAndroid) {
+                  try {
+                    const fcmToken = window.LockerHubAndroid.getFcmToken();
+                    if (fcmToken) {
+                      api('POST', '/api/customer/fcm-token', { token: fcmToken }).catch(() => {});
+                    }
+                  } catch(fcmErr) { /* not in Android app */ }
+                }
             } catch (error) {
                 hideLoading();
                 let msg = 'Invalid username or password';

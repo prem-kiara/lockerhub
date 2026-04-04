@@ -1,15 +1,18 @@
 package com.dhanam.lockerhub
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
 import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.view.KeyEvent
@@ -20,13 +23,17 @@ import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : AppCompatActivity() {
 
     companion object {
         private const val BASE_URL = "https://lockers.dhanamfinance.com"
+        private const val NOTIFICATION_PERMISSION_CODE = 1001
     }
 
     private lateinit var webView: WebView
@@ -37,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var fileChooserLauncher: ActivityResultLauncher<Intent>
 
     private var isLoading = true
+    private var fcmToken: String? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,6 +78,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // Request notification permission (Android 13+)
+        requestNotificationPermission()
+
+        // Get FCM token
+        retrieveFcmToken()
+
         setupWebView()
 
         if (isOnline()) {
@@ -77,6 +91,43 @@ class MainActivity : AppCompatActivity() {
         } else {
             isLoading = false
             showOffline()
+        }
+    }
+
+    // ── FCM Token ───────────────────────────────────────────────────
+    private fun retrieveFcmToken() {
+        // First check SharedPreferences for cached token
+        val cached = getSharedPreferences("lockerhub_prefs", Context.MODE_PRIVATE)
+            .getString("fcm_token", null)
+        if (cached != null) {
+            fcmToken = cached
+        }
+
+        // Always request fresh token from Firebase
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token ->
+                fcmToken = token
+                getSharedPreferences("lockerhub_prefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putString("fcm_token", token)
+                    .apply()
+            }
+            .addOnFailureListener { e ->
+                FirebaseCrashlytics.getInstance().recordException(e)
+            }
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED
+            ) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    NOTIFICATION_PERMISSION_CODE
+                )
+            }
         }
     }
 
@@ -100,8 +151,11 @@ class MainActivity : AppCompatActivity() {
             } else {
                 WebSettings.LOAD_CACHE_ELSE_NETWORK
             }
-            userAgentString = "$userAgentString LockerHub-Android/1.1"
+            userAgentString = "$userAgentString LockerHub-Android/1.2"
         }
+
+        // Add JavaScript bridge so WebView can request FCM token
+        webView.addJavascriptInterface(LockerHubBridge(), "LockerHubAndroid")
 
         webView.webViewClient = object : WebViewClient() {
 
@@ -113,6 +167,12 @@ class MainActivity : AppCompatActivity() {
                 super.onPageFinished(view, url)
                 isLoading = false
                 hideOffline()
+
+                // Inject FCM token availability flag into the WebView
+                view?.evaluateJavascript(
+                    "window.__LOCKERHUB_ANDROID__ = true; window.__FCM_READY__ = true;",
+                    null
+                )
             }
 
             override fun onReceivedError(
@@ -196,6 +256,19 @@ class MainActivity : AppCompatActivity() {
 
         val isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
         WebView.setWebContentsDebuggingEnabled(isDebug)
+    }
+
+    // ── JS Bridge ───────────────────────────────────────────────────
+    inner class LockerHubBridge {
+        @JavascriptInterface
+        fun getFcmToken(): String {
+            return fcmToken ?: ""
+        }
+
+        @JavascriptInterface
+        fun isAndroidApp(): Boolean {
+            return true
+        }
     }
 
     // ── Back button ─────────────────────────────────────────────────

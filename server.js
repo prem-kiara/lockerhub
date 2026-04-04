@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const multer = require('multer');
+const admin = require('firebase-admin');
 
 // Multer setup for KYC file uploads (memory storage — files go to SharePoint, not disk)
 const kycUpload = multer({
@@ -41,6 +42,26 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.includes('change')) {
 }
 const { generatePdfBuffer } = require('./allotment-form');
 const { generateReceiptBuffer } = require('./receipt-generator');
+
+// ============================
+//  FIREBASE ADMIN SDK (FCM)
+// ============================
+let firebaseInitialized = false;
+try {
+  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT || path.join(__dirname, 'firebase-service-account.json');
+  if (fs.existsSync(serviceAccountPath)) {
+    admin.initializeApp({
+      credential: admin.credential.cert(require(serviceAccountPath))
+    });
+    firebaseInitialized = true;
+    console.log('  ✅ Firebase Admin SDK initialized for push notifications');
+  } else {
+    console.warn('  ⚠️  Firebase service account not found at:', serviceAccountPath);
+    console.warn('     Push notifications will be disabled. Download from Firebase Console → Project Settings → Service Accounts');
+  }
+} catch (err) {
+  console.error('  ❌ Firebase Admin init failed:', err.message);
+}
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -601,6 +622,20 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
   CREATE INDEX IF NOT EXISTS idx_notif_branch ON notifications(branch_id, read);
+`);
+
+// FCM push notification tokens (customer devices)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS fcm_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_phone TEXT NOT NULL,
+    token TEXT NOT NULL,
+    device_info TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_fcm_token ON fcm_tokens(token);
+  CREATE INDEX IF NOT EXISTS idx_fcm_phone ON fcm_tokens(tenant_phone);
 `);
 
 // Migration: Update locker type rates (L10 Large: 20k/3L, L6 Medium: 10k/2L)
@@ -1717,8 +1752,13 @@ app.post('/api/tenants/:id/close', requireAuth, requireRole('headoffice', 'branc
       logInfo('Tenant account closed', { id: req.params.id, name: tenant.name, locker_freed: tenant.locker_id, reason });
     })();
 
-    // Notify about closure completion
+    // Notify staff about closure completion
     createNotification(tenant.branch_id, 'all', 'account_closed', 'Account Closed', `${tenant.name}'s account has been closed. Reason: ${reason || 'N/A'}`, req.params.id);
+
+    // Push notification to customer about closure
+    if (tenant.phone) {
+      sendCustomerPush(tenant.phone, '🔒 Account Closed', `Your locker account has been closed. Reason: ${reason || 'As requested'}. Contact the branch for any queries.`, { type: 'account_closed' });
+    }
 
     res.json({ ok: true, message: 'Account closed. Locker has been freed. Customer portal access has been disabled.' });
   } catch (err) {
@@ -3078,6 +3118,80 @@ function createNotification(branchId, targetRole, type, title, message, tenantId
   return id;
 }
 
+// ── FCM Push Notifications (Customer Mobile) ───────────────────
+// Send push notification to all devices registered for a customer phone number
+async function sendCustomerPush(tenantPhone, title, body, dataPayload = {}) {
+  if (!firebaseInitialized || !tenantPhone) return;
+  try {
+    const tokens = db.prepare('SELECT token FROM fcm_tokens WHERE tenant_phone = ?').all(tenantPhone);
+    if (!tokens.length) {
+      logInfo('No FCM tokens for customer push', { phone: tenantPhone });
+      return;
+    }
+
+    const messages = tokens.map(t => ({
+      token: t.token,
+      notification: { title, body },
+      data: { ...dataPayload, title, body },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'lockerhub_notifications',
+          sound: 'default',
+          priority: 'high',
+          defaultVibrateTimings: true
+        }
+      }
+    }));
+
+    // Send each message (firebase-admin v12+ sendEach)
+    const results = await admin.messaging().sendEach(messages);
+    let successCount = 0;
+    const tokensToRemove = [];
+    results.responses.forEach((resp, idx) => {
+      if (resp.success) {
+        successCount++;
+      } else {
+        // Remove invalid/expired tokens
+        const errCode = resp.error?.code;
+        if (errCode === 'messaging/invalid-registration-token' ||
+            errCode === 'messaging/registration-token-not-registered') {
+          tokensToRemove.push(tokens[idx].token);
+        }
+      }
+    });
+
+    // Clean up stale tokens
+    if (tokensToRemove.length) {
+      const placeholders = tokensToRemove.map(() => '?').join(',');
+      db.prepare(`DELETE FROM fcm_tokens WHERE token IN (${placeholders})`).run(...tokensToRemove);
+      logInfo('Removed stale FCM tokens', { count: tokensToRemove.length, phone: tenantPhone });
+    }
+
+    logInfo('Customer push sent', { phone: tenantPhone, sent: successCount, failed: results.failureCount });
+  } catch (err) {
+    logError('FCM push error', { phone: tenantPhone, error: err.message });
+  }
+}
+
+// Register / update FCM token for customer device
+app.post('/api/customer/fcm-token', requireAuth, (req, res) => {
+  if (req.user.role !== 'customer') return res.status(403).json({ error: 'Customer only' });
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: 'Token required' });
+
+  const phone = req.user.phone;
+  // Upsert: if token exists update phone + timestamp, else insert
+  const existing = db.prepare('SELECT id FROM fcm_tokens WHERE token = ?').get(token);
+  if (existing) {
+    db.prepare('UPDATE fcm_tokens SET tenant_phone = ?, updated_at = datetime(\'now\') WHERE token = ?').run(phone, token);
+  } else {
+    db.prepare('INSERT INTO fcm_tokens (tenant_phone, token, device_info) VALUES (?, ?, ?)').run(phone, token, req.headers['user-agent'] || '');
+  }
+  logInfo('FCM token registered', { phone, tokenPrefix: token.substring(0, 12) + '...' });
+  res.json({ success: true });
+});
+
 // SSE endpoint — staff connects to receive live notifications
 app.get('/api/notifications/stream', requireAuth, (req, res) => {
   if (req.user.role === 'customer') return res.status(403).json({ error: 'Not available' });
@@ -3421,6 +3535,21 @@ app.put('/api/appointments/:id/status', requireAuth, requireRole('headoffice', '
   }
 
   logInfo('Appointment status updated', { id: req.params.id, status });
+
+  // Send push notification to customer for appointment status changes
+  if (['Approved', 'Rejected'].includes(status)) {
+    const tenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(appt.tenant_id);
+    if (tenant && tenant.phone) {
+      const dateStr = appt.requested_date;
+      const timeStr = appt.requested_time ? ` at ${appt.requested_time}` : '';
+      const pushTitle = status === 'Approved' ? '✅ Appointment Approved' : '❌ Appointment Rejected';
+      const pushBody = status === 'Approved'
+        ? `Your appointment on ${dateStr}${timeStr} has been approved. Purpose: ${appt.purpose || 'Locker Access'}`
+        : `Your appointment on ${dateStr}${timeStr} has been rejected.${admin_notes ? ' Reason: ' + admin_notes : ' Please contact the branch for details.'}`;
+      sendCustomerPush(tenant.phone, pushTitle, pushBody, { type: 'appointment_status', appointment_id: appt.id, status });
+    }
+  }
+
   res.json({ success: true });
 });
 

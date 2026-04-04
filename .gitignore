@@ -4,3 +4,5 @@ data/
 *.db-wal
 *.db-shm
 .env
+firebase-service-account.json
+.DS_Store
