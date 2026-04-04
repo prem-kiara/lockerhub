@@ -2653,6 +2653,20 @@
                         </div>
                     </div>
 
+                    <!-- View-only controls for branch staff (legend + zoom) -->
+                    <div id="roomViewControls" style="display:none; align-items:center; gap:16px; margin-bottom:10px; padding:8px 12px; background:var(--bg-warm); border-radius:8px; flex-wrap:wrap;">
+                        <div style="display:flex; align-items:center; gap:12px; font-size:12px;">
+                            <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:14px;height:14px;border-radius:3px;background:#e8f5e9;border:2px solid #4caf50;display:inline-block;"></span> All Vacant</span>
+                            <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:14px;height:14px;border-radius:3px;background:#fff8e1;border:2px solid #ff9800;display:inline-block;"></span> Partially Occupied</span>
+                            <span style="display:inline-flex; align-items:center; gap:4px;"><span style="width:14px;height:14px;border-radius:3px;background:#ffebee;border:2px solid #e53935;display:inline-block;"></span> Fully Occupied</span>
+                        </div>
+                        <div style="margin-left:auto; display:flex; gap:4px;">
+                            <button class="btn btn-secondary" onclick="zoomRoom(1.2)" title="Zoom In" style="padding:6px 10px; font-size:13px;">🔍+</button>
+                            <button class="btn btn-secondary" onclick="zoomRoom(0.8)" title="Zoom Out" style="padding:6px 10px; font-size:13px;">🔍−</button>
+                            <button class="btn btn-secondary" onclick="resetRoomView()" title="Fit View" style="padding:6px 10px; font-size:13px;">⊞ Fit</button>
+                        </div>
+                    </div>
+
                     <!-- Main room builder area -->
                     <div id="roomBuilderContainer" style="display:none; position:relative;">
                         <div style="display:flex; gap:12px;">
@@ -7095,11 +7109,19 @@
             document.getElementById('roomWidthFt').value = w;
             document.getElementById('roomHeightFt').value = h;
 
-            // Show/hide palette based on edit mode
-            document.getElementById('roomPalette').style.display = roomEditMode ? 'block' : 'block';
+            // Branch view: hide palette (full-width canvas), hide builder hint, show legend + zoom
+            if (!roomEditMode) {
+                document.getElementById('roomPalette').style.display = 'none';
+                document.getElementById('roomCanvasHint').style.display = 'none';
+                document.getElementById('roomViewControls').style.display = 'flex';
+            } else {
+                document.getElementById('roomPalette').style.display = 'block';
+                document.getElementById('roomCanvasHint').style.display = 'block';
+                document.getElementById('roomViewControls').style.display = 'none';
+            }
 
             initRoomCanvas(w, h);
-            loadRoomPalette();
+            if (roomEditMode) loadRoomPalette();
 
             if (roomLayout.room_polygon && roomLayout.room_polygon.length > 2) {
                 drawRoomPolygon(roomLayout.room_polygon);
