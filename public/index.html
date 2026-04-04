@@ -2688,6 +2688,20 @@
                         </div>
                     </div>
 
+                    <!-- Branch view: searchable unit list below canvas -->
+                    <div id="branchUnitListPanel" style="display:none; margin-top:12px;">
+                        <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+                            <input type="text" id="branchUnitSearch" placeholder="Search units, lockers, or tenants..." oninput="renderBranchUnitList()" style="flex:1; min-width:200px; padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px;">
+                            <select id="branchUnitStatusFilter" onchange="renderBranchUnitList()" style="padding:8px 12px; border:1px solid var(--border); border-radius:6px; font-size:13px; background:#fff;">
+                                <option value="all">All Units</option>
+                                <option value="vacant">Fully Vacant</option>
+                                <option value="partial">Partially Occupied</option>
+                                <option value="full">Fully Occupied</option>
+                            </select>
+                        </div>
+                        <div id="branchUnitListBody" style="display:grid; grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:10px; max-height:400px; overflow-y:auto; padding:2px;"></div>
+                    </div>
+
                     <!-- Fallback: old grid view (for branches without room layout) -->
                     <div id="unitsGridFallback" style="display:none;">
                         <div class="section-toolbar">
@@ -7109,15 +7123,17 @@
             document.getElementById('roomWidthFt').value = w;
             document.getElementById('roomHeightFt').value = h;
 
-            // Branch view: hide palette (full-width canvas), hide builder hint, show legend + zoom
+            // Branch view: hide palette (full-width canvas), hide builder hint, show legend + zoom + unit list
             if (!roomEditMode) {
                 document.getElementById('roomPalette').style.display = 'none';
                 document.getElementById('roomCanvasHint').style.display = 'none';
                 document.getElementById('roomViewControls').style.display = 'flex';
+                document.getElementById('branchUnitListPanel').style.display = 'block';
             } else {
                 document.getElementById('roomPalette').style.display = 'block';
                 document.getElementById('roomCanvasHint').style.display = 'block';
                 document.getElementById('roomViewControls').style.display = 'none';
+                document.getElementById('branchUnitListPanel').style.display = 'none';
             }
 
             initRoomCanvas(w, h);
@@ -7134,6 +7150,95 @@
             }
 
             updateRoomStatus();
+
+            // Populate branch unit list for view-only mode
+            if (!roomEditMode) renderBranchUnitList();
+        }
+
+        function renderBranchUnitList(filter) {
+            const container = document.getElementById('branchUnitListBody');
+            if (!container) return;
+            const search = (filter || document.getElementById('branchUnitSearch')?.value || '').toLowerCase().trim();
+            const statusFilter = document.getElementById('branchUnitStatusFilter')?.value || 'all';
+
+            let units = (roomUnitsData || []).map(u => {
+                const lockers = u.lockers || [];
+                const total = lockers.length;
+                const occupied = lockers.filter(l => l.status === 'occupied').length;
+                const vacant = total - occupied;
+                let status = 'vacant';
+                if (occupied === total && total > 0) status = 'full';
+                else if (occupied > 0) status = 'partial';
+                return { ...u, total, occupied, vacant, _status: status };
+            });
+
+            // Apply filters
+            if (search) {
+                units = units.filter(u =>
+                    (u.unit_number || '').toLowerCase().includes(search) ||
+                    (u.type_name || '').toLowerCase().includes(search) ||
+                    (u.lockers || []).some(l => (l.tenant_name || '').toLowerCase().includes(search) || (l.number || '').toLowerCase().includes(search))
+                );
+            }
+            if (statusFilter === 'vacant') units = units.filter(u => u._status === 'vacant');
+            else if (statusFilter === 'partial') units = units.filter(u => u._status === 'partial');
+            else if (statusFilter === 'full') units = units.filter(u => u._status === 'full');
+
+            if (units.length === 0) {
+                container.innerHTML = '<div style="text-align:center;color:#888;padding:16px;">No units match your search.</div>';
+                return;
+            }
+
+            container.innerHTML = units.map(u => {
+                const bgColor = u._status === 'full' ? '#ffebee' : u._status === 'partial' ? '#fff8e1' : '#e8f5e9';
+                const borderColor = u._status === 'full' ? '#e53935' : u._status === 'partial' ? '#ff9800' : '#4caf50';
+                const lockersHtml = (u.lockers || []).map(l => {
+                    const isOcc = l.status === 'occupied';
+                    return `<span style="display:inline-block;padding:2px 8px;margin:2px;border-radius:4px;font-size:11px;background:${isOcc ? '#ffebee' : '#e8f5e9'};color:${isOcc ? '#c62828' : '#2e7d32'};border:1px solid ${isOcc ? '#ef9a9a' : '#a5d6a7'};" title="${isOcc ? (l.tenant_name || 'Occupied') : 'Vacant'}">${l.number || '?'}${isOcc ? ' · ' + (l.tenant_name || '').split(' ')[0] : ''}</span>`;
+                }).join('');
+                return `<div onclick="highlightUnitOnCanvas('${u.id}')" style="background:${bgColor};border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:6px;padding:10px 12px;cursor:pointer;transition:box-shadow 0.15s;" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow=''">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <strong style="font-size:14px;">${u.unit_number}</strong>
+                        <span style="font-size:11px;color:#666;">${u.type_name || ''}</span>
+                    </div>
+                    <div style="font-size:12px;color:#555;margin-bottom:6px;">${u.occupied}/${u.total} occupied · ${u.vacant} vacant</div>
+                    <div style="line-height:1.6;">${lockersHtml}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function highlightUnitOnCanvas(unitId) {
+            if (!roomCanvas) return;
+            const objs = roomCanvas.getObjects();
+            // Reset all highlights
+            objs.forEach(o => { if (o._isUnit && o._highlightRect) { roomCanvas.remove(o._highlightRect); o._highlightRect = null; } });
+            // Find and highlight the target unit
+            const target = objs.find(o => o._isUnit && o._unitId === unitId);
+            if (target) {
+                const bound = target.getBoundingRect();
+                const highlight = new fabric.Rect({
+                    left: bound.left - 4, top: bound.top - 4,
+                    width: bound.width + 8, height: bound.height + 8,
+                    fill: 'transparent', stroke: '#1a73e8', strokeWidth: 3,
+                    strokeDashArray: [6, 3], rx: 4, ry: 4,
+                    selectable: false, evented: false
+                });
+                roomCanvas.add(highlight);
+                target._highlightRect = highlight;
+                // Pan canvas to center on the unit
+                const vpt = roomCanvas.viewportTransform;
+                const canvasCenter = { x: roomCanvas.width / 2, y: roomCanvas.height / 2 };
+                const unitCenter = { x: bound.left + bound.width / 2, y: bound.top + bound.height / 2 };
+                // Scroll into view
+                roomCanvas.absolutePan({ x: unitCenter.x - canvasCenter.x, y: unitCenter.y - canvasCenter.y });
+                roomCanvas.renderAll();
+                // Auto-show popup
+                showUnitPopup(target._unitData);
+                // Remove highlight after 3 seconds
+                setTimeout(() => {
+                    if (target._highlightRect) { roomCanvas.remove(target._highlightRect); target._highlightRect = null; roomCanvas.renderAll(); }
+                }, 3000);
+            }
         }
 
         let roomUndoStack = []; // Undo stack for all actions
