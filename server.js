@@ -624,6 +624,35 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_notif_branch ON notifications(branch_id, read);
 `);
 
+// Locker transfer requests (branch-to-branch transfers)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS locker_transfer_requests (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    tenant_phone TEXT DEFAULT '',
+    from_branch_id TEXT NOT NULL,
+    from_locker_id TEXT NOT NULL,
+    to_branch_id TEXT NOT NULL,
+    to_locker_id TEXT DEFAULT '',
+    locker_size TEXT NOT NULL,
+    reason TEXT DEFAULT '',
+    status TEXT DEFAULT 'Pending',
+    reviewed_by TEXT DEFAULT '',
+    reviewed_by_name TEXT DEFAULT '',
+    rejection_reason TEXT DEFAULT '',
+    completion_notes TEXT DEFAULT '',
+    completed_by TEXT DEFAULT '',
+    requested_at TEXT DEFAULT (datetime('now')),
+    reviewed_at TEXT DEFAULT '',
+    completed_at TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_transfer_tenant ON locker_transfer_requests(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_transfer_status ON locker_transfer_requests(status);
+  CREATE INDEX IF NOT EXISTS idx_transfer_from ON locker_transfer_requests(from_branch_id);
+  CREATE INDEX IF NOT EXISTS idx_transfer_to ON locker_transfer_requests(to_branch_id);
+`);
+
 // FCM push notification tokens (customer devices)
 db.exec(`
   CREATE TABLE IF NOT EXISTS fcm_tokens (
@@ -640,10 +669,13 @@ db.exec(`
 
 // Migration: Update locker type rates (L10 Large: 20k/3L, L6 Medium: 10k/2L)
 // Only updates the locker_types template — existing tenants keep their original rates
+// Standard rates for all branches (same price same size across Tamil Nadu):
+//   L10/L10U (Medium): ₹12,000/yr rent, ₹2,00,000 deposit
+//   L6/L6U   (Large):  ₹20,000/yr rent, ₹3,00,000 deposit
 (function updateLockerTypeRates() {
   const rateUpdates = [
-    { prefix: 'lt_l6',  rent: 10000, dep: 200000 },
-    { prefix: 'lt_l10', rent: 20000, dep: 300000 }
+    { prefix: 'lt_l10', rent: 12000, dep: 200000 },
+    { prefix: 'lt_l6',  rent: 20000, dep: 300000 }
   ];
   rateUpdates.forEach(({ prefix, rent, dep }) => {
     const types = db.prepare("SELECT id, annual_rent, deposit FROM locker_types WHERE id LIKE ?").all(prefix + '%');
@@ -793,10 +825,10 @@ function computeBgStatus(tenant) {
 
   // 3. Ensure locker types exist
   const types = [
-    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
-    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
+    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 20000, dep: 300000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 12000, dep: 200000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 20000, dep: 300000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
+    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 12000, dep: 200000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
   ];
   const insType = db.prepare(`INSERT OR IGNORE INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming, annual_rent, deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   types.forEach(t => {
@@ -1549,6 +1581,21 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req,
       return { id, lease_end, annual_rent: d.annual_rent || 0, deposit: d.deposit || 0 };
     })();
 
+    // Notify HO about new allotment
+    const branch = db.prepare('SELECT name FROM branches WHERE id = ?').get(d.branch_id);
+    const lockerInfo = d.locker_id ? db.prepare('SELECT number FROM lockers WHERE id = ?').get(d.locker_id) : null;
+    createNotification(
+      d.branch_id, 'headoffice', 'new_allotment',
+      '🆕 New Locker Allotment',
+      `${d.name} (${d.phone}) has been allotted Locker ${lockerInfo ? lockerInfo.number : 'N/A'} at ${branch ? branch.name : 'Branch'}. Deposit: ₹${(d.deposit || 0).toLocaleString('en-IN')}, Rent: ₹${(d.annual_rent || 0).toLocaleString('en-IN')}/yr.`,
+      txResult.id
+    );
+
+    // Welcome push to customer if they have a phone
+    if (d.phone && d.customer_password) {
+      sendCustomerPush(d.phone, '🎉 Welcome to LockerHub!', `Your locker has been allotted successfully. Locker: ${lockerInfo ? lockerInfo.number : 'N/A'}${branch ? ' at ' + branch.name : ''}. Login with your phone number to manage your locker.`, { type: 'welcome' });
+    }
+
     res.json(txResult);
   } catch (err) {
     logError('Error creating tenant', { error: err.message, name: req.body.name });
@@ -1977,6 +2024,16 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
       locker_id, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || '', existingPending.id
     );
     logInfo('Payment updated (matched pending)', { id: existingPending.id, receipt_no: existingPending.receipt_no, type, tenant: d.tenant_id, amount: d.amount, status: d.status });
+
+    // Push notification to customer when payment is marked as Paid
+    if (d.status === 'Paid') {
+      const payTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(d.tenant_id);
+      if (payTenant && payTenant.phone) {
+        const amt = parseFloat(d.amount).toLocaleString('en-IN');
+        sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${existingPending.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: existingPending.id });
+      }
+    }
+
     res.json({ id: existingPending.id, receipt_no: existingPending.receipt_no, updated: true });
   } else {
     // No pending/overdue payment exists — restrict who can create new entries
@@ -2000,6 +2057,16 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
       id, d.branch_id, d.tenant_id, locker_id, type, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || ''
     );
     logInfo('Payment recorded', { id, receipt_no, type, tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status, by: req.user.username });
+
+    // Push notification to customer when payment is marked as Paid
+    if (d.status === 'Paid') {
+      const payTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(d.tenant_id);
+      if (payTenant && payTenant.phone) {
+        const amt = parseFloat(d.amount).toLocaleString('en-IN');
+        sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: id });
+      }
+    }
+
     res.json({ id, receipt_no });
   }
   } catch (err) {
@@ -2033,6 +2100,19 @@ app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (
       vals.push(req.params.id);
       db.prepare(`UPDATE payments SET ${fields.join(', ')} WHERE id = ?`).run(...vals);
     }
+
+    // Push notification to customer when payment is marked as Paid
+    if (d.status === 'Paid') {
+      const payment = db.prepare('SELECT tenant_id, type, amount, receipt_no FROM payments WHERE id = ?').get(req.params.id);
+      if (payment && payment.tenant_id) {
+        const payTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(payment.tenant_id);
+        if (payTenant && payTenant.phone) {
+          const amt = parseFloat(payment.amount).toLocaleString('en-IN');
+          sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${payment.type} payment of ₹${amt} (Receipt: ${payment.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: req.params.id });
+        }
+      }
+    }
+
     res.json({ ok: true });
   } catch (err) {
     logError('Payment update failed', { id: req.params.id, error: err.message });
@@ -2228,6 +2308,13 @@ function checkLeaseRenewalReminders() {
         t.id
       );
 
+      // Also push to customer about upcoming renewal
+      if (t.phone) {
+        const renewMsg = daysLeft <= 0
+          ? `Your locker lease has expired. Please contact the branch to renew your lease immediately.`
+          : `Your locker lease expires on ${new Date(t.lease_end).toLocaleDateString('en-IN')} (${daysLeft} days left). Please visit the branch or contact us to renew.`;
+        sendCustomerPush(t.phone, '🔔 Lease Renewal Reminder', renewMsg, { type: 'lease_renewal', days_left: String(daysLeft) });
+      }
       logInfo('Auto renewal reminder sent', { tenant: t.name, lease_end: t.lease_end, days_left: daysLeft });
     }
   } catch (err) {
@@ -2457,14 +2544,14 @@ app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => 
 app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
   try {
     const backup = {
-      version: 6,
+      version: 7,
       export_date: new Date().toISOString(),
       branches: db.prepare('SELECT * FROM branches').all(),
       users: db.prepare('SELECT id, username, name, role, branch_id, created_at FROM users').all(),
       locker_types: db.prepare('SELECT * FROM locker_types').all(),
       units: db.prepare('SELECT * FROM units').all(),
       lockers: db.prepare('SELECT * FROM lockers').all(),
-      tenants: db.prepare('SELECT id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end, annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch, bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes, account_status, closed_at, closed_reason, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan, kyc_documents, created_at FROM tenants').all(),
+      tenants: db.prepare('SELECT * FROM tenants').all(),
       payments: db.prepare('SELECT * FROM payments').all(),
       payouts: db.prepare('SELECT * FROM payouts').all(),
       appointments: db.prepare('SELECT * FROM appointments').all(),
@@ -2475,7 +2562,11 @@ app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
       feedback: db.prepare('SELECT * FROM feedback').all(),
       leads: db.prepare('SELECT * FROM leads').all(),
       lead_notes: db.prepare('SELECT * FROM lead_notes').all(),
-      room_layouts: db.prepare('SELECT * FROM room_layouts').all()
+      room_layouts: db.prepare('SELECT * FROM room_layouts').all(),
+      notifications: db.prepare('SELECT * FROM notifications').all(),
+      audit_log: db.prepare('SELECT * FROM audit_log').all(),
+      locker_transfer_requests: db.prepare('SELECT * FROM locker_transfer_requests').all(),
+      fcm_tokens: db.prepare('SELECT * FROM fcm_tokens').all()
     };
     res.json(backup);
   } catch (err) {
@@ -2601,12 +2692,12 @@ function autoSeed() {
     );
   });
 
-  // Locker types — L10 Large: 20k rent, 3L deposit | L6 Medium: 10k rent, 2L deposit
+  // Locker types — L6/L6U (Large): ₹20k rent, ₹3L deposit | L10/L10U (Medium): ₹12k rent, ₹2L deposit
   const types = [
-    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
-    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 10000, dep: 200000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
-    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 20000, dep: 300000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
+    { id: 'lt_l6_std', name: 'L6', variant: 'Standard', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 20000, dep: 300000, desc: 'L6 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l10_std', name: 'L10', variant: 'Standard', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 12000, dep: 200000, desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers' },
+    { id: 'lt_l6_ultra', name: 'L6U', variant: 'Secunex Ultra', lpu: 6, uh: 2000, uw: 1075, ud: 700, lh: 637, lw: 529, ld: 621, w: 0, up: 0, rent: 20000, dep: 300000, desc: 'L6 Secunex Ultra (Silver/Gold facia)' },
+    { id: 'lt_l10_ultra', name: 'L10U', variant: 'Secunex Ultra', lpu: 10, uh: 2000, uw: 1075, ud: 575, lh: 385, lw: 530, ld: 492, w: 475, up: 0, rent: 12000, dep: 200000, desc: 'L2/10 Secunex Ultra (Silver/Gold facia)' }
   ];
   const insType = db.prepare(`INSERT INTO locker_types (id, name, variant, lockers_per_unit, unit_height_mm, unit_width_mm, unit_depth_mm, locker_height_mm, locker_width_mm, locker_depth_mm, weight_kg, auto_size, description, is_upcoming, annual_rent, deposit) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   types.forEach(t => {
@@ -3323,6 +3414,380 @@ app.post('/api/customer/request-new-locker', requireAuth, (req, res) => {
 });
 
 // ============================
+//  LOCKER BRANCH TRANSFER
+// ============================
+
+// Customer: Request a branch transfer
+app.post('/api/customer/request-transfer', requireAuth, (req, res) => {
+  try {
+    if (req.user.role !== 'customer') return res.status(403).json({ error: 'Customer access only' });
+
+    const tenant = db.prepare('SELECT t.*, l.size as locker_size, l.number as locker_number, b.name as branch_name FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id LEFT JOIN branches b ON t.branch_id = b.id WHERE t.id = ?').get(req.user.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+    // Validations
+    if (!tenant.locker_id) return res.status(400).json({ error: 'You do not have an assigned locker to transfer.' });
+    if (tenant.account_status === 'Closed') return res.status(400).json({ error: 'Your account is closed.' });
+    if (tenant.account_status === 'Closure Requested') return res.status(400).json({ error: 'You have a pending closure request. Cancel it before requesting a transfer.' });
+
+    const { to_branch_id, reason } = req.body;
+    if (!to_branch_id) return res.status(400).json({ error: 'Please select the target branch.' });
+    if (to_branch_id === tenant.branch_id) return res.status(400).json({ error: 'Target branch must be different from your current branch.' });
+
+    // Check target branch exists
+    const toBranch = db.prepare('SELECT id, name FROM branches WHERE id = ?').get(to_branch_id);
+    if (!toBranch) return res.status(400).json({ error: 'Invalid target branch.' });
+
+    // Check no pending/approved transfer already exists
+    const existingTransfer = db.prepare("SELECT id, status FROM locker_transfer_requests WHERE tenant_id = ? AND status IN ('Pending', 'Approved')").get(tenant.id);
+    if (existingTransfer) return res.status(409).json({ error: `You already have an active transfer request (${existingTransfer.status}). Please wait for it to be processed.` });
+
+    // Check no pending payments (warn but allow — handled on staff side)
+    const pendingPayments = db.prepare("SELECT COUNT(*) as cnt FROM payments WHERE tenant_id = ? AND status IN ('Pending', 'Overdue')").get(tenant.id);
+
+    const id = genId();
+    const lockerSize = tenant.locker_size || 'Large';
+
+    db.prepare(`INSERT INTO locker_transfer_requests (id, tenant_id, tenant_phone, from_branch_id, from_locker_id, to_branch_id, locker_size, reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, tenant.id, tenant.phone || '', tenant.branch_id, tenant.locker_id, to_branch_id, lockerSize, reason || ''
+    );
+
+    // Notify staff — both source branch and HO
+    createNotification(
+      tenant.branch_id, 'all', 'transfer_request',
+      '🔄 Branch Transfer Request',
+      `${tenant.name} (${tenant.phone}) has requested transfer from ${tenant.branch_name || 'Current Branch'} to ${toBranch.name}. Locker size: ${lockerSize}.${pendingPayments.cnt > 0 ? ' ⚠️ Has ' + pendingPayments.cnt + ' pending payment(s).' : ''}`,
+      tenant.id
+    );
+    // Also notify target branch
+    createNotification(
+      to_branch_id, 'all', 'transfer_request',
+      '🔄 Incoming Transfer Request',
+      `${tenant.name} (${tenant.phone}) wants to transfer from ${tenant.branch_name || 'Another Branch'} to your branch. Locker size: ${lockerSize}. Please check availability.`,
+      tenant.id
+    );
+
+    // Push to customer
+    sendCustomerPush(tenant.phone, '📋 Transfer Request Submitted', `Your request to transfer to ${toBranch.name} has been submitted. We'll review and get back to you shortly.`, { type: 'transfer_requested', transfer_id: id });
+
+    auditLog('TRANSFER_REQUESTED', 'locker_transfer', id, req, { tenant: tenant.name, phone: tenant.phone, from: tenant.branch_id, to: to_branch_id, size: lockerSize });
+    logInfo('Transfer requested', { id, tenant: tenant.name, from: tenant.branch_id, to: to_branch_id, size: lockerSize });
+
+    res.json({ success: true, transfer_id: id, message: `Transfer request submitted to ${toBranch.name}. The team will review and contact you shortly.` });
+  } catch (err) {
+    logError('Transfer request failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to submit transfer request' });
+  }
+});
+
+// Customer: Get own transfer requests
+app.get('/api/customer/transfers', requireAuth, (req, res) => {
+  if (req.user.role !== 'customer') return res.status(403).json({ error: 'Customer access only' });
+  try {
+    const transfers = db.prepare(`SELECT tr.*, fb.name as from_branch_name, tb.name as to_branch_name, fl.number as from_locker_number, tl.number as to_locker_number
+      FROM locker_transfer_requests tr
+      LEFT JOIN branches fb ON tr.from_branch_id = fb.id
+      LEFT JOIN branches tb ON tr.to_branch_id = tb.id
+      LEFT JOIN lockers fl ON tr.from_locker_id = fl.id
+      LEFT JOIN lockers tl ON tr.to_locker_id = tl.id
+      WHERE tr.tenant_id = ? ORDER BY tr.created_at DESC`).all(req.user.id);
+    res.json(transfers);
+  } catch (err) {
+    logError('Customer transfers fetch failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to fetch transfers' });
+  }
+});
+
+// Customer: Cancel own pending transfer
+app.delete('/api/customer/transfers/:id', requireAuth, (req, res) => {
+  if (req.user.role !== 'customer') return res.status(403).json({ error: 'Customer access only' });
+  try {
+    const transfer = db.prepare('SELECT * FROM locker_transfer_requests WHERE id = ? AND tenant_id = ?').get(req.params.id, req.user.id);
+    if (!transfer) return res.status(404).json({ error: 'Transfer request not found' });
+    if (transfer.status !== 'Pending') return res.status(400).json({ error: 'Only pending requests can be cancelled.' });
+
+    db.prepare("UPDATE locker_transfer_requests SET status = 'Cancelled' WHERE id = ?").run(req.params.id);
+
+    createNotification(transfer.from_branch_id, 'all', 'transfer_cancelled', '❌ Transfer Cancelled', `${req.user.name} cancelled their transfer request.`, transfer.tenant_id);
+    auditLog('TRANSFER_CANCELLED', 'locker_transfer', req.params.id, req, { by: 'customer' });
+    logInfo('Transfer cancelled by customer', { id: req.params.id, tenant: req.user.name });
+
+    res.json({ success: true, message: 'Transfer request cancelled.' });
+  } catch (err) {
+    logError('Transfer cancel failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to cancel transfer' });
+  }
+});
+
+// Staff/HO: List all transfer requests
+app.get('/api/locker-transfers', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    let query = `SELECT tr.*, t.name as tenant_name, t.phone as tenant_phone, t.account_status,
+      fb.name as from_branch_name, tb.name as to_branch_name,
+      fl.number as from_locker_number, tl.number as to_locker_number
+      FROM locker_transfer_requests tr
+      LEFT JOIN tenants t ON tr.tenant_id = t.id
+      LEFT JOIN branches fb ON tr.from_branch_id = fb.id
+      LEFT JOIN branches tb ON tr.to_branch_id = tb.id
+      LEFT JOIN lockers fl ON tr.from_locker_id = fl.id
+      LEFT JOIN lockers tl ON tr.to_locker_id = tl.id`;
+    const conditions = [];
+    const params = [];
+
+    // Branch staff see transfers involving their branch (source or target)
+    if (req.user.role === 'branch' && req.user.branch_id) {
+      conditions.push('(tr.from_branch_id = ? OR tr.to_branch_id = ?)');
+      params.push(req.user.branch_id, req.user.branch_id);
+    }
+    if (req.query.status) {
+      conditions.push('tr.status = ?');
+      params.push(req.query.status);
+    }
+
+    if (conditions.length) query += ' WHERE ' + conditions.join(' AND ');
+    query += ' ORDER BY tr.created_at DESC LIMIT 100';
+
+    const transfers = db.prepare(query).all(...params);
+    res.json(transfers);
+  } catch (err) {
+    logError('Transfers list failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to fetch transfers' });
+  }
+});
+
+// Staff/HO: Get single transfer with full details
+app.get('/api/locker-transfers/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const transfer = db.prepare(`SELECT tr.*, t.name as tenant_name, t.phone as tenant_phone, t.email as tenant_email, t.address as tenant_address, t.account_status, t.annual_rent, t.deposit, t.bg_status,
+      fb.name as from_branch_name, tb.name as to_branch_name,
+      fl.number as from_locker_number, fl.size as from_locker_size,
+      tl.number as to_locker_number
+      FROM locker_transfer_requests tr
+      LEFT JOIN tenants t ON tr.tenant_id = t.id
+      LEFT JOIN branches fb ON tr.from_branch_id = fb.id
+      LEFT JOIN branches tb ON tr.to_branch_id = tb.id
+      LEFT JOIN lockers fl ON tr.from_locker_id = fl.id
+      LEFT JOIN lockers tl ON tr.to_locker_id = tl.id
+      WHERE tr.id = ?`).get(req.params.id);
+    if (!transfer) return res.status(404).json({ error: 'Transfer not found' });
+
+    // Get available lockers at target branch (same size, vacant)
+    const availableLockers = db.prepare("SELECT l.id, l.number, l.size, l.location, u.unit_number FROM lockers l LEFT JOIN units u ON l.unit_id = u.id WHERE l.branch_id = ? AND l.size = ? AND l.status = 'vacant' ORDER BY l.number").all(transfer.to_branch_id, transfer.locker_size);
+
+    // Get pending payment/appointment counts
+    const pendingPayments = db.prepare("SELECT COUNT(*) as cnt FROM payments WHERE tenant_id = ? AND status IN ('Pending', 'Overdue')").get(transfer.tenant_id);
+    const pendingAppts = db.prepare("SELECT COUNT(*) as cnt FROM appointments WHERE tenant_id = ? AND status IN ('Pending', 'Approved') AND requested_date >= date('now')").get(transfer.tenant_id);
+
+    res.json({ ...transfer, available_lockers: availableLockers, pending_payments: pendingPayments.cnt, pending_appointments: pendingAppts.cnt });
+  } catch (err) {
+    logError('Transfer details failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to fetch transfer details' });
+  }
+});
+
+// Staff/HO: Approve transfer — assigns target locker
+app.put('/api/locker-transfers/:id/approve', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const { to_locker_id, notes } = req.body;
+    if (!to_locker_id) return res.status(400).json({ error: 'Please select a target locker.' });
+
+    const transfer = db.prepare('SELECT * FROM locker_transfer_requests WHERE id = ?').get(req.params.id);
+    if (!transfer) return res.status(404).json({ error: 'Transfer not found' });
+    if (transfer.status !== 'Pending') return res.status(400).json({ error: `Cannot approve — transfer is ${transfer.status}.` });
+
+    // Verify tenant is still active
+    const tenant = db.prepare('SELECT id, name, phone, account_status FROM tenants WHERE id = ?').get(transfer.tenant_id);
+    if (!tenant || tenant.account_status === 'Closed') return res.status(400).json({ error: 'Tenant account is closed.' });
+
+    // Verify target locker is vacant and correct size
+    const targetLocker = db.prepare('SELECT id, number, size, status, branch_id FROM lockers WHERE id = ?').get(to_locker_id);
+    if (!targetLocker) return res.status(400).json({ error: 'Target locker not found.' });
+    if (targetLocker.status !== 'vacant') return res.status(409).json({ error: `Locker ${targetLocker.number} is no longer vacant (${targetLocker.status}).` });
+    if (targetLocker.branch_id !== transfer.to_branch_id) return res.status(400).json({ error: 'Target locker is not in the requested branch.' });
+    if (targetLocker.size !== transfer.locker_size) return res.status(400).json({ error: `Size mismatch. Requested: ${transfer.locker_size}, Selected: ${targetLocker.size}.` });
+
+    // Atomic: approve transfer + reserve locker
+    db.transaction(() => {
+      db.prepare("UPDATE locker_transfer_requests SET status = 'Approved', to_locker_id = ?, reviewed_by = ?, reviewed_by_name = ?, reviewed_at = datetime('now') WHERE id = ?").run(to_locker_id, req.user.id, req.user.name || req.user.username || '', req.params.id);
+      db.prepare("UPDATE lockers SET status = 'reserved' WHERE id = ? AND status = 'vacant'").run(to_locker_id);
+    })();
+
+    // Notify staff
+    const fromBranch = db.prepare('SELECT name FROM branches WHERE id = ?').get(transfer.from_branch_id);
+    const toBranch = db.prepare('SELECT name FROM branches WHERE id = ?').get(transfer.to_branch_id);
+    createNotification(transfer.from_branch_id, 'all', 'transfer_approved', '✅ Transfer Approved', `${tenant.name}'s transfer to ${toBranch ? toBranch.name : 'branch'} approved. New locker: ${targetLocker.number}. Please coordinate the physical transfer.`, tenant.id);
+    createNotification(transfer.to_branch_id, 'all', 'transfer_approved', '✅ Incoming Transfer Approved', `${tenant.name} is transferring from ${fromBranch ? fromBranch.name : 'branch'}. Assigned locker: ${targetLocker.number}. Awaiting completion.`, tenant.id);
+
+    // Push to customer
+    sendCustomerPush(tenant.phone, '✅ Transfer Approved!', `Your transfer to ${toBranch ? toBranch.name : 'the new branch'} has been approved. Your new locker: ${targetLocker.number}. The team will guide you through the transition.`, { type: 'transfer_approved', transfer_id: req.params.id });
+
+    auditLog('TRANSFER_APPROVED', 'locker_transfer', req.params.id, req, { tenant: tenant.name, to_locker: targetLocker.number, to_branch: transfer.to_branch_id });
+    logInfo('Transfer approved', { id: req.params.id, tenant: tenant.name, to_locker: targetLocker.number });
+
+    res.json({ success: true, message: `Transfer approved. Locker ${targetLocker.number} reserved at ${toBranch ? toBranch.name : 'target branch'}.` });
+  } catch (err) {
+    logError('Transfer approval failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to approve transfer' });
+  }
+});
+
+// Staff/HO: Reject transfer
+app.put('/api/locker-transfers/:id/reject', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const { rejection_reason } = req.body;
+    const transfer = db.prepare('SELECT * FROM locker_transfer_requests WHERE id = ?').get(req.params.id);
+    if (!transfer) return res.status(404).json({ error: 'Transfer not found' });
+    if (transfer.status !== 'Pending') return res.status(400).json({ error: `Cannot reject — transfer is ${transfer.status}.` });
+
+    db.prepare("UPDATE locker_transfer_requests SET status = 'Rejected', rejection_reason = ?, reviewed_by = ?, reviewed_by_name = ?, reviewed_at = datetime('now') WHERE id = ?").run(
+      rejection_reason || '', req.user.id, req.user.name || req.user.username || '', req.params.id
+    );
+
+    const tenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(transfer.tenant_id);
+    createNotification(transfer.from_branch_id, 'all', 'transfer_rejected', '❌ Transfer Rejected', `${tenant ? tenant.name : 'Tenant'}'s transfer request has been rejected.${rejection_reason ? ' Reason: ' + rejection_reason : ''}`, transfer.tenant_id);
+
+    if (tenant && tenant.phone) {
+      sendCustomerPush(tenant.phone, '❌ Transfer Not Approved', `Your transfer request could not be approved.${rejection_reason ? ' Reason: ' + rejection_reason : ' Please contact the branch for details.'}`, { type: 'transfer_rejected', transfer_id: req.params.id });
+    }
+
+    auditLog('TRANSFER_REJECTED', 'locker_transfer', req.params.id, req, { tenant: tenant ? tenant.name : '', reason: rejection_reason });
+    logInfo('Transfer rejected', { id: req.params.id, reason: rejection_reason });
+
+    res.json({ success: true, message: 'Transfer request rejected.' });
+  } catch (err) {
+    logError('Transfer rejection failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to reject transfer' });
+  }
+});
+
+// Staff/HO: Complete transfer — THE BIG ATOMIC TRANSACTION
+app.put('/api/locker-transfers/:id/complete', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const { completion_notes } = req.body;
+    const transfer = db.prepare('SELECT * FROM locker_transfer_requests WHERE id = ?').get(req.params.id);
+    if (!transfer) return res.status(404).json({ error: 'Transfer not found' });
+    if (transfer.status !== 'Approved') return res.status(400).json({ error: `Transfer must be in Approved status to complete. Current: ${transfer.status}` });
+    if (!transfer.to_locker_id) return res.status(400).json({ error: 'No target locker assigned. Approve the transfer first.' });
+
+    // Verify all parties
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(transfer.tenant_id);
+    if (!tenant) return res.status(400).json({ error: 'Tenant not found.' });
+    if (tenant.account_status === 'Closed') return res.status(400).json({ error: 'Tenant account is closed.' });
+
+    const oldLocker = db.prepare('SELECT id, number FROM lockers WHERE id = ?').get(transfer.from_locker_id);
+    const newLocker = db.prepare('SELECT id, number, status FROM lockers WHERE id = ?').get(transfer.to_locker_id);
+    if (!newLocker) return res.status(400).json({ error: 'Target locker no longer exists.' });
+    if (newLocker.status !== 'reserved') return res.status(409).json({ error: `Target locker status is '${newLocker.status}', expected 'reserved'. It may have been reassigned.` });
+
+    const fromBranch = db.prepare('SELECT name FROM branches WHERE id = ?').get(transfer.from_branch_id);
+    const toBranch = db.prepare('SELECT name FROM branches WHERE id = ?').get(transfer.to_branch_id);
+
+    // ── ATOMIC TRANSFER TRANSACTION ──────────────────────────────
+    db.transaction(() => {
+      const oldBranch = transfer.from_branch_id;
+      const newBranch = transfer.to_branch_id;
+      const tenantId = transfer.tenant_id;
+      const oldLockerId = transfer.from_locker_id;
+      const newLockerId = transfer.to_locker_id;
+
+      // 1. Update tenant: branch + locker
+      db.prepare('UPDATE tenants SET branch_id = ?, locker_id = ? WHERE id = ?').run(newBranch, newLockerId, tenantId);
+
+      // 2. Transfer ALL payments to new branch
+      db.prepare('UPDATE payments SET branch_id = ? WHERE tenant_id = ? AND branch_id = ?').run(newBranch, tenantId, oldBranch);
+
+      // 3. Transfer ALL payouts to new branch
+      db.prepare('UPDATE payouts SET branch_id = ? WHERE tenant_id = ? AND branch_id = ?').run(newBranch, tenantId, oldBranch);
+
+      // 4. Transfer future/pending appointments to new branch + new locker
+      db.prepare("UPDATE appointments SET branch_id = ?, locker_id = ? WHERE tenant_id = ? AND branch_id = ? AND status IN ('Pending', 'Approved') AND requested_date >= date('now')").run(newBranch, newLockerId, tenantId, oldBranch);
+
+      // 5. Transfer visit history to new branch (for record continuity)
+      db.prepare('UPDATE visits SET branch_id = ? WHERE tenant_id = ? AND branch_id = ?').run(newBranch, tenantId, oldBranch);
+
+      // 6. Transfer e-sign requests
+      db.prepare('UPDATE esign_requests SET branch_id = ? WHERE tenant_id = ? AND branch_id = ?').run(newBranch, tenantId, oldBranch);
+
+      // 7. Transfer feedback records
+      db.prepare('UPDATE feedback SET branch_id = ? WHERE tenant_id = ? AND branch_id = ?').run(newBranch, tenantId, oldBranch);
+
+      // 8. Free old locker
+      db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ?").run(oldLockerId);
+
+      // 9. Occupy new locker
+      db.prepare("UPDATE lockers SET status = 'occupied' WHERE id = ?").run(newLockerId);
+
+      // 10. Mark transfer as completed
+      db.prepare("UPDATE locker_transfer_requests SET status = 'Completed', completion_notes = ?, completed_by = ?, completed_at = datetime('now') WHERE id = ?").run(
+        completion_notes || '', req.user.id, transfer.id
+      );
+    })();
+    // ── END TRANSACTION ──────────────────────────────────────────
+
+    // Notify all parties
+    createNotification(transfer.from_branch_id, 'all', 'transfer_completed', '✅ Transfer Completed', `${tenant.name}'s locker transferred from ${fromBranch ? fromBranch.name : 'branch'} (${oldLocker ? oldLocker.number : '?'}) to ${toBranch ? toBranch.name : 'branch'} (${newLocker.number}). Old locker is now vacant.`, tenant.id);
+    createNotification(transfer.to_branch_id, 'all', 'transfer_completed', '✅ Transfer Completed', `${tenant.name} has been transferred to your branch. Locker: ${newLocker.number}. All records updated.`, tenant.id);
+
+    // Push to customer
+    if (tenant.phone) {
+      sendCustomerPush(tenant.phone, '🎉 Transfer Complete!', `Your locker has been transferred to ${toBranch ? toBranch.name : 'the new branch'}. New locker: ${newLocker.number}. All your records, payments, and documents have been moved.`, { type: 'transfer_completed', transfer_id: transfer.id });
+    }
+
+    auditLog('TRANSFER_COMPLETED', 'locker_transfer', transfer.id, req, {
+      tenant: tenant.name, phone: tenant.phone,
+      from_branch: transfer.from_branch_id, to_branch: transfer.to_branch_id,
+      from_locker: oldLocker ? oldLocker.number : '', to_locker: newLocker.number,
+      payments_moved: true, appointments_moved: true, visits_moved: true
+    });
+    logInfo('Transfer completed', { id: transfer.id, tenant: tenant.name, from: fromBranch ? fromBranch.name : '', to: toBranch ? toBranch.name : '', old_locker: oldLocker ? oldLocker.number : '', new_locker: newLocker.number });
+
+    res.json({
+      success: true, message: 'Transfer completed successfully. All records have been moved.',
+      summary: {
+        tenant: tenant.name,
+        from_branch: fromBranch ? fromBranch.name : '', to_branch: toBranch ? toBranch.name : '',
+        old_locker: oldLocker ? oldLocker.number : '', new_locker: newLocker.number
+      }
+    });
+  } catch (err) {
+    logError('Transfer completion failed', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: 'Transfer completion failed: ' + err.message });
+  }
+});
+
+// Staff/HO: Cancel a transfer (unreserve locker if approved)
+app.put('/api/locker-transfers/:id/cancel', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const transfer = db.prepare('SELECT * FROM locker_transfer_requests WHERE id = ?').get(req.params.id);
+    if (!transfer) return res.status(404).json({ error: 'Transfer not found' });
+    if (transfer.status === 'Completed') return res.status(400).json({ error: 'Cannot cancel a completed transfer.' });
+    if (transfer.status === 'Cancelled' || transfer.status === 'Rejected') return res.status(400).json({ error: `Transfer is already ${transfer.status}.` });
+
+    db.transaction(() => {
+      // If approved, free the reserved locker
+      if (transfer.status === 'Approved' && transfer.to_locker_id) {
+        db.prepare("UPDATE lockers SET status = 'vacant' WHERE id = ? AND status = 'reserved'").run(transfer.to_locker_id);
+      }
+      db.prepare("UPDATE locker_transfer_requests SET status = 'Cancelled', reviewed_by = ?, reviewed_by_name = ?, reviewed_at = datetime('now') WHERE id = ?").run(req.user.id, req.user.name || '', req.params.id);
+    })();
+
+    const tenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(transfer.tenant_id);
+    createNotification(transfer.from_branch_id, 'all', 'transfer_cancelled', '❌ Transfer Cancelled', `${tenant ? tenant.name : 'Tenant'}'s transfer has been cancelled by staff.`, transfer.tenant_id);
+    if (tenant && tenant.phone) {
+      sendCustomerPush(tenant.phone, '❌ Transfer Cancelled', 'Your locker transfer request has been cancelled. Please contact the branch for details.', { type: 'transfer_cancelled', transfer_id: req.params.id });
+    }
+
+    auditLog('TRANSFER_CANCELLED', 'locker_transfer', req.params.id, req, { by: 'staff', tenant: tenant ? tenant.name : '' });
+    logInfo('Transfer cancelled by staff', { id: req.params.id });
+
+    res.json({ success: true, message: 'Transfer cancelled.' });
+  } catch (err) {
+    logError('Transfer cancel failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to cancel transfer' });
+  }
+});
+
+// ============================
 //  PUBLIC ENQUIRY / LEAD SIGNUP (no auth)
 // ============================
 // Public: List branches (name & id only, for signup form)
@@ -3498,6 +3963,22 @@ app.post('/api/appointments', requireAuth, (req, res) => {
   db.prepare(`INSERT INTO appointments (id, branch_id, tenant_id, locker_id, requested_date, requested_time, purpose, status, booked_by, notes)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, d.branch_id, d.tenant_id, locker_id, d.requested_date, slotTime, d.purpose || 'Locker Access', status, d.booked_by || 'customer', d.notes || '');
   logInfo('Appointment created', { id, tenant: d.tenant_id, date: d.requested_date, time: slotTime, booked_by: d.booked_by || 'customer', status });
+
+  // Notify staff when a customer requests an appointment
+  if (d.booked_by === 'customer') {
+    const tenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(d.tenant_id);
+    const tenantName = tenant ? tenant.name : 'Customer';
+    const tenantPhone = tenant ? tenant.phone : '';
+    const branch = db.prepare('SELECT name FROM branches WHERE id = ?').get(d.branch_id);
+    const branchName = branch ? branch.name : '';
+    createNotification(
+      d.branch_id, 'all', 'appointment_request',
+      '📅 New Appointment Request',
+      `${tenantName} (${tenantPhone}) requested an appointment on ${d.requested_date} at ${slotTime} — ${d.purpose || 'Locker Access'}${branchName ? ' at ' + branchName : ''}. Please review and approve/reject.`,
+      d.tenant_id
+    );
+  }
+
   res.json({ success: true, id, status });
 });
 

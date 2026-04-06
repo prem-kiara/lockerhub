@@ -67,28 +67,28 @@ async function main() {
       id: 'lt_l6_std', name: 'L6', variant: 'Standard', lockers_per_unit: 6,
       unit_h: 2000, unit_w: 1075, unit_d: 700,
       locker_h: 637, locker_w: 529, locker_d: 621,
-      weight: 0, is_upcoming: 0, annual_rent: 10000, deposit: 200000,
+      weight: 0, is_upcoming: 0, annual_rent: 20000, deposit: 300000,
       desc: 'L6 Hi-Tech Lockers with Wooden Sleepers — 6 lockers per unit'
     },
     {
       id: 'lt_l10_std', name: 'L10', variant: 'Standard', lockers_per_unit: 10,
       unit_h: 2000, unit_w: 1075, unit_d: 575,
       locker_h: 385, locker_w: 530, locker_d: 492,
-      weight: 475, is_upcoming: 0, annual_rent: 20000, deposit: 300000,
+      weight: 475, is_upcoming: 0, annual_rent: 12000, deposit: 200000,
       desc: 'L2/10 Hi-Tech Lockers with Wooden Sleepers — 10 lockers per unit'
     },
     {
       id: 'lt_l6_ultra', name: 'L6', variant: 'Secunex Ultra', lockers_per_unit: 6,
       unit_h: 2000, unit_w: 1075, unit_d: 700,
       locker_h: 637, locker_w: 529, locker_d: 621,
-      weight: 0, is_upcoming: 1, annual_rent: 10000, deposit: 200000,
+      weight: 0, is_upcoming: 1, annual_rent: 20000, deposit: 300000,
       desc: 'L6 Secunex Ultra (Silver/Gold facia) with Wooden Sleepers — 6 lockers per unit. UPCOMING.'
     },
     {
       id: 'lt_l10_ultra', name: 'L10', variant: 'Secunex Ultra', lockers_per_unit: 10,
       unit_h: 2000, unit_w: 1075, unit_d: 575,
       locker_h: 385, locker_w: 530, locker_d: 492,
-      weight: 475, is_upcoming: 1, annual_rent: 20000, deposit: 300000,
+      weight: 475, is_upcoming: 1, annual_rent: 12000, deposit: 200000,
       desc: 'L2/10 Secunex Ultra (Silver/Gold facia) with Wooden Sleepers — 10 lockers per unit. UPCOMING.'
     }
   ];

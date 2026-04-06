@@ -2175,6 +2175,7 @@
                 <li id="navPayments" style="display: none;"><a onclick="switchSection('payments')" class="nav-link" data-section="payments">Rent & Payments</a></li>
                 <li><a onclick="switchSection('visits')" class="nav-link" data-section="visits">Visit Log</a></li>
                 <li id="navBgChecks" style="display: none;"><a onclick="switchSection('bgchecks')" class="nav-link" data-section="bgchecks">Background Checks</a></li>
+                <li id="navTransfers" style="display: none;"><a onclick="switchSection('transfers')" class="nav-link" data-section="transfers">🔄 Transfers</a></li>
                 <li id="navEsign" style="display: none;"><a onclick="switchSection('esign')" class="nav-link" data-section="esign">E-Sign</a></li>
                 <li id="navReports" style="display: none;"><a onclick="switchSection('reports')" class="nav-link" data-section="reports">Reports (Excel)</a></li>
                 <li id="navBackup" style="display: none;"><a onclick="switchSection('backup')" class="nav-link" data-section="backup">Data & Backup</a></li>
@@ -2185,6 +2186,7 @@
                 <li id="navCustDashboard" style="display: none;"><a onclick="switchSection('custDashboard')" class="nav-link" data-section="custDashboard">My Dashboard</a></li>
                 <li id="navCustAppointments" style="display: none;"><a onclick="switchSection('custAppointments')" class="nav-link" data-section="custAppointments">My Appointments</a></li>
                 <li id="navCustPayments" style="display: none;"><a onclick="switchSection('custPayments')" class="nav-link" data-section="custPayments">My Payments</a></li>
+                <li id="navCustTransfers" style="display: none;"><a onclick="switchSection('custTransfers')" class="nav-link" data-section="custTransfers">🔄 Branch Transfer</a></li>
                 <li id="navCustNewLocker" style="display: none;"><a onclick="openNewLockerRequestModal()" class="nav-link" style="color:#27ae60;">+ Request New Locker</a></li>
                 <li id="navCustDelete" style="display: none;"><a onclick="requestAccountClosure()" class="nav-link" style="color:#e74c3c;">📋 Request Closure</a></li>
                 <li id="navFeedback" style="display:none;"><a onclick="switchSection('feedback')" class="nav-link" data-section="feedback">Feedback</a></li>
@@ -2840,6 +2842,49 @@
                                 </tr>
                             </thead>
                             <tbody id="custPaymentsTable">
+                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Customer Transfers -->
+                <div id="custTransfersScreen" class="screen">
+                    <div class="section-title">Branch Transfer</div>
+                    <div class="section-toolbar">
+                        <button class="btn btn-primary" onclick="openTransferRequestModal()">🔄 Request Transfer</button>
+                    </div>
+                    <div id="custTransfersList"></div>
+                </div>
+
+                <!-- Staff: Locker Transfers -->
+                <div id="transfersScreen" class="screen">
+                    <div class="section-title">Locker Transfers</div>
+                    <div class="section-toolbar">
+                        <select id="transferStatusFilter" onchange="loadTransfers()" style="padding:8px 12px;border-radius:6px;border:1px solid var(--border);">
+                            <option value="">All Statuses</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Approved">Approved</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Rejected">Rejected</option>
+                            <option value="Cancelled">Cancelled</option>
+                        </select>
+                    </div>
+                    <div class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Customer</th>
+                                    <th>Phone</th>
+                                    <th>From Branch</th>
+                                    <th>To Branch</th>
+                                    <th>Locker Size</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transfersTable">
                                 <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
@@ -4209,13 +4254,14 @@
                 document.getElementById('navCustDashboard').style.display = 'block';
                 document.getElementById('navCustAppointments').style.display = 'block';
                 document.getElementById('navCustPayments').style.display = 'block';
+                document.getElementById('navCustTransfers').style.display = 'block';
                 document.getElementById('navCustNewLocker').style.display = 'block';
                 document.getElementById('navCustDelete').style.display = 'block';
                 document.getElementById('lockerAddBtns').style.display = 'none';
                 document.getElementById('branchSelectorContainer').style.display = 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (Customer)`;
                 const savedCustSection = localStorage.getItem('lockerhub_section');
-                const validCustSections = ['custDashboard', 'custAppointments', 'custPayments'];
+                const validCustSections = ['custDashboard', 'custAppointments', 'custPayments', 'custTransfers'];
                 try { await switchSection(validCustSections.includes(savedCustSection) ? savedCustSection : 'custDashboard'); } catch(e) { console.warn('Section load failed:', e.message); }
                 try {
                     const fbStatus = await api('GET', `/api/customer/${result.id}/feedback/status`);
@@ -4247,6 +4293,7 @@
                 document.getElementById('navUnits').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navPayments').style.display = 'block';
                 document.getElementById('navBgChecks').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
+                document.getElementById('navTransfers').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navEsign').style.display = (isHeadOffice || currentUser.role === 'branch') ? 'block' : 'none';
                 document.getElementById('navReports').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('navBackup').style.display = isHeadOffice ? 'block' : 'none';
@@ -4278,6 +4325,7 @@
             if (isStaff) {
                 loadNotifications();
                 connectNotifSSE();
+                requestBrowserNotifPermission();
             }
         }
 
@@ -4460,6 +4508,243 @@
             hideLoading();
         }
 
+        // ===== Branch Transfer (Customer) =====
+        async function loadCustTransfers() {
+            const list = document.getElementById('custTransfersList');
+            list.innerHTML = '<div style="padding:24px;text-align:center;color:#888;">Loading...</div>';
+            try {
+                const transfers = await api('GET', '/api/customer/transfers');
+                if (!transfers.length) {
+                    list.innerHTML = '<div style="padding:40px;text-align:center;color:#888;">No transfer requests yet.<br><small>You can request a branch transfer if you want to move your locker to another Dhanam branch.</small></div>';
+                    return;
+                }
+                list.innerHTML = transfers.map(tr => {
+                    const statusColors = { Pending: '#f39c12', Approved: '#27ae60', Completed: '#2980b9', Rejected: '#e74c3c', Cancelled: '#95a5a6' };
+                    const statusColor = statusColors[tr.status] || '#888';
+                    const date = tr.requested_at ? new Date(tr.requested_at + (tr.requested_at.includes('Z') ? '' : 'Z')).toLocaleDateString('en-IN') : '';
+                    return `<div style="background:var(--card-bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                            <div>
+                                <div style="font-weight:600;font-size:14px;">${escapeHtml(tr.from_branch_name || '?')} → ${escapeHtml(tr.to_branch_name || '?')}</div>
+                                <div style="font-size:12px;color:#888;margin-top:4px;">Locker: ${escapeHtml(tr.from_locker_number || '?')} • Size: ${escapeHtml(tr.locker_size)} • Requested: ${date}</div>
+                                ${tr.to_locker_number ? `<div style="font-size:12px;color:#27ae60;margin-top:2px;">New Locker: ${escapeHtml(tr.to_locker_number)}</div>` : ''}
+                                ${tr.rejection_reason ? `<div style="font-size:12px;color:#e74c3c;margin-top:2px;">Reason: ${escapeHtml(tr.rejection_reason)}</div>` : ''}
+                            </div>
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <span style="display:inline-block;padding:4px 12px;border-radius:12px;font-size:12px;font-weight:600;color:#fff;background:${statusColor};">${tr.status}</span>
+                                ${tr.status === 'Pending' ? `<button class="btn" style="font-size:11px;padding:4px 10px;background:#e74c3c;color:#fff;" onclick="cancelCustTransfer('${tr.id}')">Cancel</button>` : ''}
+                            </div>
+                        </div>
+                    </div>`;
+                }).join('');
+            } catch (err) {
+                list.innerHTML = '<div style="padding:24px;text-align:center;color:#e74c3c;">Failed to load transfers</div>';
+            }
+        }
+
+        async function openTransferRequestModal() {
+            try {
+                const branches = await fetch('/api/public/branches').then(r => r.json());
+                const currentBranch = currentUser.branch_id;
+                const otherBranches = branches.filter(b => b.id !== currentBranch);
+                if (!otherBranches.length) { alert('No other branches available for transfer.'); return; }
+
+                const branchOpts = otherBranches.map(b => `<option value="${b.id}">${escapeHtml(b.name)}${b.location ? ' — ' + escapeHtml(b.location) : ''}</option>`).join('');
+
+                const modal = document.createElement('div');
+                modal.className = 'modal-overlay';
+                modal.innerHTML = `<div class="modal" style="max-width:440px;">
+                    <div class="modal-header"><h3>🔄 Request Branch Transfer</h3><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button></div>
+                    <div class="modal-body">
+                        <p style="font-size:13px;color:#888;margin-bottom:16px;">Transfer your locker to another Dhanam branch. Same locker size will be assigned at the new branch. Your payments, documents, and records will be transferred automatically.</p>
+                        <div class="form-group">
+                            <label>Current Branch</label>
+                            <input type="text" value="${escapeHtml(currentUser.branch_name || 'Current Branch')}" disabled style="background:#f5f5f5;">
+                        </div>
+                        <div class="form-group">
+                            <label>Transfer To <span style="color:red;">*</span></label>
+                            <select id="transferToBranch" required style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border);">
+                                <option value="">Select target branch...</option>
+                                ${branchOpts}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Reason (optional)</label>
+                            <textarea id="transferReason" rows="3" placeholder="e.g. Relocating closer to home..." style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border);resize:vertical;"></textarea>
+                        </div>
+                        <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="submitTransferRequest(this)">Submit Request</button>
+                    </div>
+                </div>`;
+                document.body.appendChild(modal);
+            } catch (err) {
+                alert('Failed to load branches. Please try again.');
+            }
+        }
+
+        async function submitTransferRequest(btn) {
+            const toBranch = document.getElementById('transferToBranch').value;
+            if (!toBranch) { alert('Please select a target branch.'); return; }
+            btn.disabled = true; btn.textContent = 'Submitting...';
+            try {
+                const result = await api('POST', '/api/customer/request-transfer', {
+                    to_branch_id: toBranch,
+                    reason: document.getElementById('transferReason').value.trim()
+                });
+                btn.closest('.modal-overlay').remove();
+                alert(result.message || 'Transfer request submitted!');
+                loadCustTransfers();
+            } catch (err) {
+                alert(err.message || 'Failed to submit request');
+                btn.disabled = false; btn.textContent = 'Submit Request';
+            }
+        }
+
+        async function cancelCustTransfer(id) {
+            if (!confirm('Cancel this transfer request?')) return;
+            try {
+                await api('DELETE', '/api/customer/transfers/' + id);
+                alert('Transfer request cancelled.');
+                loadCustTransfers();
+            } catch (err) {
+                alert(err.message || 'Failed to cancel');
+            }
+        }
+
+        // ===== Staff: Locker Transfers =====
+        async function loadTransfers() {
+            const tbody = document.getElementById('transfersTable');
+            tbody.innerHTML = '<tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>';
+            try {
+                const statusFilter = document.getElementById('transferStatusFilter').value;
+                const url = '/api/locker-transfers' + (statusFilter ? '?status=' + statusFilter : '');
+                const transfers = await api('GET', url);
+                if (!transfers.length) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:#888;">No transfer requests found</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = transfers.map(tr => {
+                    const statusColors = { Pending: '#f39c12', Approved: '#27ae60', Completed: '#2980b9', Rejected: '#e74c3c', Cancelled: '#95a5a6' };
+                    const statusColor = statusColors[tr.status] || '#888';
+                    const date = tr.requested_at ? new Date(tr.requested_at + (tr.requested_at.includes('Z') ? '' : 'Z')).toLocaleDateString('en-IN') : '';
+                    let actions = '';
+                    if (tr.status === 'Pending') {
+                        actions = `<button class="btn btn-small" style="background:#27ae60;color:#fff;margin:2px;" onclick="openTransferApproveModal('${tr.id}')">Approve</button>
+                            <button class="btn btn-small" style="background:#e74c3c;color:#fff;margin:2px;" onclick="rejectTransfer('${tr.id}')">Reject</button>`;
+                    } else if (tr.status === 'Approved') {
+                        actions = `<button class="btn btn-small" style="background:#2980b9;color:#fff;margin:2px;" onclick="completeTransfer('${tr.id}')">Complete</button>
+                            <button class="btn btn-small" style="background:#95a5a6;color:#fff;margin:2px;" onclick="cancelTransferByStaff('${tr.id}')">Cancel</button>`;
+                    }
+                    return `<tr>
+                        <td>${date}</td>
+                        <td>${escapeHtml(tr.tenant_name || '?')}</td>
+                        <td>${escapeHtml(tr.tenant_phone || '')}</td>
+                        <td>${escapeHtml(tr.from_branch_name || '?')}${tr.from_locker_number ? '<br><small>' + escapeHtml(tr.from_locker_number) + '</small>' : ''}</td>
+                        <td>${escapeHtml(tr.to_branch_name || '?')}${tr.to_locker_number ? '<br><small>' + escapeHtml(tr.to_locker_number) + '</small>' : ''}</td>
+                        <td>${escapeHtml(tr.locker_size || '')}</td>
+                        <td><span style="display:inline-block;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;background:${statusColor};">${tr.status}</span></td>
+                        <td style="white-space:nowrap;">${actions}</td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="8" style="color:red;text-align:center;">Failed to load transfers</td></tr>`;
+            }
+        }
+
+        async function openTransferApproveModal(id) {
+            showLoading('Loading transfer details...');
+            try {
+                const tr = await api('GET', '/api/locker-transfers/' + id);
+                hideLoading();
+
+                let lockerOpts = '<option value="">Select a locker...</option>';
+                if (tr.available_lockers && tr.available_lockers.length) {
+                    lockerOpts += tr.available_lockers.map(l => `<option value="${l.id}">${escapeHtml(l.number)} — ${escapeHtml(l.size)}${l.unit_number ? ' (Unit ' + escapeHtml(l.unit_number) + ')' : ''}${l.location ? ' — ' + escapeHtml(l.location) : ''}</option>`).join('');
+                } else {
+                    lockerOpts = '<option value="" disabled>No vacant lockers of this size available</option>';
+                }
+
+                const warnings = [];
+                if (tr.pending_payments > 0) warnings.push(`⚠️ ${tr.pending_payments} pending payment(s) — will be transferred to new branch`);
+                if (tr.pending_appointments > 0) warnings.push(`⚠️ ${tr.pending_appointments} upcoming appointment(s) — will be moved to new branch`);
+
+                const modal = document.createElement('div');
+                modal.className = 'modal-overlay';
+                modal.innerHTML = `<div class="modal" style="max-width:520px;">
+                    <div class="modal-header"><h3>✅ Approve Transfer</h3><button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button></div>
+                    <div class="modal-body">
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;font-size:13px;">
+                            <div><strong>Customer:</strong> ${escapeHtml(tr.tenant_name)}</div>
+                            <div><strong>Phone:</strong> ${escapeHtml(tr.tenant_phone)}</div>
+                            <div><strong>From:</strong> ${escapeHtml(tr.from_branch_name)} (${escapeHtml(tr.from_locker_number || 'N/A')})</div>
+                            <div><strong>To:</strong> ${escapeHtml(tr.to_branch_name)}</div>
+                            <div><strong>Locker Size:</strong> ${escapeHtml(tr.locker_size)}</div>
+                            <div><strong>Reason:</strong> ${escapeHtml(tr.reason || 'Not specified')}</div>
+                        </div>
+                        ${warnings.length ? '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:10px;margin-bottom:12px;font-size:12px;">' + warnings.join('<br>') + '</div>' : ''}
+                        <div class="form-group">
+                            <label>Assign Locker at ${escapeHtml(tr.to_branch_name)} <span style="color:red;">*</span></label>
+                            <select id="approveLockerSelect" style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border);">${lockerOpts}</select>
+                            ${!tr.available_lockers || !tr.available_lockers.length ? '<div style="color:#e74c3c;font-size:12px;margin-top:4px;">No vacant lockers available — you may need to reject this request.</div>' : ''}
+                        </div>
+                        <button class="btn btn-primary" style="width:100%;margin-top:8px;" onclick="submitTransferApproval('${tr.id}', this)">Approve & Reserve Locker</button>
+                    </div>
+                </div>`;
+                document.body.appendChild(modal);
+            } catch (err) {
+                hideLoading();
+                alert(err.message || 'Failed to load transfer details');
+            }
+        }
+
+        async function submitTransferApproval(id, btn) {
+            const lockerId = document.getElementById('approveLockerSelect').value;
+            if (!lockerId) { alert('Please select a locker to assign.'); return; }
+            btn.disabled = true; btn.textContent = 'Approving...';
+            try {
+                const result = await api('PUT', '/api/locker-transfers/' + id + '/approve', { to_locker_id: lockerId });
+                btn.closest('.modal-overlay').remove();
+                alert(result.message || 'Transfer approved!');
+                loadTransfers();
+            } catch (err) {
+                alert(err.message || 'Approval failed');
+                btn.disabled = false; btn.textContent = 'Approve & Reserve Locker';
+            }
+        }
+
+        async function rejectTransfer(id) {
+            const reason = prompt('Rejection reason (optional):');
+            if (reason === null) return; // cancelled prompt
+            try {
+                await api('PUT', '/api/locker-transfers/' + id + '/reject', { rejection_reason: reason });
+                alert('Transfer rejected.');
+                loadTransfers();
+            } catch (err) { alert(err.message || 'Failed to reject'); }
+        }
+
+        async function completeTransfer(id) {
+            if (!confirm('Complete this transfer? This will:\n\n• Move the tenant to the new branch/locker\n• Transfer all payments, appointments, visits, documents\n• Free the old locker\n\nThis action cannot be undone.')) return;
+            const notes = prompt('Completion notes (optional):') || '';
+            showLoading('Processing transfer...');
+            try {
+                const result = await api('PUT', '/api/locker-transfers/' + id + '/complete', { completion_notes: notes });
+                hideLoading();
+                alert(result.message + (result.summary ? `\n\n${result.summary.tenant}: ${result.summary.old_locker} (${result.summary.from_branch}) → ${result.summary.new_locker} (${result.summary.to_branch})` : ''));
+                loadTransfers();
+            } catch (err) {
+                hideLoading();
+                alert(err.message || 'Transfer completion failed');
+            }
+        }
+
+        async function cancelTransferByStaff(id) {
+            if (!confirm('Cancel this transfer? If already approved, the reserved locker will be freed.')) return;
+            try {
+                await api('PUT', '/api/locker-transfers/' + id + '/cancel');
+                alert('Transfer cancelled.');
+                loadTransfers();
+            } catch (err) { alert(err.message || 'Failed to cancel'); }
+        }
+
         // ===== Request New Locker (Customer) =====
         function openNewLockerRequestModal() {
             const tenants = currentUser.tenants || [currentUser];
@@ -4563,6 +4848,10 @@
                         if (leadsSection && leadsSection.style.display !== 'none') {
                             loadLeads();
                         }
+                        // Show browser + toast notification for new lead
+                        const leadName = data.lead ? (data.lead.name || 'Someone') : 'Someone';
+                        const leadPhone = data.lead ? (data.lead.phone || '') : '';
+                        showNotifToast('🔔 New Lead', `${leadName}${leadPhone ? ' (' + leadPhone + ')' : ''} submitted an enquiry.`);
                         return;
                     }
                     // Regular notification
@@ -4667,12 +4956,55 @@
             try { await api('PUT', '/api/notifications/read-all'); } catch(e) {}
         }
 
+        // Request browser notification permission for staff
+        function requestBrowserNotifPermission() {
+            if (!('Notification' in window)) return;
+            if (Notification.permission === 'default') {
+                Notification.requestPermission();
+            }
+        }
+
+        // Play notification sound
+        function playNotifSound() {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.frequency.setValueAtTime(880, ctx.currentTime);
+                osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+                osc.start(ctx.currentTime);
+                osc.stop(ctx.currentTime + 0.4);
+            } catch(e) {}
+        }
+
         function showNotifToast(title, message) {
+            // In-app toast
             const toast = document.createElement('div');
             toast.style.cssText = 'position:fixed;top:16px;right:16px;z-index:10000;background:var(--card-bg);border:1px solid var(--gold);border-radius:10px;padding:14px 18px;box-shadow:0 8px 24px rgba(0,0,0,0.15);max-width:340px;animation:slideInRight 0.3s ease;';
             toast.innerHTML = `<div style="font-weight:600;font-size:13px;color:var(--gold);margin-bottom:4px;">${escapeHtml(title)}</div><div style="font-size:12px;color:var(--text);">${escapeHtml(message)}</div>`;
             document.body.appendChild(toast);
             setTimeout(() => { toast.style.opacity = '0'; toast.style.transition = 'opacity 0.5s'; setTimeout(() => toast.remove(), 500); }, 5000);
+
+            // Play sound
+            playNotifSound();
+
+            // Browser desktop notification (works even when tab is in background)
+            if ('Notification' in window && Notification.permission === 'granted') {
+                try {
+                    const notif = new Notification(title.replace(/[\u{1F000}-\u{1FFFF}]/gu, '').trim(), {
+                        body: message,
+                        icon: '/favicon.ico',
+                        tag: 'lockerhub-' + Date.now(),
+                        requireInteraction: false
+                    });
+                    notif.onclick = () => { window.focus(); notif.close(); };
+                    setTimeout(() => notif.close(), 8000);
+                } catch(e) {}
+            }
         }
 
         // Close notif dropdown on outside click
@@ -4751,6 +5083,8 @@
             else if (section === 'custDashboard') await loadCustDashboard();
             else if (section === 'custAppointments') await loadCustAppointments();
             else if (section === 'custPayments') await loadCustPayments();
+            else if (section === 'custTransfers') await loadCustTransfers();
+            else if (section === 'transfers') await loadTransfers();
             else if (section === 'feedback') await loadFeedback();
             else if (section === 'leads') await loadLeads();
             else if (section === 'leadCapture') await loadLeadCapture();
