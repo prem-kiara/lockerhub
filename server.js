@@ -1031,7 +1031,7 @@ function auditLog(action, entityType, entityId, req, details = '') {
 // ============================
 //  AUTH & LOGIN
 // ============================
-app.post('/api/login', loginLimiter, async (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
@@ -3182,7 +3182,7 @@ app.get('/api/logs/view', requireAuth, requireRole('headoffice'), (req, res) => 
 // ============================
 //  CUSTOMER LOGIN & PORTAL
 // ============================
-app.post('/api/customer-login', loginLimiter, async (req, res) => {
+app.post('/api/customer-login', async (req, res) => {
   try {
     const { phone, password } = req.body;
     if (!phone || !password) return res.status(400).json({ error: 'Phone and password required' });
