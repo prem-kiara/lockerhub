@@ -580,6 +580,10 @@ addColumnIfMissing('tenants', 'nominee_pan', "TEXT DEFAULT ''");
 // KYC document tracking (JSON: { docType: { uploaded: true, filename, sharepoint_url, uploaded_at } })
 addColumnIfMissing('tenants', 'kyc_documents', "TEXT DEFAULT '{}'");
 
+// Creator tracking — who logged/allotted this tenant
+addColumnIfMissing('tenants', 'created_by', "TEXT DEFAULT ''");
+addColumnIfMissing('tenants', 'created_by_name', "TEXT DEFAULT ''");
+
 // Lead telecalling notes table
 db.exec(`
   CREATE TABLE IF NOT EXISTS lead_notes (
@@ -1539,15 +1543,19 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req,
         start.setFullYear(start.getFullYear() + 1);
         lease_end = start.toISOString().split('T')[0];
       }
+      // Determine creator: use provided created_by or default to logged-in user
+      const createdBy = d.created_by || req.user.id;
+      const createdByName = d.created_by_name || req.user.name;
+
       db.prepare(`INSERT INTO tenants (id, branch_id, name, phone, email, address, emergency_name, emergency, locker_id, lease_start, lease_end,
         annual_rent, deposit, bank_name, bank_account, bank_ifsc, bank_branch,
         bg_aadhaar, bg_pan, bg_photos_collected, bg_status, bg_notes,
-        nominee_name, nominee_phone, nominee_aadhaar, nominee_pan)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        nominee_name, nominee_phone, nominee_aadhaar, nominee_pan, created_by, created_by_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, d.branch_id, d.name, d.phone || '', d.email || '', d.address || '', d.emergency_name || '', d.emergency || '', d.locker_id || '', d.lease_start || '', lease_end,
         d.annual_rent || 0, d.deposit || 0, d.bank_name || '', d.bank_account || '', d.bank_ifsc || '', d.bank_branch || '',
         d.bg_aadhaar || '', d.bg_pan || '', d.bg_photos_collected ? 1 : 0, d.bg_status || 'Pending', d.bg_notes || '',
-        d.nominee_name || '', d.nominee_phone || '', d.nominee_aadhaar || '', d.nominee_pan || ''
+        d.nominee_name || '', d.nominee_phone || '', d.nominee_aadhaar || '', d.nominee_pan || '', createdBy, createdByName
       );
       // Mark locker as occupied
       if (d.locker_id) db.prepare('UPDATE lockers SET status = ? WHERE id = ?').run('occupied', d.locker_id);
@@ -2032,6 +2040,13 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
         const amt = parseFloat(d.amount).toLocaleString('en-IN');
         sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${existingPending.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: existingPending.id });
       }
+      // Notify HO about payment collection
+      createNotification(
+        d.branch_id, 'headoffice', 'payment_received',
+        '💰 Payment Collected',
+        `${payTenant ? payTenant.name : 'Tenant'}: ${type} payment of ₹${parseFloat(d.amount).toLocaleString('en-IN')} received (Receipt: ${existingPending.receipt_no}). Recorded by ${req.user.name}.`,
+        d.tenant_id
+      );
     }
 
     res.json({ id: existingPending.id, receipt_no: existingPending.receipt_no, updated: true });
@@ -2065,6 +2080,14 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
         const amt = parseFloat(d.amount).toLocaleString('en-IN');
         sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: id });
       }
+      // Notify HO about payment collection
+      const payTenantForNotif = db.prepare('SELECT name FROM tenants WHERE id = ?').get(d.tenant_id);
+      createNotification(
+        d.branch_id, 'headoffice', 'payment_received',
+        '💰 Payment Collected',
+        `${payTenantForNotif ? payTenantForNotif.name : 'Tenant'}: ${type} payment of ₹${parseFloat(d.amount).toLocaleString('en-IN')} received (Receipt: ${receipt_no}). Recorded by ${req.user.name}.`,
+        d.tenant_id
+      );
     }
 
     res.json({ id, receipt_no });
@@ -2103,13 +2126,20 @@ app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (
 
     // Push notification to customer when payment is marked as Paid
     if (d.status === 'Paid') {
-      const payment = db.prepare('SELECT tenant_id, type, amount, receipt_no FROM payments WHERE id = ?').get(req.params.id);
+      const payment = db.prepare('SELECT tenant_id, branch_id, type, amount, receipt_no FROM payments WHERE id = ?').get(req.params.id);
       if (payment && payment.tenant_id) {
         const payTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(payment.tenant_id);
         if (payTenant && payTenant.phone) {
           const amt = parseFloat(payment.amount).toLocaleString('en-IN');
           sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${payment.type} payment of ₹${amt} (Receipt: ${payment.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: req.params.id });
         }
+        // Notify HO about payment collection
+        createNotification(
+          payment.branch_id, 'headoffice', 'payment_received',
+          '💰 Payment Collected',
+          `${payTenant ? payTenant.name : 'Tenant'}: ${payment.type} payment of ₹${parseFloat(payment.amount).toLocaleString('en-IN')} received (Receipt: ${payment.receipt_no}). Recorded by ${req.user.name}.`,
+          payment.tenant_id
+        );
       }
     }
 
@@ -2246,6 +2276,21 @@ app.post('/api/renewals/:id/renew', requireAuth, requireRole('headoffice', 'bran
     }
 
     logInfo('Lease renewed', { tenant: req.params.id, name: tenant.name, new_start: newStart, new_end: newEnd });
+
+    // Notify customer about renewal
+    if (tenant.phone) {
+      sendCustomerPush(tenant.phone, '🔄 Lease Renewed', `Your locker lease has been renewed. New lease period: ${newStart} to ${newEnd}.${rentPaymentCreated ? ' A rent payment has been generated.' : ''}`, { type: 'lease_renewed', tenant_id: req.params.id });
+    }
+
+    // Notify HO about renewal
+    const renewBranch = db.prepare('SELECT name FROM branches WHERE id = ?').get(tenant.branch_id);
+    createNotification(
+      tenant.branch_id, 'headoffice', 'lease_renewed',
+      '🔄 Lease Renewed',
+      `${tenant.name}'s lease renewed at ${renewBranch ? renewBranch.name : 'Branch'}. New period: ${newStart} to ${newEnd}. Renewed by ${req.user.name}.`,
+      req.params.id
+    );
+
     res.json({ ok: true, new_start: newStart, new_end: newEnd, rent_payment_created: rentPaymentCreated });
   } catch (err) {
     logError('Renewal error', { error: err.message });
@@ -2386,6 +2431,15 @@ app.post('/api/visits', requireAuth, requireRole('headoffice', 'branch'), (req, 
   db.prepare('INSERT INTO visits (id, branch_id, tenant_id, locker_id, datetime, purpose, duration, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
     id, d.branch_id, d.tenant_id, d.locker_id || '', d.datetime || '', d.purpose || '', d.duration || '', d.notes || ''
   );
+
+  // Notify customer about recorded visit
+  if (d.tenant_id) {
+    const visitTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(d.tenant_id);
+    if (visitTenant && visitTenant.phone) {
+      sendCustomerPush(visitTenant.phone, '🏦 Visit Recorded', `Your locker visit has been recorded. Purpose: ${d.purpose || 'Locker Access'}. Date: ${d.datetime ? new Date(d.datetime).toLocaleDateString('en-IN') : 'Today'}.`, { type: 'visit_recorded', visit_id: id });
+    }
+  }
+
   res.json({ id });
 });
 
@@ -2596,6 +2650,20 @@ app.post('/api/users', requireAuth, requireRole('headoffice'), async (req, res) 
   } catch (e) {
     res.status(400).json({ error: 'Username already exists' });
   }
+});
+
+// Branch-scoped staff list — for creator dropdown in tenant form
+app.get('/api/branch-staff', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  let branchId = req.query.branch_id;
+  if (req.user.role === 'branch') branchId = req.user.branch_id;
+  if (!branchId) {
+    // HO: return all staff
+    const users = db.prepare("SELECT id, name, role, branch_id FROM users WHERE role IN ('headoffice','branch') ORDER BY name").all();
+    return res.json(users);
+  }
+  // Include branch staff + HO users (who can also allot tenants)
+  const users = db.prepare("SELECT id, name, role, branch_id FROM users WHERE (branch_id = ? OR role = 'headoffice') ORDER BY role DESC, name").all(branchId);
+  res.json(users);
 });
 
 app.put('/api/users/:id', requireAuth, requireRole('headoffice'), (req, res) => {
@@ -3977,6 +4045,10 @@ app.post('/api/appointments', requireAuth, (req, res) => {
       `${tenantName} (${tenantPhone}) requested an appointment on ${d.requested_date} at ${slotTime} — ${d.purpose || 'Locker Access'}${branchName ? ' at ' + branchName : ''}. Please review and approve/reject.`,
       d.tenant_id
     );
+    // Confirm to customer that appointment request was submitted
+    if (tenantPhone) {
+      sendCustomerPush(tenantPhone, '📅 Appointment Requested', `Your appointment request for ${d.requested_date} at ${slotTime} has been submitted${branchName ? ' to ' + branchName : ''}. You'll be notified once it's approved.`, { type: 'appointment_requested', appointment_id: id });
+    }
   }
 
   res.json({ success: true, id, status });
@@ -4406,6 +4478,20 @@ app.post('/api/esign/initiate', requireAuth, requireRole('headoffice', 'branch')
 
     logInfo('E-sign initiated', { id, tenant: tenant.name, type: document_type, digioId: digioResp.id });
 
+    // Notify customer on mobile that a document needs their signature
+    if (tenant.phone) {
+      const docLabel = document_type === 'receipt' ? 'payment receipt' : 'locker agreement';
+      sendCustomerPush(tenant.phone, '✍️ E-Sign Request', `A ${docLabel} is ready for your digital signature. Please check your email/SMS for the signing link from Digio.`, { type: 'esign_request', esign_id: id });
+    }
+
+    // Notify staff that e-sign was initiated
+    createNotification(
+      tenant.branch_id, 'all', 'esign_initiated',
+      '✍️ E-Sign Initiated',
+      `E-sign ${document_type === 'receipt' ? 'receipt' : 'agreement'} sent to ${tenant.name} (${tenant.phone || tenant.email}). Awaiting signature.`,
+      tenant_id
+    );
+
     res.json({
       success: true,
       esign_id: id,
@@ -4559,6 +4645,12 @@ app.post('/api/esign/:id/cancel', requireAuth, requireRole('headoffice', 'branch
       }
     }
 
+    // Notify customer that e-sign was cancelled
+    const cancelTenant = db.prepare('SELECT name, phone, branch_id FROM tenants WHERE id = ?').get(esign.tenant_id);
+    if (cancelTenant && cancelTenant.phone) {
+      sendCustomerPush(cancelTenant.phone, '📋 E-Sign Cancelled', `The ${esign.document_type === 'receipt' ? 'receipt' : 'agreement'} signing request has been cancelled. If this is unexpected, please contact your branch.`, { type: 'esign_cancelled', esign_id: esign.id });
+    }
+
     // Delete from local DB regardless
     db.prepare('DELETE FROM esign_requests WHERE id = ?').run(req.params.id);
 
@@ -4580,6 +4672,33 @@ app.post('/api/esign/webhook', (req, res) => {
         db.prepare('UPDATE esign_requests SET status = ?, updated_at = datetime(?) WHERE digio_doc_id = ?')
           .run(status || 'updated', new Date().toISOString(), document_id);
         logInfo('E-sign webhook received', { digioId: document_id, status });
+
+        // Notify staff + customer on signature completion
+        const tenant = db.prepare('SELECT name, phone, branch_id FROM tenants WHERE id = ?').get(esign.tenant_id);
+        if (tenant) {
+          const isSigned = status && (status.toLowerCase() === 'signed' || status.toLowerCase() === 'completed');
+          const isExpired = status && status.toLowerCase() === 'expired';
+
+          if (isSigned) {
+            // Notify staff that document was signed
+            createNotification(
+              tenant.branch_id || esign.branch_id, 'all', 'esign_completed',
+              '✅ Document Signed',
+              `${tenant.name} has digitally signed the ${esign.document_type === 'receipt' ? 'receipt' : 'agreement'}. You can now download and save it to the repository.`,
+              esign.tenant_id
+            );
+            // Confirm to customer
+            sendCustomerPush(tenant.phone, '✅ Document Signed', `Your ${esign.document_type === 'receipt' ? 'payment receipt' : 'locker agreement'} has been signed successfully. Thank you!`, { type: 'esign_completed', esign_id: esign.id });
+          } else if (isExpired) {
+            // Notify staff that signing expired
+            createNotification(
+              tenant.branch_id || esign.branch_id, 'all', 'esign_expired',
+              '⚠️ E-Sign Expired',
+              `The ${esign.document_type} signing request for ${tenant.name} has expired. Please re-initiate if needed.`,
+              esign.tenant_id
+            );
+          }
+        }
       }
     }
     res.json({ success: true });

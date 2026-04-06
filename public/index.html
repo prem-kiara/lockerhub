@@ -2318,11 +2318,12 @@
                                     <th class="sortable" onclick="sortTable(this, 'tenantsTable', 3)">Rent (Annual)</th>
                                     <th class="sortable" onclick="sortTable(this, 'tenantsTable', 4)">Lease End</th>
                                     <th class="sortable" onclick="sortTable(this, 'tenantsTable', 5)">BG Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'tenantsTable', 6)">Created By</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="tenantsTable">
-                                <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3114,6 +3115,13 @@
                         <select id="tenantBranch" required onchange="onTenantBranchChange()">
                             <option value="">Select branch</option>
                         </select>
+                    </div>
+                    <div class="form-group" id="tenantCreatorGroup">
+                        <label for="tenantCreatedBy">Created By (Staff) <span style="color:#7a6b5e;font-weight:normal;font-size:12px;">— who logged this customer</span></label>
+                        <select id="tenantCreatedBy" onchange="updateCreatorHiddenName()">
+                            <option value="">Loading staff...</option>
+                        </select>
+                        <input type="hidden" id="tenantCreatedByName">
                     </div>
                     <div class="form-row">
                         <div class="form-group">
@@ -5603,7 +5611,7 @@
 
         function renderTenants(tenants) {
             if (tenants.length === 0) {
-                document.getElementById('tenantsTable').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#7a6b5e;">No tenants found</td></tr>';
+                document.getElementById('tenantsTable').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#7a6b5e;">No tenants found</td></tr>';
                 return;
             }
 
@@ -5623,6 +5631,7 @@
                     <td>₹${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
                     <td>${leaseStatus}</td>
                     <td><span class="badge ${getBGStatusBadge(t.bg_status)}" title="${getMissingItems(t).length > 0 ? 'Missing: ' + getMissingItems(t).join(', ') : 'All verified'}">${capitalize(t.bg_status || 'Pending')}</span></td>
+                    <td style="font-size:12px;color:#7a6b5e;">${t.created_by_name || '-'}</td>
                     <td>
                         <div class="action-buttons">
                             ${t.account_status === 'Closed' ? `
@@ -5682,10 +5691,36 @@
 
             document.getElementById('tenantRentDisplay').textContent = '';
             document.getElementById('tenantDepositDisplay').textContent = '';
+            // Load staff list for "Created By" dropdown
+            await loadCreatorStaffList();
             // Reset KYC upload section (files queued until tenant is saved)
             resetKycUploadBoxes();
             pendingKycFiles = {};
             document.getElementById('tenantModal').classList.add('active');
+        }
+
+        async function loadCreatorStaffList(branchId) {
+            const sel = document.getElementById('tenantCreatedBy');
+            try {
+                const url = branchId ? `/api/branch-staff?branch_id=${branchId}` : '/api/branch-staff';
+                const staff = await api('GET', url);
+                sel.innerHTML = staff.map(s => {
+                    const label = s.role === 'headoffice' ? `${s.name} (HO)` : s.name;
+                    return `<option value="${s.id}" data-name="${s.name}">${label}</option>`;
+                }).join('');
+                // Auto-select current logged-in user
+                sel.value = currentUser.id;
+                updateCreatorHiddenName();
+            } catch (e) {
+                sel.innerHTML = `<option value="${currentUser.id}" data-name="${currentUser.name}">${currentUser.name}</option>`;
+                console.error('Failed to load staff list:', e);
+            }
+        }
+
+        function updateCreatorHiddenName() {
+            const sel = document.getElementById('tenantCreatedBy');
+            const opt = sel.options[sel.selectedIndex];
+            document.getElementById('tenantCreatedByName').value = opt ? opt.dataset.name || opt.textContent : '';
         }
 
         async function loadBranchSelectorForTenant() {
@@ -5701,6 +5736,7 @@
             const branchId = document.getElementById('tenantBranch').value;
             if (branchId) {
                 loadLockerSelect(null, branchId);
+                loadCreatorStaffList(branchId);
             } else {
                 document.getElementById('tenantLocker').innerHTML = '<option value="">— Select branch first —</option>';
                 document.getElementById('tenantRentDisplay').textContent = '';
@@ -5746,6 +5782,13 @@
                 document.getElementById('tenantNomineePhone').value = tenant.nominee_phone || '';
                 document.getElementById('tenantNomineeAadhaar').value = tenant.nominee_aadhaar || '';
                 document.getElementById('tenantNomineePan').value = tenant.nominee_pan || '';
+
+                // Load creator staff list and pre-select
+                await loadCreatorStaffList(tenant.branch_id);
+                if (tenant.created_by) {
+                    document.getElementById('tenantCreatedBy').value = tenant.created_by;
+                    updateCreatorHiddenName();
+                }
 
                 // Reset and load KYC status for existing tenants
                 pendingKycFiles = {};
@@ -6082,6 +6125,11 @@
             const annualRent = parseInt(document.getElementById('tenantAnnualRent').value) || 0;
             const deposit = parseInt(document.getElementById('tenantDeposit').value) || 0;
 
+            // Creator info
+            const createdBySel = document.getElementById('tenantCreatedBy');
+            const createdBy = createdBySel.value || '';
+            const createdByName = document.getElementById('tenantCreatedByName').value || '';
+
             const data = {
                 branch_id: branchId,
                 name: name,
@@ -6104,7 +6152,9 @@
                 nominee_name: document.getElementById('tenantNomineeName').value.trim(),
                 nominee_phone: document.getElementById('tenantNomineePhone').value.trim(),
                 nominee_aadhaar: document.getElementById('tenantNomineeAadhaar').value.trim(),
-                nominee_pan: document.getElementById('tenantNomineePan').value.trim().toUpperCase()
+                nominee_pan: document.getElementById('tenantNomineePan').value.trim().toUpperCase(),
+                created_by: createdBy,
+                created_by_name: createdByName
             };
 
             showLoading('Saving tenant...');
@@ -6737,6 +6787,11 @@
                 { name: 'BG Check Report', id: 'bgcheck' },
                 { name: 'Occupancy Summary', id: 'occupancy' },
                 { name: 'Tenant Ledger', id: 'ledger' },
+                { name: 'Staff Performance', id: 'staff_performance' },
+                { name: 'Lead Conversion', id: 'lead_conversion' },
+                { name: 'Branch Comparison', id: 'branch_comparison' },
+                { name: 'Transfer History', id: 'transfer_history' },
+                { name: 'Revenue Summary', id: 'revenue_summary' },
                 { name: 'Complete Data Dump', id: 'dump' }
             ];
 
@@ -6788,6 +6843,30 @@
                     data = await api('GET', currentBranchId ? `/api/tenants?branch_id=${currentBranchId}` : '/api/tenants?branch_id=all');
                     fileName = 'Tenant_Ledger.xlsx';
                     downloadExcel(formatTenantLedgerReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'staff_performance') {
+                    data = await api('GET', currentBranchId ? `/api/tenants?branch_id=${currentBranchId}` : '/api/tenants?branch_id=all');
+                    fileName = 'Staff_Performance.xlsx';
+                    downloadExcel(formatStaffPerformanceReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'lead_conversion') {
+                    data = await api('GET', '/api/leads');
+                    fileName = 'Lead_Conversion.xlsx';
+                    downloadExcel(formatLeadConversionReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'branch_comparison') {
+                    const [lockers, tenants, payments] = await Promise.all([
+                        api('GET', '/api/lockers?branch_id=all'),
+                        api('GET', '/api/tenants?branch_id=all'),
+                        api('GET', '/api/payments?branch_id=all')
+                    ]);
+                    fileName = 'Branch_Comparison.xlsx';
+                    downloadExcel(formatBranchComparisonReport(lockers, tenants, payments), fileName);
+                } else if (reportId === 'transfer_history') {
+                    data = await api('GET', '/api/locker-transfers');
+                    fileName = 'Transfer_History.xlsx';
+                    downloadExcel(formatTransferHistoryReport(data), fileName);
+                } else if (reportId === 'revenue_summary') {
+                    data = await api('GET', currentBranchId ? `/api/payments?branch_id=${currentBranchId}` : '/api/payments?branch_id=all');
+                    fileName = 'Revenue_Summary.xlsx';
+                    downloadExcel(formatRevenueSummaryReport(data, isHeadOffice), fileName);
                 } else if (reportId === 'dump') {
                     fileName = 'Complete_Data_Dump.xlsx';
                     downloadFullBackup();
@@ -8577,7 +8656,8 @@
                 'Annual Rent (₹)': t.annual_rent || '-',
                 'Nominee': t.nominee_name || '-',
                 'Account Status': capitalize(t.account_status || 'active'),
-                'BG Status': capitalize(t.bg_status || 'pending')
+                'BG Status': capitalize(t.bg_status || 'pending'),
+                'Created By': t.created_by_name || '-'
             }));
         }
 
@@ -8687,6 +8767,136 @@
                 'Account Status': capitalize(t.account_status || 'active'),
                 'BG Status': capitalize(t.bg_status || 'pending')
             }));
+        }
+
+        // ===== Staff Performance Report =====
+        function formatStaffPerformanceReport(tenants, isHeadOffice) {
+            // Group tenants by creator
+            const staffMap = {};
+            tenants.forEach(t => {
+                const creator = t.created_by_name || 'Unknown / System';
+                if (!staffMap[creator]) {
+                    staffMap[creator] = { total: 0, active: 0, closed: 0, branches: new Set(), tenants: [] };
+                }
+                staffMap[creator].total++;
+                if (t.account_status === 'Closed') staffMap[creator].closed++;
+                else staffMap[creator].active++;
+                if (t.branch_name) staffMap[creator].branches.add(t.branch_name);
+                staffMap[creator].tenants.push(t.name);
+            });
+            return Object.entries(staffMap)
+                .sort((a, b) => b[1].total - a[1].total)
+                .map(([name, s]) => ({
+                    'Staff Name': name,
+                    'Total Tenants Created': s.total,
+                    'Active': s.active,
+                    'Closed': s.closed,
+                    ...(isHeadOffice && { 'Branches': Array.from(s.branches).join(', ') }),
+                    'Tenant Names': s.tenants.join(', ')
+                }));
+        }
+
+        // ===== Lead Conversion Report =====
+        function formatLeadConversionReport(leads, isHeadOffice) {
+            return leads.map(l => ({
+                ...(isHeadOffice && { Branch: l.branch_name }),
+                Name: l.name,
+                Phone: l.phone,
+                Email: l.email || '-',
+                'Locker Size': l.locker_size || '-',
+                Source: l.source || '-',
+                Status: capitalize(l.status),
+                'Created By': l.created_by_name || '-',
+                'Created At': l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : '-',
+                'Converted': l.converted_tenant_id ? 'Yes' : 'No',
+                Notes: l.notes || '-'
+            }));
+        }
+
+        // ===== Branch Comparison Report =====
+        function formatBranchComparisonReport(lockers, tenants, payments) {
+            const branchMap = {};
+            lockers.forEach(l => {
+                const bn = l.branch_name || 'Unknown';
+                if (!branchMap[bn]) branchMap[bn] = { total: 0, vacant: 0, occupied: 0, reserved: 0, tenants: 0, revenue: 0, pending: 0, overdue: 0 };
+                branchMap[bn].total++;
+                if (l.status === 'vacant') branchMap[bn].vacant++;
+                else if (l.status === 'occupied') branchMap[bn].occupied++;
+                else if (l.status === 'reserved') branchMap[bn].reserved++;
+            });
+            tenants.forEach(t => {
+                const bn = t.branch_name || 'Unknown';
+                if (!branchMap[bn]) branchMap[bn] = { total: 0, vacant: 0, occupied: 0, reserved: 0, tenants: 0, revenue: 0, pending: 0, overdue: 0 };
+                if (t.account_status !== 'Closed') branchMap[bn].tenants++;
+            });
+            const today = new Date().toISOString().split('T')[0];
+            payments.forEach(p => {
+                const bn = p.branch_name || 'Unknown';
+                if (!branchMap[bn]) branchMap[bn] = { total: 0, vacant: 0, occupied: 0, reserved: 0, tenants: 0, revenue: 0, pending: 0, overdue: 0 };
+                if (p.status === 'Paid') branchMap[bn].revenue += (p.amount || 0);
+                else if (p.status === 'Pending') {
+                    branchMap[bn].pending += (p.amount || 0);
+                    if (p.due_date && p.due_date < today) branchMap[bn].overdue += (p.amount || 0);
+                }
+            });
+            return Object.entries(branchMap).map(([name, b]) => ({
+                Branch: name,
+                'Total Lockers': b.total,
+                'Vacant': b.vacant,
+                'Occupied': b.occupied,
+                'Reserved': b.reserved,
+                'Occupancy %': b.total ? Math.round((b.occupied / b.total) * 100) + '%' : '0%',
+                'Active Tenants': b.tenants,
+                'Revenue Collected (₹)': b.revenue.toLocaleString('en-IN'),
+                'Pending (₹)': b.pending.toLocaleString('en-IN'),
+                'Overdue (₹)': b.overdue.toLocaleString('en-IN')
+            }));
+        }
+
+        // ===== Transfer History Report =====
+        function formatTransferHistoryReport(transfers) {
+            return (transfers || []).map(t => ({
+                'Tenant': t.tenant_name || '-',
+                'Phone': t.tenant_phone || '-',
+                'From Branch': t.from_branch_name || '-',
+                'To Branch': t.to_branch_name || '-',
+                'Locker Size': t.locker_size || '-',
+                'Status': capitalize(t.status),
+                'Reason': t.reason || '-',
+                'Requested': t.requested_at ? new Date(t.requested_at).toLocaleDateString('en-IN') : '-',
+                'Reviewed By': t.reviewed_by_name || '-',
+                'Reviewed': t.reviewed_at ? new Date(t.reviewed_at).toLocaleDateString('en-IN') : '-',
+                'Completed': t.completed_at ? new Date(t.completed_at).toLocaleDateString('en-IN') : '-',
+                'Rejection Reason': t.rejection_reason || '-'
+            }));
+        }
+
+        // ===== Revenue Summary Report =====
+        function formatRevenueSummaryReport(payments, isHeadOffice) {
+            // Group by month
+            const monthMap = {};
+            payments.forEach(p => {
+                if (p.status !== 'Paid') return;
+                const date = p.paid_on || p.due_date || '';
+                const month = date ? date.substring(0, 7) : 'Unknown';
+                const type = (p.type || 'rent').toLowerCase();
+                if (!monthMap[month]) monthMap[month] = { rent: 0, deposit: 0, other: 0, total: 0, count: 0 };
+                if (type === 'rent') monthMap[month].rent += (p.amount || 0);
+                else if (type === 'deposit') monthMap[month].deposit += (p.amount || 0);
+                else monthMap[month].other += (p.amount || 0);
+                monthMap[month].total += (p.amount || 0);
+                monthMap[month].count++;
+            });
+            return Object.entries(monthMap)
+                .sort((a, b) => b[0].localeCompare(a[0]))
+                .map(([month, m]) => ({
+                    'Month': month,
+                    'Rent (₹)': m.rent.toLocaleString('en-IN'),
+                    'Deposits (₹)': m.deposit.toLocaleString('en-IN'),
+                    'Other (₹)': m.other.toLocaleString('en-IN'),
+                    'Total (₹)': m.total.toLocaleString('en-IN'),
+                    'Transactions': m.count
+                }));
         }
 
         // Universal download helper — works in both browser and Android WebView
@@ -10405,6 +10615,22 @@
                         // Trigger locker loading for the selected branch
                         await loadLockerSelect(null, r.branch_id);
                     }
+                }
+
+                // Pre-select lead creator in the "Created By" dropdown
+                if (r.created_by) {
+                    const creatorSel = document.getElementById('tenantCreatedBy');
+                    creatorSel.value = r.created_by;
+                    if (creatorSel.value !== r.created_by) {
+                        // Creator not in list — add them manually
+                        const opt = document.createElement('option');
+                        opt.value = r.created_by;
+                        opt.dataset.name = r.created_by_name || '';
+                        opt.textContent = r.created_by_name || r.created_by;
+                        creatorSel.appendChild(opt);
+                        creatorSel.value = r.created_by;
+                    }
+                    updateCreatorHiddenName();
                 }
 
                 // Store leadId so saveTenant() can mark it Converted after successful save
