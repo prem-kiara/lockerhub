@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
 const multer = require('multer');
 const admin = require('firebase-admin');
+const nodemailer = require('nodemailer');
 
 // Multer setup for KYC file uploads (memory storage — files go to SharePoint, not disk)
 const kycUpload = multer({
@@ -61,6 +62,112 @@ try {
   }
 } catch (err) {
   console.error('  ❌ Firebase Admin init failed:', err.message);
+}
+
+// ============================
+//  EMAIL NOTIFICATIONS (Gmail SMTP via Nodemailer)
+// ============================
+let emailTransporter = null;
+const EMAIL_FROM = process.env.EMAIL_FROM || 'dhanamtechnology@gmail.com';
+const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'Dhanam LockerHub';
+try {
+  const emailUser = process.env.EMAIL_USER || 'dhanamtechnology@gmail.com';
+  const emailPass = process.env.EMAIL_PASSWORD; // Gmail App Password (16 chars)
+  if (emailPass) {
+    emailTransporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: emailUser, pass: emailPass }
+    });
+    emailTransporter.verify().then(() => {
+      console.log('  ✅ Email (Gmail SMTP) ready for notifications');
+    }).catch(err => {
+      console.warn('  ⚠️  Email SMTP verification failed:', err.message);
+      emailTransporter = null;
+    });
+  } else {
+    console.warn('  ⚠️  EMAIL_PASSWORD not set in .env — email notifications disabled');
+    console.warn('     Generate a Gmail App Password: Google Account → Security → 2-Step Verification → App Passwords');
+  }
+} catch (err) {
+  console.error('  ❌ Email transporter init failed:', err.message);
+}
+
+async function sendEmail(toEmail, subject, htmlBody) {
+  if (!emailTransporter || !toEmail) return;
+  try {
+    await emailTransporter.sendMail({
+      from: `"${EMAIL_FROM_NAME}" <${EMAIL_FROM}>`,
+      to: toEmail,
+      subject: subject,
+      html: htmlBody
+    });
+    logInfo('Email sent', { to: toEmail, subject });
+  } catch (err) {
+    logError('Email send failed', { to: toEmail, subject, error: err.message });
+  }
+}
+
+// ============================
+//  WHATSAPP NOTIFICATIONS (WappCloud API)
+// ============================
+const WAPPCLOUD_API_KEY = process.env.WAPPCLOUD_API_KEY || '';
+const WAPPCLOUD_TOKEN = process.env.WAPPCLOUD_TOKEN || '';
+const WAPPCLOUD_URL = process.env.WAPPCLOUD_URL || 'https://client-api.wappcloud.com/api/v1/external/process';
+
+if (WAPPCLOUD_API_KEY && WAPPCLOUD_TOKEN) {
+  console.log('  ✅ WhatsApp (WappCloud) ready for notifications');
+} else {
+  console.warn('  ⚠️  WAPPCLOUD_API_KEY or WAPPCLOUD_TOKEN not set — WhatsApp notifications disabled');
+}
+
+// Format phone for WappCloud: must be +91XXXXXXXXXX
+function formatWAPhone(phone) {
+  let p = String(phone).replace(/[^0-9]/g, '');
+  if (p.length === 10) p = '91' + p;
+  if (!p.startsWith('+')) p = '+' + p;
+  return p;
+}
+
+// Send WhatsApp template message via WappCloud
+async function sendWhatsApp(toPhone, templateName, bodyVars = {}, headerOpts = null) {
+  if (!WAPPCLOUD_API_KEY || !WAPPCLOUD_TOKEN || !toPhone) return;
+  try {
+    const payload = {
+      contact_number: formatWAPhone(toPhone),
+      message: {
+        template_name: templateName
+      }
+    };
+
+    // Add body variables if provided (e.g., { "1": "John", "2": "Details..." })
+    if (bodyVars && Object.keys(bodyVars).length) {
+      payload.message.body = { variables: bodyVars };
+    }
+
+    // Add header if provided (text or image)
+    if (headerOpts) {
+      payload.message.header = headerOpts;
+    }
+
+    const resp = await fetch(WAPPCLOUD_URL, {
+      method: 'POST',
+      headers: {
+        'x-api-key': WAPPCLOUD_API_KEY,
+        'Authorization': `Bearer ${WAPPCLOUD_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const result = await resp.json();
+    if (result.success) {
+      logInfo('WhatsApp sent', { phone: toPhone, template: templateName, messageId: result.data?.message_uid });
+    } else {
+      logError('WhatsApp send failed', { phone: toPhone, template: templateName, response: JSON.stringify(result).substring(0, 300) });
+    }
+  } catch (err) {
+    logError('WhatsApp send error', { phone: toPhone, template: templateName, error: err.message });
+  }
 }
 
 const app = express();
@@ -1601,7 +1708,7 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req,
 
     // Welcome push to customer if they have a phone
     if (d.phone && d.customer_password) {
-      sendCustomerPush(d.phone, '🎉 Welcome to LockerHub!', `Your locker has been allotted successfully. Locker: ${lockerInfo ? lockerInfo.number : 'N/A'}${branch ? ' at ' + branch.name : ''}. Login with your phone number to manage your locker.`, { type: 'welcome' });
+      sendCustomerPush(d.phone, '🎉 Welcome to LockerHub!', `Your locker has been allotted successfully. Locker: ${lockerInfo ? lockerInfo.number : 'N/A'}${branch ? ' at ' + branch.name : ''}. Log in via the LockerHub app or at lockers.dhanamfinance.com to manage your locker.`, { type: 'welcome', wa_vars: { '2': lockerInfo ? lockerInfo.number : 'N/A', '3': branch ? branch.name : 'your branch' } });
     }
 
     res.json(txResult);
@@ -1812,7 +1919,7 @@ app.post('/api/tenants/:id/close', requireAuth, requireRole('headoffice', 'branc
 
     // Push notification to customer about closure
     if (tenant.phone) {
-      sendCustomerPush(tenant.phone, '🔒 Account Closed', `Your locker account has been closed. Reason: ${reason || 'As requested'}. Contact the branch for any queries.`, { type: 'account_closed' });
+      sendCustomerPush(tenant.phone, '🔒 Account Closed', `Your locker account has been closed. Reason: ${reason || 'As requested'}. Contact the branch for any queries.`, { type: 'account_closed', wa_vars: { '2': reason || 'As requested' } });
     }
 
     res.json({ ok: true, message: 'Account closed. Locker has been freed. Customer portal access has been disabled.' });
@@ -2038,7 +2145,7 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
       const payTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(d.tenant_id);
       if (payTenant && payTenant.phone) {
         const amt = parseFloat(d.amount).toLocaleString('en-IN');
-        sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${existingPending.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: existingPending.id });
+        sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${existingPending.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: existingPending.id, wa_vars: { '2': amt, '3': existingPending.receipt_no } });
       }
       // Notify HO about payment collection
       createNotification(
@@ -2078,7 +2185,7 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
       const payTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(d.tenant_id);
       if (payTenant && payTenant.phone) {
         const amt = parseFloat(d.amount).toLocaleString('en-IN');
-        sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: id });
+        sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${type} payment of ₹${amt} (Receipt: ${receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: id, wa_vars: { '2': amt, '3': receipt_no } });
       }
       // Notify HO about payment collection
       const payTenantForNotif = db.prepare('SELECT name FROM tenants WHERE id = ?').get(d.tenant_id);
@@ -2131,7 +2238,7 @@ app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (
         const payTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(payment.tenant_id);
         if (payTenant && payTenant.phone) {
           const amt = parseFloat(payment.amount).toLocaleString('en-IN');
-          sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${payment.type} payment of ₹${amt} (Receipt: ${payment.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: req.params.id });
+          sendCustomerPush(payTenant.phone, '💰 Payment Received', `Your ${payment.type} payment of ₹${amt} (Receipt: ${payment.receipt_no}) has been recorded. Thank you!`, { type: 'payment_received', payment_id: req.params.id, wa_vars: { '2': amt, '3': payment.receipt_no } });
         }
         // Notify HO about payment collection
         createNotification(
@@ -2279,7 +2386,7 @@ app.post('/api/renewals/:id/renew', requireAuth, requireRole('headoffice', 'bran
 
     // Notify customer about renewal
     if (tenant.phone) {
-      sendCustomerPush(tenant.phone, '🔄 Lease Renewed', `Your locker lease has been renewed. New lease period: ${newStart} to ${newEnd}.${rentPaymentCreated ? ' A rent payment has been generated.' : ''}`, { type: 'lease_renewed', tenant_id: req.params.id });
+      sendCustomerPush(tenant.phone, '🔄 Lease Renewed', `Your locker lease has been renewed. New lease period: ${newStart} to ${newEnd}.${rentPaymentCreated ? ' A rent payment has been generated.' : ''}`, { type: 'lease_renewed', tenant_id: req.params.id, wa_vars: { '2': newStart, '3': newEnd } });
     }
 
     // Notify HO about renewal
@@ -2358,7 +2465,7 @@ function checkLeaseRenewalReminders() {
         const renewMsg = daysLeft <= 0
           ? `Your locker lease has expired. Please contact the branch to renew your lease immediately.`
           : `Your locker lease expires on ${new Date(t.lease_end).toLocaleDateString('en-IN')} (${daysLeft} days left). Please visit the branch or contact us to renew.`;
-        sendCustomerPush(t.phone, '🔔 Lease Renewal Reminder', renewMsg, { type: 'lease_renewal', days_left: String(daysLeft) });
+        sendCustomerPush(t.phone, '🔔 Lease Renewal Reminder', renewMsg, { type: 'lease_renewal', days_left: String(daysLeft), wa_vars: { '2': new Date(t.lease_end).toLocaleDateString('en-IN'), '3': String(daysLeft <= 0 ? 0 : daysLeft) } });
       }
       logInfo('Auto renewal reminder sent', { tenant: t.name, lease_end: t.lease_end, days_left: daysLeft });
     }
@@ -2436,7 +2543,7 @@ app.post('/api/visits', requireAuth, requireRole('headoffice', 'branch'), (req, 
   if (d.tenant_id) {
     const visitTenant = db.prepare('SELECT name, phone FROM tenants WHERE id = ?').get(d.tenant_id);
     if (visitTenant && visitTenant.phone) {
-      sendCustomerPush(visitTenant.phone, '🏦 Visit Recorded', `Your locker visit has been recorded. Purpose: ${d.purpose || 'Locker Access'}. Date: ${d.datetime ? new Date(d.datetime).toLocaleDateString('en-IN') : 'Today'}.`, { type: 'visit_recorded', visit_id: id });
+      sendCustomerPush(visitTenant.phone, '🏦 Visit Recorded', `Your locker visit has been recorded. Purpose: ${d.purpose || 'Locker Access'}. Date: ${d.datetime ? new Date(d.datetime).toLocaleDateString('en-IN') : 'Today'}.`, { type: 'visit_recorded', visit_id: id, wa_vars: { '2': d.purpose || 'Locker Access', '3': d.datetime ? new Date(d.datetime).toLocaleDateString('en-IN') : 'Today' } });
     }
   }
 
@@ -3277,60 +3384,126 @@ function createNotification(branchId, targetRole, type, title, message, tenantId
   return id;
 }
 
-// ── FCM Push Notifications (Customer Mobile) ───────────────────
-// Send push notification to all devices registered for a customer phone number
+// ── Customer Notifications (FCM Push + Email + WhatsApp) ───────────────────
+// Sends push notification AND email AND WhatsApp to customer by phone number
+// All 18+ call sites use this function — adding channels here covers everything automatically
 async function sendCustomerPush(tenantPhone, title, body, dataPayload = {}) {
-  if (!firebaseInitialized || !tenantPhone) return;
-  try {
-    const tokens = db.prepare('SELECT token FROM fcm_tokens WHERE tenant_phone = ?').all(tenantPhone);
-    if (!tokens.length) {
-      logInfo('No FCM tokens for customer push', { phone: tenantPhone });
-      return;
-    }
+  if (!tenantPhone) return;
 
-    const messages = tokens.map(t => ({
-      token: t.token,
-      notification: { title, body },
-      data: { ...dataPayload, title, body },
-      android: {
-        priority: 'high',
-        notification: {
-          channelId: 'lockerhub_notifications',
-          sound: 'default',
+  // Look up tenant email + name for email/WhatsApp (single DB lookup, cached per call)
+  const tenant = db.prepare('SELECT name, email, phone FROM tenants WHERE phone = ? LIMIT 1').get(tenantPhone);
+  const tenantEmail = tenant?.email || '';
+  const tenantName = tenant?.name || '';
+
+  // ── 1. FCM Push ──
+  const fcmPromise = (async () => {
+    if (!firebaseInitialized) return;
+    try {
+      const tokens = db.prepare('SELECT token FROM fcm_tokens WHERE tenant_phone = ?').all(tenantPhone);
+      if (!tokens.length) return;
+
+      const messages = tokens.map(t => ({
+        token: t.token,
+        notification: { title, body },
+        data: { ...dataPayload, title, body },
+        android: {
           priority: 'high',
-          defaultVibrateTimings: true
+          notification: {
+            channelId: 'lockerhub_notifications',
+            sound: 'default',
+            priority: 'high',
+            defaultVibrateTimings: true
+          }
         }
-      }
-    }));
+      }));
 
-    // Send each message (firebase-admin v12+ sendEach)
-    const results = await admin.messaging().sendEach(messages);
-    let successCount = 0;
-    const tokensToRemove = [];
-    results.responses.forEach((resp, idx) => {
-      if (resp.success) {
-        successCount++;
-      } else {
-        // Remove invalid/expired tokens
-        const errCode = resp.error?.code;
-        if (errCode === 'messaging/invalid-registration-token' ||
-            errCode === 'messaging/registration-token-not-registered') {
-          tokensToRemove.push(tokens[idx].token);
+      const results = await admin.messaging().sendEach(messages);
+      let successCount = 0;
+      const tokensToRemove = [];
+      results.responses.forEach((resp, idx) => {
+        if (resp.success) {
+          successCount++;
+        } else {
+          const errCode = resp.error?.code;
+          if (errCode === 'messaging/invalid-registration-token' ||
+              errCode === 'messaging/registration-token-not-registered') {
+            tokensToRemove.push(tokens[idx].token);
+          }
         }
-      }
-    });
+      });
 
-    // Clean up stale tokens
-    if (tokensToRemove.length) {
-      const placeholders = tokensToRemove.map(() => '?').join(',');
-      db.prepare(`DELETE FROM fcm_tokens WHERE token IN (${placeholders})`).run(...tokensToRemove);
-      logInfo('Removed stale FCM tokens', { count: tokensToRemove.length, phone: tenantPhone });
+      if (tokensToRemove.length) {
+        const placeholders = tokensToRemove.map(() => '?').join(',');
+        db.prepare(`DELETE FROM fcm_tokens WHERE token IN (${placeholders})`).run(...tokensToRemove);
+        logInfo('Removed stale FCM tokens', { count: tokensToRemove.length, phone: tenantPhone });
+      }
+
+      logInfo('Customer push sent', { phone: tenantPhone, sent: successCount, failed: results.failureCount });
+    } catch (err) {
+      logError('FCM push error', { phone: tenantPhone, error: err.message });
     }
+  })();
 
-    logInfo('Customer push sent', { phone: tenantPhone, sent: successCount, failed: results.failureCount });
-  } catch (err) {
-    logError('FCM push error', { phone: tenantPhone, error: err.message });
-  }
+  // ── 2. Email ──
+  const emailPromise = (async () => {
+    if (!tenantEmail) return;
+    const htmlBody = `
+      <div style="font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e0d5c8; border-radius: 12px; overflow: hidden;">
+        <div style="background: #2c1810; padding: 20px 24px;">
+          <h2 style="color: #d4a574; margin: 0; font-size: 18px;">Dhanam LockerHub</h2>
+        </div>
+        <div style="padding: 24px;">
+          <h3 style="color: #2c1810; margin: 0 0 12px;">${title.replace(/[\u{1F300}-\u{1FAD6}]/gu, '').trim()}</h3>
+          ${tenantName ? `<p style="color: #5a4a3a; font-size: 15px; margin: 0 0 8px;">Dear ${tenantName},</p>` : ''}
+          <p style="color: #5a4a3a; font-size: 15px; line-height: 1.6; margin: 0 0 20px;">${body}</p>
+        </div>
+        <div style="background: #f9f5f0; padding: 16px 24px; border-top: 1px solid #e0d5c8;">
+          <p style="color: #7a6b5e; font-size: 12px; margin: 0;">Dhanam Investment and Finance Pvt. Ltd.<br>This is an automated notification. Please do not reply to this email.</p>
+        </div>
+      </div>`;
+    const cleanTitle = title.replace(/[\u{1F300}-\u{1FAD6}]/gu, '').trim();
+    await sendEmail(tenantEmail, `${cleanTitle} — Dhanam LockerHub`, htmlBody);
+  })();
+
+  // ── 3. WhatsApp (via WappCloud) ──
+  // Map notification types to WhatsApp template names
+  // Templates must be approved in Meta WhatsApp Business Manager (via WappCloud)
+  const waTemplateMap = {
+    'welcome': 'lockerhub_welcome',
+    'payment_received': 'lockerhub_payment',
+    'appointment_requested': 'lockerhub_appointment_request',
+    'appointment_approved': 'lockerhub_appointment_approved',
+    'appointment_rejected': 'lockerhub_appointment_rejected',
+    'esign_request': 'lockerhub_esign',
+    'esign_completed': 'lockerhub_esign_done',
+    'esign_cancelled': 'lockerhub_esign_cancelled',
+    'lease_renewed': 'lockerhub_renewal',
+    'lease_renewal': 'lockerhub_renewal_reminder',
+    'transfer_requested': 'lockerhub_transfer_request',
+    'transfer_approved': 'lockerhub_transfer_approved',
+    'transfer_completed': 'lockerhub_transfer_complete',
+    'transfer_rejected': 'lockerhub_transfer_rejected',
+    'transfer_cancelled': 'lockerhub_transfer_cancelled',
+    'account_closed': 'lockerhub_account_closed',
+    'visit_recorded': 'lockerhub_visit'
+  };
+  const notifType = dataPayload.type || '';
+  const waTemplate = waTemplateMap[notifType];
+  const cleanBody = body.replace(/[\u{1F300}-\u{1FAD6}]/gu, '').trim();
+
+  const waPromise = (async () => {
+    if (waTemplate) {
+      // Use template-specific variables if provided, otherwise generic { name, body }
+      const waVars = dataPayload.wa_vars
+        ? { '1': tenantName || 'Customer', ...dataPayload.wa_vars }
+        : { '1': tenantName || 'Customer', '2': cleanBody };
+      await sendWhatsApp(tenantPhone, waTemplate, waVars);
+    }
+    // No fallback text — WappCloud only supports template messages
+  })();
+
+  // Fire all channels in parallel — failures in one don't block others
+  await Promise.allSettled([fcmPromise, emailPromise, waPromise]);
 }
 
 // Register / update FCM token for customer device
@@ -3536,7 +3709,7 @@ app.post('/api/customer/request-transfer', requireAuth, (req, res) => {
     );
 
     // Push to customer
-    sendCustomerPush(tenant.phone, '📋 Transfer Request Submitted', `Your request to transfer to ${toBranch.name} has been submitted. We'll review and get back to you shortly.`, { type: 'transfer_requested', transfer_id: id });
+    sendCustomerPush(tenant.phone, '📋 Transfer Request Submitted', `Your request to transfer to ${toBranch.name} has been submitted. We'll review and get back to you shortly.`, { type: 'transfer_requested', transfer_id: id, wa_vars: { '2': toBranch.name } });
 
     auditLog('TRANSFER_REQUESTED', 'locker_transfer', id, req, { tenant: tenant.name, phone: tenant.phone, from: tenant.branch_id, to: to_branch_id, size: lockerSize });
     logInfo('Transfer requested', { id, tenant: tenant.name, from: tenant.branch_id, to: to_branch_id, size: lockerSize });
@@ -3687,7 +3860,7 @@ app.put('/api/locker-transfers/:id/approve', requireAuth, requireRole('headoffic
     createNotification(transfer.to_branch_id, 'all', 'transfer_approved', '✅ Incoming Transfer Approved', `${tenant.name} is transferring from ${fromBranch ? fromBranch.name : 'branch'}. Assigned locker: ${targetLocker.number}. Awaiting completion.`, tenant.id);
 
     // Push to customer
-    sendCustomerPush(tenant.phone, '✅ Transfer Approved!', `Your transfer to ${toBranch ? toBranch.name : 'the new branch'} has been approved. Your new locker: ${targetLocker.number}. The team will guide you through the transition.`, { type: 'transfer_approved', transfer_id: req.params.id });
+    sendCustomerPush(tenant.phone, '✅ Transfer Approved!', `Your transfer to ${toBranch ? toBranch.name : 'the new branch'} has been approved. Your new locker: ${targetLocker.number}. The team will guide you through the transition.`, { type: 'transfer_approved', transfer_id: req.params.id, wa_vars: { '2': toBranch ? toBranch.name : 'the new branch', '3': targetLocker.number } });
 
     auditLog('TRANSFER_APPROVED', 'locker_transfer', req.params.id, req, { tenant: tenant.name, to_locker: targetLocker.number, to_branch: transfer.to_branch_id });
     logInfo('Transfer approved', { id: req.params.id, tenant: tenant.name, to_locker: targetLocker.number });
@@ -3715,7 +3888,7 @@ app.put('/api/locker-transfers/:id/reject', requireAuth, requireRole('headoffice
     createNotification(transfer.from_branch_id, 'all', 'transfer_rejected', '❌ Transfer Rejected', `${tenant ? tenant.name : 'Tenant'}'s transfer request has been rejected.${rejection_reason ? ' Reason: ' + rejection_reason : ''}`, transfer.tenant_id);
 
     if (tenant && tenant.phone) {
-      sendCustomerPush(tenant.phone, '❌ Transfer Not Approved', `Your transfer request could not be approved.${rejection_reason ? ' Reason: ' + rejection_reason : ' Please contact the branch for details.'}`, { type: 'transfer_rejected', transfer_id: req.params.id });
+      sendCustomerPush(tenant.phone, '❌ Transfer Not Approved', `Your transfer request could not be approved.${rejection_reason ? ' Reason: ' + rejection_reason : ' Please contact the branch for details.'}`, { type: 'transfer_rejected', transfer_id: req.params.id, wa_vars: { '2': rejection_reason || 'Please contact the branch for details.' } });
     }
 
     auditLog('TRANSFER_REJECTED', 'locker_transfer', req.params.id, req, { tenant: tenant ? tenant.name : '', reason: rejection_reason });
@@ -3798,7 +3971,7 @@ app.put('/api/locker-transfers/:id/complete', requireAuth, requireRole('headoffi
 
     // Push to customer
     if (tenant.phone) {
-      sendCustomerPush(tenant.phone, '🎉 Transfer Complete!', `Your locker has been transferred to ${toBranch ? toBranch.name : 'the new branch'}. New locker: ${newLocker.number}. All your records, payments, and documents have been moved.`, { type: 'transfer_completed', transfer_id: transfer.id });
+      sendCustomerPush(tenant.phone, '🎉 Transfer Complete!', `Your locker has been transferred to ${toBranch ? toBranch.name : 'the new branch'}. New locker: ${newLocker.number}. All your records, payments, and documents have been moved.`, { type: 'transfer_completed', transfer_id: transfer.id, wa_vars: { '2': toBranch ? toBranch.name : 'the new branch', '3': newLocker.number } });
     }
 
     auditLog('TRANSFER_COMPLETED', 'locker_transfer', transfer.id, req, {
@@ -4047,7 +4220,7 @@ app.post('/api/appointments', requireAuth, (req, res) => {
     );
     // Confirm to customer that appointment request was submitted
     if (tenantPhone) {
-      sendCustomerPush(tenantPhone, '📅 Appointment Requested', `Your appointment request for ${d.requested_date} at ${slotTime} has been submitted${branchName ? ' to ' + branchName : ''}. You'll be notified once it's approved.`, { type: 'appointment_requested', appointment_id: id });
+      sendCustomerPush(tenantPhone, '📅 Appointment Requested', `Your appointment request for ${d.requested_date} at ${slotTime} has been submitted${branchName ? ' to ' + branchName : ''}. You'll be notified once it's approved.`, { type: 'appointment_requested', appointment_id: id, wa_vars: { '2': d.requested_date, '3': slotTime } });
     }
   }
 
@@ -4099,7 +4272,11 @@ app.put('/api/appointments/:id/status', requireAuth, requireRole('headoffice', '
       const pushBody = status === 'Approved'
         ? `Your appointment on ${dateStr}${timeStr} has been approved. Purpose: ${appt.purpose || 'Locker Access'}`
         : `Your appointment on ${dateStr}${timeStr} has been rejected.${admin_notes ? ' Reason: ' + admin_notes : ' Please contact the branch for details.'}`;
-      sendCustomerPush(tenant.phone, pushTitle, pushBody, { type: 'appointment_status', appointment_id: appt.id, status });
+      const waType = status === 'Approved' ? 'appointment_approved' : 'appointment_rejected';
+      const waVars = status === 'Approved'
+        ? { '2': dateStr, '3': appt.requested_time || 'Scheduled time' }
+        : { '2': `${dateStr}${timeStr}`, '3': admin_notes || 'Please contact the branch for details.' };
+      sendCustomerPush(tenant.phone, pushTitle, pushBody, { type: waType, appointment_id: appt.id, status, wa_vars: waVars });
     }
   }
 
@@ -4481,7 +4658,7 @@ app.post('/api/esign/initiate', requireAuth, requireRole('headoffice', 'branch')
     // Notify customer on mobile that a document needs their signature
     if (tenant.phone) {
       const docLabel = document_type === 'receipt' ? 'payment receipt' : 'locker agreement';
-      sendCustomerPush(tenant.phone, '✍️ E-Sign Request', `A ${docLabel} is ready for your digital signature. Please check your email/SMS for the signing link from Digio.`, { type: 'esign_request', esign_id: id });
+      sendCustomerPush(tenant.phone, '✍️ E-Sign Request', `A ${docLabel} is ready for your digital signature. Please check your email/SMS for the signing link from Digio.`, { type: 'esign_request', esign_id: id, wa_vars: { '2': docLabel } });
     }
 
     // Notify staff that e-sign was initiated
@@ -4648,7 +4825,7 @@ app.post('/api/esign/:id/cancel', requireAuth, requireRole('headoffice', 'branch
     // Notify customer that e-sign was cancelled
     const cancelTenant = db.prepare('SELECT name, phone, branch_id FROM tenants WHERE id = ?').get(esign.tenant_id);
     if (cancelTenant && cancelTenant.phone) {
-      sendCustomerPush(cancelTenant.phone, '📋 E-Sign Cancelled', `The ${esign.document_type === 'receipt' ? 'receipt' : 'agreement'} signing request has been cancelled. If this is unexpected, please contact your branch.`, { type: 'esign_cancelled', esign_id: esign.id });
+      sendCustomerPush(cancelTenant.phone, '📋 E-Sign Cancelled', `The ${esign.document_type === 'receipt' ? 'receipt' : 'agreement'} signing request has been cancelled. If this is unexpected, please contact your branch.`, { type: 'esign_cancelled', esign_id: esign.id, wa_vars: { '2': esign.document_type === 'receipt' ? 'receipt' : 'agreement' } });
     }
 
     // Delete from local DB regardless
@@ -4688,7 +4865,7 @@ app.post('/api/esign/webhook', (req, res) => {
               esign.tenant_id
             );
             // Confirm to customer
-            sendCustomerPush(tenant.phone, '✅ Document Signed', `Your ${esign.document_type === 'receipt' ? 'payment receipt' : 'locker agreement'} has been signed successfully. Thank you!`, { type: 'esign_completed', esign_id: esign.id });
+            sendCustomerPush(tenant.phone, '✅ Document Signed', `Your ${esign.document_type === 'receipt' ? 'payment receipt' : 'locker agreement'} has been signed successfully. Thank you!`, { type: 'esign_completed', esign_id: esign.id, wa_vars: { '2': esign.document_type === 'receipt' ? 'payment receipt' : 'locker agreement' } });
           } else if (isExpired) {
             // Notify staff that signing expired
             createNotification(
