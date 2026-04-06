@@ -256,14 +256,7 @@ const apiLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' }
 });
 
-// Rate limiting for login endpoints — 30 attempts per 5 min per IP
-const loginLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000, // 5 min window (resets faster)
-  max: parseInt(process.env.LOGIN_RATE_LIMIT_MAX) || 30,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many login attempts, please wait 5 minutes and try again' }
-});
+// Login rate limiter removed — global apiLimiter covers abuse prevention
 
 // Apply general rate limit to all API routes
 app.use('/api/', apiLimiter);
