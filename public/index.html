@@ -4120,7 +4120,17 @@
                     }
                     throw new Error(errBody.error || `Server error: ${response.status}`);
                 }
-                return await response.json();
+                // Safely parse JSON: handle empty or non-JSON 2xx bodies (proxy
+                // timeouts, 204 No Content, etc.) without throwing the cryptic
+                // "Unexpected end of JSON input" error to the caller.
+                const text = await response.text();
+                if (!text) return {};
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    console.warn('api(): non-JSON 2xx response for', path, '— returning raw text');
+                    return { _raw: text };
+                }
             } catch (err) {
                 clearTimeout(timer);
                 if (err.name === 'AbortError') {
@@ -6116,8 +6126,12 @@
                 headers: { 'Authorization': 'Bearer ' + token },
                 body: formData
             });
-            const result = await resp.json();
-            if (!resp.ok) throw new Error(result.error || 'Upload failed');
+            // Safely parse: empty/non-JSON bodies (proxy timeout etc.) shouldn't
+            // raise the cryptic "Unexpected end of JSON input" error.
+            const text = await resp.text();
+            let result = {};
+            if (text) { try { result = JSON.parse(text); } catch (_) { result = { error: text.slice(0, 200) }; } }
+            if (!resp.ok) throw new Error(result.error || ('Upload failed (HTTP ' + resp.status + ')'));
             return result;
         }
 
@@ -10058,20 +10072,41 @@
         async function saveToRepo(esignId) {
             if (!confirm('Upload this signed document to Dhanam Repository (SharePoint)?')) return;
             try {
-                showLoading('Uploading to SharePoint...');
-                const result = await api('POST', `/api/esign/${esignId}/save-to-repo`, null, 30000);
+                // SharePoint uploads (download from Digio + upload to Graph) can take
+                // 30-90s for large signed PDFs. Bumped from 30s → 120s.
+                showLoading('Uploading to SharePoint... (this can take up to 2 minutes)');
+                const result = await api('POST', `/api/esign/${esignId}/save-to-repo`, null, 120000);
                 hideLoading();
-                if (result.onedrive_url) {
+                if (result && result.onedrive_url) {
                     alert('Saved to Dhanam Repository successfully!');
                     await loadEsign(); // Refresh to show "Repo" button instead of "Save to Repo"
                 } else {
-                    alert('Upload completed but no URL returned. Check SharePoint.');
+                    // Empty response — re-check via the e-sign list to see if it actually saved.
+                    const list = await api('GET', `/api/esign?branch_id=${currentBranchId || 'all'}`).catch(() => []);
+                    const updated = (list || []).find(r => r.id === esignId);
+                    if (updated && updated.onedrive_url) {
+                        alert('Saved to Dhanam Repository successfully!');
+                    } else {
+                        alert('Upload status unclear. Refreshing list — please verify in SharePoint or try again.');
+                    }
                     await loadEsign();
                 }
             } catch (error) {
                 hideLoading();
                 console.error('Save to repo error:', error);
-                alert('Failed to save to repository: ' + (error.message || error.error || 'Unknown error'));
+                // The server writes the SharePoint URL to the DB BEFORE responding,
+                // so if the response was lost (proxy/network), the upload may have
+                // actually succeeded. Re-fetch the list and check before showing an error.
+                try {
+                    const list = await api('GET', `/api/esign?branch_id=${currentBranchId || 'all'}`);
+                    const updated = (list || []).find(r => r.id === esignId);
+                    if (updated && updated.onedrive_url) {
+                        alert('Saved to Dhanam Repository successfully (recovered after network error).');
+                        await loadEsign();
+                        return;
+                    }
+                } catch (_) {}
+                alert('Failed to save to repository: ' + (error.message || error.error || 'Unknown error') + '\n\nThe document is still available — you can click "Save to Repo" again to retry.');
             }
         }
 

@@ -4797,12 +4797,24 @@ function msGraphUpload(apiPath, buffer, token, contentType) {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (res.statusCode >= 200 && res.statusCode < 300) resolve(json);
-          else reject({ status: res.statusCode, message: json.error?.message || data });
-        } catch (e) { reject(e); }
+        // Microsoft Graph returns JSON for both success (driveItem) and error.
+        // Empty body on 2xx is unexpected — surface a clear error instead of crashing.
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          if (!data) return reject(new Error('SharePoint returned empty response (status ' + res.statusCode + ')'));
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(new Error('SharePoint returned non-JSON response: ' + data.slice(0, 200))); }
+        } else {
+          // Try to extract a useful error message from Graph's standard error envelope.
+          let msg = data;
+          try { const j = JSON.parse(data); msg = j.error?.message || j.error_description || data; } catch (_) {}
+          reject(new Error('SharePoint upload failed (' + res.statusCode + '): ' + (msg || 'no body')));
+        }
       });
+    });
+    // Fail fast if Graph stalls (default Node has no socket timeout). 110s gives
+    // headroom for a 4MB upload over slow links but well under our 120s client cap.
+    req.setTimeout(110000, () => {
+      req.destroy(new Error('SharePoint upload timed out after 110s'));
     });
     req.on('error', reject);
     req.write(buffer);
@@ -4854,11 +4866,17 @@ function digioDownload(apiPath) {
       res.on('end', () => {
         const buffer = Buffer.concat(chunks);
         if (res.statusCode >= 200 && res.statusCode < 300) {
+          if (!buffer.length) return reject(new Error('Digio returned empty document body'));
           resolve(buffer);
         } else {
-          reject({ status: res.statusCode, message: buffer.toString() });
+          reject(new Error('Digio download failed (' + res.statusCode + '): ' + buffer.toString().slice(0, 200)));
         }
       });
+    });
+    // Same fail-fast philosophy as the Graph upload — never let the request
+    // hang silently waiting for an upstream that's not coming back.
+    req.setTimeout(60000, () => {
+      req.destroy(new Error('Digio download timed out after 60s'));
     });
     req.on('error', reject);
     req.end();
@@ -5104,20 +5122,33 @@ app.get('/api/esign/:id/preview', requireAuth, async (req, res) => {
 
 // Save signed document to SharePoint (Dhanam Repository → Locker Applications)
 app.post('/api/esign/:id/save-to-repo', requireAuth, requireRole('headoffice', 'branch'), async (req, res) => {
+  // Give this endpoint plenty of headroom — Digio download + Graph upload can be slow.
+  try { req.setTimeout(180000); res.setTimeout(180000); } catch (_) {}
   try {
     const esign = db.prepare('SELECT * FROM esign_requests WHERE id = ?').get(req.params.id);
     if (!esign) return res.status(404).json({ error: 'E-sign request not found' });
     if (!esign.digio_doc_id) return res.status(400).json({ error: 'No Digio document ID found' });
 
-    // Check if already uploaded
+    // Idempotent: if already uploaded, return the cached URL. This is also the
+    // recovery path the frontend uses after a network blip — re-clicking save
+    // will return the existing URL instead of re-uploading.
     if (esign.onedrive_url) {
       return res.json({ success: true, onedrive_url: esign.onedrive_url, message: 'Already saved to repository' });
     }
 
     logInfo('Saving signed doc to SharePoint', { id: req.params.id, digio_doc_id: esign.digio_doc_id });
 
-    // Download from Digio
-    const signedPdf = await digioDownload(`/v2/client/document/download?document_id=${esign.digio_doc_id}`);
+    // Step 1: Download from Digio (will throw with a clear message on timeout/empty body)
+    let signedPdf;
+    try {
+      signedPdf = await digioDownload(`/v2/client/document/download?document_id=${esign.digio_doc_id}`);
+    } catch (dErr) {
+      logError('Digio download failed during save-to-repo', { id: req.params.id, error: dErr.message || JSON.stringify(dErr) });
+      return res.status(502).json({ error: 'Could not download signed document from Digio: ' + (dErr.message || 'unknown error') });
+    }
+    if (!signedPdf || !signedPdf.length) {
+      return res.status(502).json({ error: 'Digio returned an empty signed document' });
+    }
 
     // Build subfolder: DocType/BranchName/TenantName
     // Agreements → Application, Receipts → Payment Receipt
@@ -5129,18 +5160,30 @@ app.post('/api/esign/:id/save-to-repo', requireAuth, requireRole('headoffice', '
     const subfolder = `${docTypeFolder}/${branchName}/${tenantName}`;
     const fileName = esign.file_name || 'Signed_document.pdf';
 
-    // Upload to SharePoint
-    const sharePointUrl = await uploadToSharePoint(signedPdf, fileName, subfolder);
+    // Step 2: Upload to SharePoint
+    let sharePointUrl;
+    try {
+      sharePointUrl = await uploadToSharePoint(signedPdf, fileName, subfolder);
+    } catch (sErr) {
+      logError('SharePoint upload failed during save-to-repo', { id: req.params.id, error: sErr.message || JSON.stringify(sErr) });
+      return res.status(502).json({ error: 'SharePoint upload failed: ' + (sErr.message || 'unknown error') });
+    }
+    if (!sharePointUrl) {
+      return res.status(502).json({ error: 'SharePoint upload returned no URL' });
+    }
 
-    // Save the URL
+    // Step 3: Persist the URL BEFORE responding so a lost response can be recovered
+    // by the frontend re-fetching the e-sign list (which now contains the URL).
     db.prepare('UPDATE esign_requests SET onedrive_url = ?, updated_at = datetime(?) WHERE id = ?')
       .run(sharePointUrl, new Date().toISOString(), req.params.id);
 
     logInfo('Signed doc saved to SharePoint', { id: req.params.id, url: sharePointUrl });
-    res.json({ success: true, onedrive_url: sharePointUrl });
+    return res.json({ success: true, onedrive_url: sharePointUrl });
   } catch (err) {
-    logError('Save to repo failed', { id: req.params.id, error: err.message || JSON.stringify(err) });
-    res.status(500).json({ error: err.message || 'Failed to save to repository' });
+    logError('Save to repo failed', { id: req.params.id, error: err.message || JSON.stringify(err), stack: err.stack });
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message || 'Failed to save to repository' });
+    }
   }
 });
 
