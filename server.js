@@ -309,6 +309,81 @@ function requireRole(...roles) {
   };
 }
 
+// ============================
+//  PERMISSION SYSTEM (additive, role-default + per-user overrides)
+// ============================
+// Master list of permission keys. Frontend wizard reads this from /api/permissions/catalog.
+const PERMISSION_CATALOG = {
+  // Core ops
+  tenants:           { label: 'Tenants',          group: 'Core ops' },
+  lockers:           { label: 'Lockers',          group: 'Core ops' },
+  payments:          { label: 'Payments',         group: 'Core ops' },
+  visits:            { label: 'Visits',           group: 'Core ops' },
+  // Workflow
+  appointments:      { label: 'Appointments',     group: 'Workflow' },
+  esign:             { label: 'E-Sign',           group: 'Workflow' },
+  bg_checks:         { label: 'BG Checks',        group: 'Workflow' },
+  transfers:         { label: 'Transfers',        group: 'Workflow' },
+  reminders:         { label: 'Reminders',        group: 'Workflow' },
+  // Leads
+  leads_locker:      { label: 'Locker Leads',     group: 'Leads' },
+  leads_ncd:         { label: 'NCD Leads',        group: 'Leads' },
+  leads_ncd_delete:  { label: 'Delete NCD Leads', group: 'Leads' },
+  // Admin
+  branches:          { label: 'Branches',         group: 'Admin' },
+  users:             { label: 'Users',            group: 'Admin' },
+  locker_types:      { label: 'Locker Types',     group: 'Admin' },
+  reports:           { label: 'Reports',          group: 'Admin' },
+  backup:            { label: 'Backup & Restore', group: 'Admin' },
+  feedback:          { label: 'Feedback',         group: 'Admin' }
+};
+
+// Default capability set per role (used when user.permissions is empty)
+const ROLE_DEFAULT_PERMISSIONS = {
+  // HO is omitted on purpose — HO is treated as "all permissions" via hasPermission()
+  branch: [
+    'tenants', 'lockers', 'payments', 'visits',
+    'appointments', 'esign', 'bg_checks', 'transfers', 'reminders',
+    'leads_locker', 'feedback'
+  ],
+  lead_agent: [
+    'leads_locker'
+  ]
+};
+
+function parseUserPermissions(user) {
+  if (!user) return [];
+  if (user.role === 'headoffice') return Object.keys(PERMISSION_CATALOG); // HO = all
+  let overrides = [];
+  if (user.permissions) {
+    try {
+      const parsed = JSON.parse(user.permissions);
+      if (Array.isArray(parsed)) overrides = parsed.filter(k => PERMISSION_CATALOG[k]);
+    } catch (_) { /* corrupt JSON — ignore, fall back to role defaults */ }
+  }
+  // If overrides exist, they REPLACE the role default (explicit wizard selection).
+  // If no overrides, fall back to role defaults so existing branch users don't lose access.
+  if (overrides.length > 0) return overrides;
+  return (ROLE_DEFAULT_PERMISSIONS[user.role] || []).slice();
+}
+
+function hasPermission(user, key) {
+  if (!user) return false;
+  if (user.role === 'headoffice') return true;
+  return parseUserPermissions(user).includes(key);
+}
+
+// Middleware: require a permission key. NCD delete is HO-only enforced separately.
+function requirePermission(key) {
+  return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (!hasPermission(req.user, key)) {
+      return res.status(403).json({ error: 'Insufficient permissions for ' + key });
+    }
+    next();
+  };
+}
+
 // Middleware: enforce branch scoping (branch staff can only access their own branch)
 function enforceBranchScope(req, res, next) {
   if (!req.user) return next();
@@ -670,6 +745,20 @@ addColumnIfMissing('esign_requests', 'onedrive_url', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'visit_time', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'converted_tenant_id', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'source', "TEXT DEFAULT ''");
+
+// NCD lead support — leads table now holds two types: 'locker' (default) and 'ncd'
+// Existing locker leads stay 'locker' (DEFAULT) so nothing breaks. NCD-only fields are nullable.
+addColumnIfMissing('leads', 'lead_type', "TEXT DEFAULT 'locker'");
+addColumnIfMissing('leads', 'place', "TEXT DEFAULT ''");
+addColumnIfMissing('leads', 'occupation', "TEXT DEFAULT ''");
+addColumnIfMissing('leads', 'amount', "REAL DEFAULT 0");
+addColumnIfMissing('leads', 'narration', "TEXT DEFAULT ''");
+addColumnIfMissing('leads', 'reference', "TEXT DEFAULT ''");
+// Backfill any NULL lead_type rows to 'locker' so filters never miss them
+try { db.prepare("UPDATE leads SET lead_type = 'locker' WHERE lead_type IS NULL OR lead_type = ''").run(); } catch (e) {}
+
+// Per-user permission overrides (JSON object). NULL/empty = role defaults only.
+addColumnIfMissing('users', 'permissions', "TEXT DEFAULT ''");
 
 // Nominee details
 addColumnIfMissing('tenants', 'nominee_name', "TEXT DEFAULT ''");
@@ -1596,7 +1685,7 @@ app.get('/api/tenants', requireAuth, enforceBranchScope, (req, res) => {
   res.json(tenants);
 });
 
-app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), async (req, res) => {
   try {
     const d = req.body;
     if (!d.name || !d.name.trim()) return res.status(400).json({ error: 'Tenant name is required' });
@@ -1698,6 +1787,18 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), (req,
       `${d.name} (${d.phone}) has been allotted Locker ${lockerInfo ? lockerInfo.number : 'N/A'} at ${branch ? branch.name : 'Branch'}. Deposit: ₹${(d.deposit || 0).toLocaleString('en-IN')}, Rent: ₹${(d.annual_rent || 0).toLocaleString('en-IN')}/yr.`,
       txResult.id
     );
+
+    // If a customer dashboard password was provided at creation time, hash and apply
+    // to ALL tenant rows with this phone (matches the existing reset behavior).
+    if (d.phone && d.customer_password && typeof d.customer_password === 'string' && d.customer_password.length >= 4) {
+      try {
+        const hashed = await bcrypt.hash(d.customer_password, BCRYPT_ROUNDS);
+        db.prepare('UPDATE tenants SET customer_password = ? WHERE phone = ?').run(hashed, d.phone);
+        logInfo('Customer dashboard password set on tenant create', { tenantId: txResult.id, phone: d.phone });
+      } catch (e) {
+        logError('Failed to hash/set customer password on tenant create', { error: e.message });
+      }
+    }
 
     // Welcome push to customer if they have a phone
     if (d.phone && d.customer_password) {
@@ -2626,6 +2727,12 @@ app.get('/api/stats', requireAuth, enforceBranchScope, (req, res) => {
   const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified' AND bg_status != 'verified' AND (account_status IS NULL OR account_status != 'Closed')`).get(branch_id);
   const pendingInterest = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM payouts WHERE branch_id = ? AND (status = 'Pending' OR status = 'Missed')`).get(branch_id);
 
+  // Lead counts (locker = branch-scoped, NCD = global because NCD has no branch_id)
+  const lockerLeads = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND branch_id = ?`).get(branch_id);
+  const lockerLeadsOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND branch_id = ? AND status NOT IN ('Converted','Lost')`).get(branch_id);
+  const ncdLeads = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(amount),0) as amt FROM leads WHERE lead_type = 'ncd'`).get();
+  const ncdLeadsOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'ncd' AND status NOT IN ('Invested','Lost')`).get();
+
   // Current month summary — match by paid_on date (YYYY-MM-DD), not period
   const now = new Date();
   const currentMonth = now.toLocaleDateString('en-IN', { month: 'short', year: 'numeric' });
@@ -2649,7 +2756,12 @@ app.get('/api/stats', requireAuth, enforceBranchScope, (req, res) => {
     current_month: currentMonth,
     month_paid: monthPaid.count, month_paid_amount: monthPaid.total,
     month_pending: monthPending.count, month_pending_amount: monthPending.total,
-    month_overdue: monthOverdue.count, month_overdue_amount: monthOverdue.total
+    month_overdue: monthOverdue.count, month_overdue_amount: monthOverdue.total,
+    locker_leads_total: lockerLeads.c || 0,
+    locker_leads_open: lockerLeadsOpen.c || 0,
+    ncd_leads_total: ncdLeads.c || 0,
+    ncd_leads_open: ncdLeadsOpen.c || 0,
+    ncd_leads_amount: ncdLeads.amt || 0
   });
 });
 
@@ -2673,6 +2785,8 @@ app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => 
     const todayVisits = db.prepare(`SELECT COUNT(*) as count FROM visits WHERE branch_id = ? AND date(datetime) = date('now')`).get(b.id);
     const unverified = db.prepare(`SELECT COUNT(*) as count FROM tenants WHERE branch_id = ? AND bg_status != 'Verified' AND bg_status != 'verified'`).get(b.id);
     const monthPaid = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND paid_on LIKE ?`).get(b.id, yearMonth + '%');
+    const branchLockerLeads = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND branch_id = ?`).get(b.id);
+    const branchLockerLeadsOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND branch_id = ? AND status NOT IN ('Converted','Lost')`).get(b.id);
 
     return {
       branch_id: b.id, branch_name: b.name,
@@ -2686,10 +2800,40 @@ app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => 
       pending_count: totalPending.count, pending_amount: totalPending.total,
       today_visits: todayVisits.count,
       unverified_tenants: unverified.count,
-      month_paid: monthPaid.count, month_paid_amount: monthPaid.total
+      month_paid: monthPaid.count, month_paid_amount: monthPaid.total,
+      locker_leads_total: branchLockerLeads.c || 0,
+      locker_leads_open: branchLockerLeadsOpen.c || 0
     };
   });
+  // Backward-compatible: response is still the branch array. Attach org-level
+  // lead aggregates as a non-enumerable-friendly extra by exposing them via headers too,
+  // but the simplest safe option is to wrap... we keep array shape and let the frontend
+  // call /api/leads/summary?lead_type=ncd for the org NCD totals. The org rollup is also
+  // available via the new /api/stats/leads endpoint below.
   res.json(stats);
+});
+
+// Lightweight org-wide lead rollup for HO dashboard widgets.
+app.get('/api/stats/leads', requireAuth, requireRole('headoffice'), (req, res) => {
+  try {
+    const ncdAgg = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(amount),0) as amt FROM leads WHERE lead_type = 'ncd'`).get();
+    const ncdOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'ncd' AND status NOT IN ('Invested','Lost')`).get();
+    const ncdInvested = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(amount),0) as amt FROM leads WHERE lead_type = 'ncd' AND status = 'Invested'`).get();
+    const lockerLeadAgg = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'locker' OR lead_type IS NULL OR lead_type = ''`).get();
+    const lockerLeadOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND status NOT IN ('Converted','Lost')`).get();
+    res.json({
+      ncd_total: ncdAgg.c || 0,
+      ncd_open: ncdOpen.c || 0,
+      ncd_amount: ncdAgg.amt || 0,
+      ncd_invested_count: ncdInvested.c || 0,
+      ncd_invested_amount: ncdInvested.amt || 0,
+      locker_leads_total: lockerLeadAgg.c || 0,
+      locker_leads_open: lockerLeadOpen.c || 0
+    });
+  } catch (err) {
+    logError('Stats leads failed', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // ============================
@@ -2733,23 +2877,61 @@ app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
 //  USERS MANAGEMENT
 // ============================
 app.get('/api/users', requireAuth, requireRole('headoffice'), (req, res) => {
-  const users = db.prepare('SELECT u.id, u.username, u.name, u.role, u.branch_id, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id ORDER BY u.role, u.name').all();
+  const rows = db.prepare('SELECT u.id, u.username, u.name, u.role, u.branch_id, u.permissions, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id ORDER BY u.role, u.name').all();
+  // Decorate each user with the resolved (effective) permission list for the UI
+  const users = rows.map(u => ({
+    ...u,
+    effective_permissions: parseUserPermissions(u)
+  }));
   res.json(users);
 });
 
+// Create a user. New optional field: permissions (array of keys from PERMISSION_CATALOG).
+// If permissions is omitted/empty, the user inherits role defaults — same as before.
 app.post('/api/users', requireAuth, requireRole('headoffice'), async (req, res) => {
-  const { username, password, name, role, branch_id } = req.body;
+  const { username, password, name, role, branch_id, permissions } = req.body;
   if (!username || !password || !name) return res.status(400).json({ error: 'Username, password, and name are required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const validRoles = ['headoffice', 'branch', 'lead_agent'];
+  const finalRole = role || 'branch';
+  if (!validRoles.includes(finalRole)) return res.status(400).json({ error: 'Invalid role' });
+
+  // Validate permissions array (if any) against the catalog
+  let permJson = '';
+  if (Array.isArray(permissions) && permissions.length > 0) {
+    const cleaned = permissions.filter(k => PERMISSION_CATALOG[k]);
+    permJson = JSON.stringify(cleaned);
+  }
+
   const id = genId();
   try {
     const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id) VALUES (?, ?, ?, ?, ?, ?)').run(id, username, hashedPassword, name, role || 'branch', branch_id || null);
-    logInfo('User created', { id, username, role: role || 'branch' });
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id, permissions) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+      id, username, hashedPassword, name, finalRole, branch_id || null, permJson
+    );
+    logInfo('User created', { id, username, role: finalRole, perms: permJson ? JSON.parse(permJson).length : 'role-default' });
     res.json({ id });
   } catch (e) {
     res.status(400).json({ error: 'Username already exists' });
   }
+});
+
+// Update permissions on an existing user (separate endpoint so we don't break the existing PUT)
+app.put('/api/users/:id/permissions', requireAuth, requireRole('headoffice'), (req, res) => {
+  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (user.username === 'root' && req.user.username !== 'root') {
+    return res.status(403).json({ error: 'Only the root user can modify the root account' });
+  }
+  const { permissions } = req.body;
+  let permJson = '';
+  if (Array.isArray(permissions) && permissions.length > 0) {
+    const cleaned = permissions.filter(k => PERMISSION_CATALOG[k]);
+    permJson = JSON.stringify(cleaned);
+  }
+  db.prepare('UPDATE users SET permissions = ? WHERE id = ?').run(permJson, req.params.id);
+  logInfo('User permissions updated', { id: req.params.id, count: permJson ? JSON.parse(permJson).length : 0 });
+  res.json({ ok: true });
 });
 
 // Branch-scoped staff list — for creator dropdown in tenant form
@@ -2904,6 +3086,41 @@ function autoSeed() {
   console.log('  ✅ Seeded: root/admin@123 (HO), rspuram/admin@123 (RS Puram, 88 lockers), 20 lead agents');
 }
 autoSeed();
+
+// ============================
+//  ENSURE NCD HO USERS (Eashwar, Srinish)
+// ============================
+// These users must always exist as HO accounts. If old lead_agent records exist
+// (from previous seed), delete and recreate as fresh HO users. Idempotent.
+(function ensureNcdHOUsers() {
+  try {
+    const ncdHO = [
+      { username: 'eashwar', name: 'Eashwar' },
+      { username: 'srinish', name: 'Srinish' }
+    ];
+    const defaultPassHash = bcrypt.hashSync('Welcome@123', BCRYPT_ROUNDS);
+    ncdHO.forEach(u => {
+      const existing = db.prepare('SELECT id, role FROM users WHERE LOWER(username) = ?').get(u.username);
+      if (existing) {
+        if (existing.role !== 'headoffice') {
+          // Delete the old non-HO record and recreate as HO (per user instruction).
+          db.prepare('DELETE FROM users WHERE id = ?').run(existing.id);
+          db.prepare('INSERT INTO users (id, username, password, name, role, branch_id, permissions) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+            genId(), u.username, defaultPassHash, u.name, 'headoffice', null, ''
+          );
+          logInfo('NCD HO user recreated as headoffice', { username: u.username });
+        }
+      } else {
+        db.prepare('INSERT INTO users (id, username, password, name, role, branch_id, permissions) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
+          genId(), u.username, defaultPassHash, u.name, 'headoffice', null, ''
+        );
+        logInfo('NCD HO user created', { username: u.username });
+      }
+    });
+  } catch (e) {
+    logError('ensureNcdHOUsers failed', { error: e.message });
+  }
+})();
 
 // ============================
 //  DATABASE BACKUP & RESTORE
@@ -4999,23 +5216,55 @@ app.get('/api/feedback/summary', requireAuth, (req, res) => {
 // ============================
 
 // Create a lead (lead_agent, branch, or HO)
+// Supports both 'locker' (default — backward compatible) and 'ncd' lead types.
+// NCD leads: HO-only, no branch_id, all fields optional except name.
 app.post('/api/leads', requireAuth, (req, res) => {
   try {
+    const lead_type = (req.body.lead_type === 'ncd') ? 'ncd' : 'locker';
+
+    // NCD leads can only be created by users with leads_ncd permission (HO + opt-in)
+    if (lead_type === 'ncd' && !hasPermission(req.user, 'leads_ncd')) {
+      return res.status(403).json({ error: 'You do not have permission to create NCD leads' });
+    }
+
     const { name, email, locker_size, branch_id, notes } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name is required' });
-    // Sanitize phone: digits only, max 10
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
+    // Sanitize phone: digits only, max 10. Phone is optional for both types.
     const phone = (req.body.phone || '').replace(/[^0-9]/g, '').slice(0, 10);
     if (phone && phone.length !== 10) return res.status(400).json({ error: 'Phone must be exactly 10 digits' });
+
     const id = genId();
-    const created_by = req.body.created_by || '';
-    const created_by_name = req.body.created_by_name || '';
-    db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-      id, name, phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name, 'Staff'
-    );
-    logInfo('Lead created', { id, name, phone, created_by: created_by_name });
-    // Broadcast live lead to connected staff
+    const created_by = req.body.created_by || (req.user && req.user.id) || '';
+    const created_by_name = req.body.created_by_name || (req.user && req.user.name) || '';
+
+    if (lead_type === 'ncd') {
+      // NCD-specific fields
+      const place      = (req.body.place || '').toString().slice(0, 200);
+      const occupation = (req.body.occupation || '').toString().slice(0, 200);
+      const amount     = parseFloat(req.body.amount) || 0;
+      const narration  = (req.body.narration || '').toString();
+      const reference  = (req.body.reference || '').toString().slice(0, 200);
+      // NCD leads are global (no branch_id), default status 'New'
+      db.prepare(`INSERT INTO leads
+        (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, place, occupation, amount, narration, reference)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, name.trim(), phone, email || '', '', '', notes || '', 'New', created_by, created_by_name, 'Staff',
+        'ncd', place, occupation, amount, narration, reference
+      );
+      logInfo('NCD lead created', { id, name: name.trim(), by: created_by_name });
+    } else {
+      // Locker lead — original behavior preserved
+      db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, name.trim(), phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name, 'Staff', 'locker'
+      );
+      logInfo('Lead created', { id, name: name.trim(), phone, created_by: created_by_name });
+    }
+
+    // Broadcast live lead to connected staff (works for both types)
     const newLead = db.prepare('SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id WHERE l.id = ?').get(id);
-    if (newLead) broadcastNewLead(newLead);
+    if (newLead && typeof broadcastNewLead === 'function') {
+      try { broadcastNewLead(newLead); } catch (_) {}
+    }
     res.json({ id, success: true });
   } catch (err) {
     logError('Lead creation failed', { error: err.message });
@@ -5023,13 +5272,26 @@ app.post('/api/leads', requireAuth, (req, res) => {
   }
 });
 
-// List leads (HO sees all, branch sees own, lead_agent sees own)
+// List leads. Defaults to lead_type='locker' if no filter, so the existing UI keeps working unchanged.
+// Pass ?lead_type=ncd to fetch NCD leads, or ?lead_type=all for both.
 app.get('/api/leads', requireAuth, (req, res) => {
   try {
     const { branch_id, created_by, status } = req.query;
+    let lead_type = req.query.lead_type;
+    // Backward compat: if no lead_type provided, return ONLY locker leads (existing UI behavior)
+    if (!lead_type) lead_type = 'locker';
+
+    // NCD access guard: only users with leads_ncd permission may see NCD leads
+    if ((lead_type === 'ncd' || lead_type === 'all') && !hasPermission(req.user, 'leads_ncd')) {
+      // If they asked for "all" without NCD perm, silently restrict to locker
+      if (lead_type === 'all') lead_type = 'locker';
+      else return res.status(403).json({ error: 'You do not have permission to view NCD leads' });
+    }
+
     let sql = `SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id`;
     const conditions = [];
     const params = [];
+    if (lead_type !== 'all') { conditions.push("(l.lead_type = ? OR (l.lead_type IS NULL AND ? = 'locker'))"); params.push(lead_type, lead_type); }
     if (branch_id) { conditions.push('l.branch_id = ?'); params.push(branch_id); }
     if (created_by) { conditions.push('l.created_by = ?'); params.push(created_by); }
     if (status) { conditions.push('l.status = ?'); params.push(status); }
@@ -5044,13 +5306,21 @@ app.get('/api/leads', requireAuth, (req, res) => {
 });
 
 // Update lead (status, notes, visit_time, editable fields, converted_tenant_id)
+// For NCD leads, also accepts: place, occupation, amount, narration, reference.
+// NCD leads cannot be converted to tenants — converted_tenant_id is rejected for ncd type.
 app.put('/api/leads/:id', requireAuth, (req, res) => {
   try {
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    const isNcd = (lead.lead_type === 'ncd');
 
-    // Prevent backdated visit times
-    if (req.body.visit_time) {
+    // NCD leads require leads_ncd permission to edit
+    if (isNcd && !hasPermission(req.user, 'leads_ncd')) {
+      return res.status(403).json({ error: 'You do not have permission to edit NCD leads' });
+    }
+
+    // Prevent backdated visit times (locker leads only)
+    if (!isNcd && req.body.visit_time) {
       const visitDate = new Date(req.body.visit_time);
       const now = new Date();
       now.setMinutes(now.getMinutes() - 5); // 5 min grace
@@ -5059,13 +5329,34 @@ app.put('/api/leads/:id', requireAuth, (req, res) => {
       }
     }
 
-    const fields = ['status', 'notes', 'branch_id', 'visit_time', 'name', 'phone', 'email', 'locker_size', 'converted_tenant_id'];
-    fields.forEach(f => {
+    // NCD leads do not convert to tenants
+    if (isNcd && req.body.converted_tenant_id) {
+      return res.status(400).json({ error: 'NCD leads cannot be converted to tenants' });
+    }
+
+    // Validate status against the type-appropriate workflow.
+    // Locker leads keep the existing rich status set used by the UI (no restriction
+    // tightening to avoid breaking current flows). NCD has its own funnel.
+    if (req.body.status !== undefined && req.body.status) {
+      const validLockerStatuses = ['New', 'Contacted', 'Interested', 'Visit Scheduled', 'Visited', 'Converted', 'Follow Up Later', 'Lost'];
+      const validNcdStatuses    = ['New', 'Contacted', 'Interested', 'Invested', 'Lost'];
+      const list = isNcd ? validNcdStatuses : validLockerStatuses;
+      if (!list.includes(req.body.status)) {
+        return res.status(400).json({ error: 'Invalid status for ' + (isNcd ? 'NCD' : 'locker') + ' lead' });
+      }
+    }
+
+    const commonFields = ['status', 'notes', 'name', 'phone', 'email'];
+    const lockerOnly   = ['branch_id', 'visit_time', 'locker_size', 'converted_tenant_id'];
+    const ncdOnly      = ['place', 'occupation', 'amount', 'narration', 'reference'];
+    const allowed = isNcd ? commonFields.concat(ncdOnly) : commonFields.concat(lockerOnly);
+
+    allowed.forEach(f => {
       if (req.body[f] !== undefined) {
         db.prepare(`UPDATE leads SET ${f} = ?, updated_at = datetime('now') WHERE id = ?`).run(req.body[f], req.params.id);
       }
     });
-    logInfo('Lead updated', { id: req.params.id, status: req.body.status });
+    logInfo('Lead updated', { id: req.params.id, type: lead.lead_type || 'locker', status: req.body.status });
     res.json({ ok: true });
   } catch (err) {
     logError('Lead update failed', { error: err.message });
@@ -5073,12 +5364,29 @@ app.put('/api/leads/:id', requireAuth, (req, res) => {
   }
 });
 
-// Delete a lead
-app.delete('/api/leads/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+// Delete a lead.
+//  - Locker leads: HO or branch (existing behavior preserved).
+//  - NCD leads:    HO ONLY (or any user explicitly granted leads_ncd_delete).
+app.delete('/api/leads/:id', requireAuth, (req, res) => {
   try {
+    const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
+    if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+    if (lead.lead_type === 'ncd') {
+      // HO-only deletion for NCD (or explicit override permission)
+      if (req.user.role !== 'headoffice' && !hasPermission(req.user, 'leads_ncd_delete')) {
+        return res.status(403).json({ error: 'Only Head Office can delete NCD leads' });
+      }
+    } else {
+      // Locker leads: keep existing rule (HO or branch)
+      if (req.user.role !== 'headoffice' && req.user.role !== 'branch') {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+      }
+    }
+
     db.prepare('DELETE FROM lead_notes WHERE lead_id = ?').run(req.params.id);
     db.prepare('DELETE FROM leads WHERE id = ?').run(req.params.id);
-    logInfo('Lead deleted', { id: req.params.id });
+    logInfo('Lead deleted', { id: req.params.id, type: lead.lead_type || 'locker' });
     res.json({ ok: true });
   } catch (err) {
     logError('Lead delete failed', { error: err.message });
@@ -5111,17 +5419,51 @@ app.post('/api/leads/:id/notes', requireAuth, (req, res) => {
 app.get('/api/leads/summary', requireAuth, (req, res) => {
   try {
     const { branch_id } = req.query;
-    let where = '';
+    // Default to locker leads so existing UI continues to behave exactly the same
+    const lead_type = req.query.lead_type || 'locker';
+
+    const conditions = [];
     const params = [];
-    if (branch_id) { where = 'WHERE branch_id = ?'; params.push(branch_id); }
+    if (lead_type !== 'all') {
+      conditions.push("(lead_type = ? OR (lead_type IS NULL AND ? = 'locker'))");
+      params.push(lead_type, lead_type);
+    }
+    if (branch_id) { conditions.push('branch_id = ?'); params.push(branch_id); }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
     const total = db.prepare(`SELECT COUNT(*) as c FROM leads ${where}`).get(...params).c;
     const byStatus = db.prepare(`SELECT status, COUNT(*) as c FROM leads ${where} GROUP BY status`).all(...params);
     const byAgent = db.prepare(`SELECT created_by_name, COUNT(*) as c FROM leads ${where} GROUP BY created_by_name ORDER BY c DESC`).all(...params);
     const bySize = db.prepare(`SELECT locker_size, COUNT(*) as c FROM leads ${where} GROUP BY locker_size ORDER BY c DESC`).all(...params);
-    res.json({ total, by_status: byStatus, by_agent: byAgent, by_size: bySize });
+
+    // Extra rollups for NCD
+    let totalAmount = 0;
+    if (lead_type === 'ncd' || lead_type === 'all') {
+      totalAmount = db.prepare(`SELECT COALESCE(SUM(amount),0) as t FROM leads ${where}`).get(...params).t;
+    }
+    res.json({ total, by_status: byStatus, by_agent: byAgent, by_size: bySize, total_amount: totalAmount });
   } catch (err) {
     logError('Lead summary failed', { error: err.message });
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Permission catalog — used by the user creation wizard frontend
+app.get('/api/permissions/catalog', requireAuth, requireRole('headoffice'), (req, res) => {
+  res.json({ catalog: PERMISSION_CATALOG, role_defaults: ROLE_DEFAULT_PERMISSIONS });
+});
+
+// Get permissions for the current logged-in user (used by frontend to gate UI)
+app.get('/api/me/permissions', requireAuth, (req, res) => {
+  try {
+    const fresh = db.prepare('SELECT id, role, permissions FROM users WHERE id = ?').get(req.user.id);
+    if (!fresh) return res.status(404).json({ error: 'User not found' });
+    res.json({
+      role: fresh.role,
+      permissions: parseUserPermissions(fresh)
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

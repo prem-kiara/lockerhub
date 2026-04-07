@@ -2919,6 +2919,13 @@
                 <!-- Leads Screen (HO/Branch) -->
                 <div id="leadsScreen" class="screen">
                     <div class="section-title">Leads</div>
+
+                    <!-- Lead type tabs -->
+                    <div id="leadTabs" style="display:flex;gap:8px;margin-bottom:18px;border-bottom:2px solid #eee;">
+                        <button id="leadTabLocker" class="lead-tab-btn" onclick="switchLeadTab('locker')" style="padding:10px 22px;background:transparent;border:none;border-bottom:3px solid #b8860b;color:#b8860b;font-weight:700;font-size:14px;cursor:pointer;margin-bottom:-2px;">Locker Leads</button>
+                        <button id="leadTabNcd" class="lead-tab-btn" onclick="switchLeadTab('ncd')" style="padding:10px 22px;background:transparent;border:none;border-bottom:3px solid transparent;color:#666;font-weight:600;font-size:14px;cursor:pointer;margin-bottom:-2px;display:none;">NCD Leads</button>
+                    </div>
+
                     <div id="leadsSummary" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:16px; margin-bottom:20px;"></div>
                     <div class="section-toolbar" style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:16px; align-items:center;">
                         <select id="leadStatusFilter" onchange="loadLeads()" style="padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:13px;">
@@ -2928,13 +2935,16 @@
                             <option value="Interested">Interested</option>
                             <option value="Visit Scheduled">Visit Scheduled</option>
                             <option value="Converted">Converted</option>
+                            <option value="Invested">Invested</option>
                             <option value="Follow Up Later">Follow Up Later</option>
                             <option value="Lost">Lost</option>
                         </select>
                         <input type="text" id="leadSearch" placeholder="Search by name or phone..." oninput="loadLeads()" style="padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:13px; min-width:200px;">
                         <button class="btn btn-primary" onclick="openLeadModal()" style="margin-left:auto;">+ Add Lead</button>
                     </div>
-                    <div class="table-container">
+
+                    <!-- Locker leads table -->
+                    <div id="leadsLockerTableWrap" class="table-container">
                         <table>
                             <thead>
                                 <tr>
@@ -2950,7 +2960,30 @@
                                 </tr>
                             </thead>
                             <tbody id="leadsTable">
-                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- NCD leads table (hidden by default; shown when NCD tab active) -->
+                    <div id="leadsNcdTableWrap" class="table-container" style="display:none;">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Name</th>
+                                    <th>Phone</th>
+                                    <th>Place</th>
+                                    <th>Occupation</th>
+                                    <th>Amount</th>
+                                    <th>Reference</th>
+                                    <th>Created By</th>
+                                    <th>Status</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="leadsNcdTable">
+                                <tr><td colspan="10" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3253,6 +3286,22 @@
                                 <label for="tenantNomineePan">Nominee PAN</label>
                                 <input type="text" id="tenantNomineePan" placeholder="e.g., ABCPP1234F" maxlength="10" oninput="this.value=this.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,10); liveValidatePAN(this)" style="text-transform:uppercase;">
                                 <small id="tenantNomineePanMsg" style="font-size:11px;margin-top:2px;display:none;"></small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Customer Dashboard Password (set inline so it isn't missed) -->
+                    <div id="tenantCustomerPasswordSection" style="background:#fefcf7; padding:16px; border-radius:6px; margin-bottom:16px; border:1px solid #e8d9b8;">
+                        <h4 style="margin-bottom:8px;">Customer Dashboard Password <span style="font-size:12px;color:#7a6b5e;font-weight:normal;">(for the customer to log into LockerHub app / web)</span></h4>
+                        <p style="font-size:12px;color:#7a6b5e;margin-bottom:10px;">Set a temporary password the customer can use to log in. Share it with them after creation. They can change it later.</p>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="tenantCustomerPassword">Password <span style="color:#7a6b5e;font-weight:normal;font-size:12px;">— min 4 chars</span></label>
+                                <div style="display:flex;gap:8px;align-items:center;">
+                                    <input type="text" id="tenantCustomerPassword" placeholder="e.g., Welcome@123" maxlength="32" autocomplete="new-password" style="flex:1;">
+                                    <button type="button" class="btn btn-secondary" style="padding:8px 12px;font-size:12px;" onclick="generateTenantCustomerPassword()">Generate</button>
+                                </div>
+                                <small id="tenantCustomerPasswordHint" style="font-size:11px;color:#7a6b5e;display:block;margin-top:4px;">Leave blank to skip — you can set it later from the tenant detail page.</small>
                             </div>
                         </div>
                     </div>
@@ -3621,6 +3670,22 @@
                                 <option value="">Select branch</option>
                             </select>
                         </div>
+                    </div>
+
+                    <!-- Permissions wizard — only for non-HO roles. HO always has all permissions. -->
+                    <div id="userPermissionsBlock" style="display:none;border-top:1px solid #eee;padding-top:14px;margin-top:6px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                            <label style="font-weight:600;font-size:13px;color:#2c1810;">Permissions</label>
+                            <div style="display:flex;gap:8px;">
+                                <button type="button" class="btn btn-secondary" onclick="userPermsApplyDefaults()" style="font-size:11px;padding:4px 10px;">Apply Role Defaults</button>
+                                <button type="button" class="btn btn-secondary" onclick="userPermsToggleAll(true)" style="font-size:11px;padding:4px 10px;">Select All</button>
+                                <button type="button" class="btn btn-secondary" onclick="userPermsToggleAll(false)" style="font-size:11px;padding:4px 10px;">Clear</button>
+                            </div>
+                        </div>
+                        <div style="font-size:12px;color:#888;margin-bottom:10px;">
+                            Tick what this user can access. Leave empty to use the role's default permissions.
+                        </div>
+                        <div id="userPermissionsList" style="display:grid;gap:14px;"></div>
                     </div>
                 </form>
             </div>
@@ -4250,6 +4315,12 @@
             currentUser = result;
             currentBranchId = result.branch_id;
             const isCustomer = result.role === 'customer';
+
+            // Load this user's effective permissions for permission-gated UI
+            // (NCD leads tab, future module gating). Non-blocking on customer.
+            if (!isCustomer) {
+                try { await loadMyPermissions(); } catch (_) { _myPermissions = []; }
+            }
 
             // Show app
             document.getElementById('loginScreen').style.display = 'none';
@@ -5108,7 +5179,9 @@
                 if (isHeadOffice && !currentBranchId) {
                     // Head office with no branch selected — show all-branches overview
                     const data = await api('GET', '/api/stats/all', null, 15000);
-                    renderHeadOfficeDashboard(data);
+                    let leadAgg = null;
+                    try { leadAgg = await api('GET', '/api/stats/leads', null, 10000); } catch (_) {}
+                    renderHeadOfficeDashboard(data, leadAgg);
                 } else {
                     // Specific branch selected (or branch-level user)
                     const stats = await api('GET', `/api/stats?branch_id=${currentBranchId}`, null, 15000);
@@ -5256,12 +5329,22 @@
                     <div class="stat-card-value">${stats.month_paid || 0} received</div>
                     <div class="stat-card-subtext">₹${formatIndianNumber(stats.month_paid_amount || 0)} collected</div>
                 </div>
+                <div class="stat-card primary" onclick="switchSection('leads')" style="cursor:pointer;">
+                    <div class="stat-card-label">Locker Leads</div>
+                    <div class="stat-card-value">${stats.locker_leads_total || 0}</div>
+                    <div class="stat-card-subtext">${stats.locker_leads_open || 0} open</div>
+                </div>
+                ${canAccess('leads_ncd') ? `<div class="stat-card warning" onclick="switchSection('leads'); setTimeout(()=>switchLeadTab('ncd'), 50);" style="cursor:pointer;">
+                    <div class="stat-card-label">NCD Leads</div>
+                    <div class="stat-card-value">${stats.ncd_leads_total || 0}</div>
+                    <div class="stat-card-subtext">${stats.ncd_leads_open || 0} open · ₹${formatIndianNumber(stats.ncd_leads_amount || 0)}</div>
+                </div>` : ''}
             `;
             document.getElementById('dashboardStats').innerHTML = html;
             document.getElementById('dashboardContent').innerHTML = '';
         }
 
-        function renderHeadOfficeDashboard(branches) {
+        function renderHeadOfficeDashboard(branches, leadAgg) {
             const totalLockers = branches.reduce((sum, b) => sum + (b.total_lockers || 0), 0);
             const totalOccupied = branches.reduce((sum, b) => sum + (b.occupied || 0), 0);
             const totalVacant = branches.reduce((sum, b) => sum + (b.vacant || 0), 0);
@@ -5329,6 +5412,16 @@
                     <div class="stat-card-label">This Month</div>
                     <div class="stat-card-value">${totalMonthPaid} received</div>
                     <div class="stat-card-subtext">₹${formatIndianNumber(totalMonthPaidAmount)} collected</div>
+                </div>
+                <div class="stat-card primary" onclick="switchSection('leads')" style="cursor:pointer;">
+                    <div class="stat-card-label">Locker Leads</div>
+                    <div class="stat-card-value">${(leadAgg && leadAgg.locker_leads_total) || 0}</div>
+                    <div class="stat-card-subtext">${(leadAgg && leadAgg.locker_leads_open) || 0} open</div>
+                </div>
+                <div class="stat-card warning" onclick="switchSection('leads'); setTimeout(()=>switchLeadTab('ncd'), 50);" style="cursor:pointer;">
+                    <div class="stat-card-label">NCD Leads</div>
+                    <div class="stat-card-value">${(leadAgg && leadAgg.ncd_total) || 0}</div>
+                    <div class="stat-card-subtext">${(leadAgg && leadAgg.ncd_open) || 0} open · ₹${formatIndianNumber((leadAgg && leadAgg.ncd_amount) || 0)}</div>
                 </div>
             `;
             document.getElementById('dashboardStats').innerHTML = summaryHtml;
@@ -5696,7 +5789,20 @@
             // Reset KYC upload section (files queued until tenant is saved)
             resetKycUploadBoxes();
             pendingKycFiles = {};
+            // Show + clear customer dashboard password (only for new tenant create)
+            const _cpSection = document.getElementById('tenantCustomerPasswordSection');
+            if (_cpSection) _cpSection.style.display = 'block';
+            const _cpInput = document.getElementById('tenantCustomerPassword');
+            if (_cpInput) _cpInput.value = '';
             document.getElementById('tenantModal').classList.add('active');
+        }
+
+        function generateTenantCustomerPassword() {
+            // Friendly readable temporary password: e.g. "Lh7421"
+            const n = Math.floor(1000 + Math.random() * 9000);
+            const pwd = 'Lh' + n;
+            const el = document.getElementById('tenantCustomerPassword');
+            if (el) { el.value = pwd; el.focus(); }
         }
 
         async function loadCreatorStaffList(branchId) {
@@ -5750,6 +5856,9 @@
                 const tenant = await api('GET', `/api/tenants/${id}`);
                 document.getElementById('tenantModalTitle').textContent = 'Edit Tenant';
                 document.getElementById('tenantId').value = id;
+                // Hide customer dashboard password section on edit (use the dedicated reset flow instead)
+                const _cpSection = document.getElementById('tenantCustomerPasswordSection');
+                if (_cpSection) _cpSection.style.display = 'none';
 
                 // Branch selector for head office
                 const isHO = currentUser.role === 'headoffice';
@@ -6156,6 +6265,13 @@
                 created_by: createdBy,
                 created_by_name: createdByName
             };
+
+            // Customer dashboard password (only sent on create — edits go through the dedicated reset endpoint)
+            const _custPwd = (document.getElementById('tenantCustomerPassword').value || '').trim();
+            if (!tenantId && _custPwd) {
+                if (_custPwd.length < 4) { alert('Customer dashboard password must be at least 4 characters'); return; }
+                data.customer_password = _custPwd;
+            }
 
             showLoading('Saving tenant...');
             try {
@@ -7173,8 +7289,74 @@
             }
         }
 
+        // ===== USER PERMISSION WIZARD =====
+        let _permCatalog = null;     // { catalog: {...}, role_defaults: {...} }
+        let _userEditTarget = null;  // user object during edit (for permission preselect)
+
+        async function ensurePermCatalog() {
+            if (_permCatalog) return _permCatalog;
+            try {
+                _permCatalog = await api('GET', '/api/permissions/catalog');
+            } catch (_) {
+                _permCatalog = { catalog: {}, role_defaults: {} };
+            }
+            return _permCatalog;
+        }
+
+        function userPermsRender(preselected) {
+            const cat = (_permCatalog && _permCatalog.catalog) || {};
+            const groups = {};
+            Object.keys(cat).forEach(k => {
+                const g = cat[k].group || 'Other';
+                if (!groups[g]) groups[g] = [];
+                groups[g].push({ key: k, label: cat[k].label });
+            });
+            const set = new Set(preselected || []);
+            const html = Object.keys(groups).map(g => `
+                <div>
+                    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#888;margin-bottom:6px;letter-spacing:0.5px;">${g}</div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:6px;">
+                        ${groups[g].map(p => `
+                            <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#2c1810;cursor:pointer;padding:4px 8px;border:1px solid #eee;border-radius:6px;background:${set.has(p.key)?'#fefcf7':'#fff'};">
+                                <input type="checkbox" class="user-perm-cb" value="${p.key}" ${set.has(p.key)?'checked':''} style="margin:0;">
+                                <span>${p.label}</span>
+                            </label>
+                        `).join('')}
+                    </div>
+                </div>
+            `).join('');
+            document.getElementById('userPermissionsList').innerHTML = html;
+        }
+
+        function userPermsApplyDefaults() {
+            const role = document.getElementById('userRole').value;
+            const defaults = (_permCatalog && _permCatalog.role_defaults && _permCatalog.role_defaults[role]) || [];
+            userPermsRender(defaults);
+        }
+
+        function userPermsToggleAll(on) {
+            document.querySelectorAll('.user-perm-cb').forEach(cb => { cb.checked = !!on; });
+            // Re-render to update background tint
+            const selected = Array.from(document.querySelectorAll('.user-perm-cb:checked')).map(cb => cb.value);
+            userPermsRender(selected);
+        }
+
+        function userPermsCollect() {
+            return Array.from(document.querySelectorAll('.user-perm-cb:checked')).map(cb => cb.value);
+        }
+
+        function userPermsBlockVisibility() {
+            const role = document.getElementById('userRole').value;
+            const block = document.getElementById('userPermissionsBlock');
+            // HO always has all perms — hide the picker for HO
+            block.style.display = (role && role !== 'headoffice') ? 'block' : 'none';
+        }
+
+        // Patch the existing role-change handler so permission block shows/hides too
+        const _origUpdateBranchSelectForUser = (typeof updateBranchSelectForUser === 'function') ? updateBranchSelectForUser : null;
+
         // Add user modal
-        function openAddUserModal() {
+        async function openAddUserModal() {
             document.getElementById('userForm').reset();
             document.getElementById('userEditId').value = '';
             document.getElementById('userModalTitle').textContent = 'Add User';
@@ -7184,6 +7366,10 @@
             document.getElementById('userPasswordHint').textContent = '';
             document.getElementById('userPasswordGroup').style.display = 'block';
             document.getElementById('userBranchGroup').style.display = 'none';
+            _userEditTarget = null;
+            await ensurePermCatalog();
+            userPermsRender([]);
+            userPermsBlockVisibility();
             loadBranchSelectorForUser();
             openModal('userModal');
         }
@@ -7212,12 +7398,27 @@
                 document.getElementById('userBranch').value = user.branch_id;
             }
 
+            _userEditTarget = user;
+            await ensurePermCatalog();
+            // Prefer explicit per-user permissions; fall back to role defaults
+            let preselect = [];
+            if (Array.isArray(user.permissions) && user.permissions.length) {
+                preselect = user.permissions;
+            } else if (Array.isArray(user.effective_permissions) && user.effective_permissions.length) {
+                preselect = user.effective_permissions;
+            } else {
+                preselect = (_permCatalog && _permCatalog.role_defaults && _permCatalog.role_defaults[user.role]) || [];
+            }
+            userPermsRender(preselect);
+            userPermsBlockVisibility();
+
             openModal('userModal');
         }
 
         function updateBranchSelectForUser() {
             const role = document.getElementById('userRole').value;
             document.getElementById('userBranchGroup').style.display = role === 'branch' ? 'block' : 'none';
+            try { userPermsBlockVisibility(); } catch (_) {}
         }
 
         async function loadBranchSelectorForUser() {
@@ -7251,6 +7452,9 @@
             if (!role) { errorEl.textContent = 'Please select a role'; errorEl.style.display = 'block'; return; }
             if (role === 'branch' && !branch_id) { errorEl.textContent = 'Please select a branch for branch staff'; errorEl.style.display = 'block'; return; }
 
+            // Collect permissions from the wizard (only meaningful for non-HO roles)
+            const permissions = (role && role !== 'headoffice') ? userPermsCollect() : [];
+
             try {
                 if (isEdit) {
                     // Update user details
@@ -7259,8 +7463,12 @@
                     if (password) {
                         await api('PUT', `/api/users/${editId}/password`, { password });
                     }
+                    // Update permissions (HO sends empty array - server treats HO as all-perms)
+                    try {
+                        await api('PUT', `/api/users/${editId}/permissions`, { permissions });
+                    } catch (e) { console.warn('perm update failed', e); }
                 } else {
-                    await api('POST', '/api/users', { name, username, password, role, branch_id });
+                    await api('POST', '/api/users', { name, username, password, role, branch_id, permissions });
                 }
                 closeModal('userModal');
                 await loadUsers();
@@ -10314,19 +10522,71 @@
         }
 
         // ===== LEADS SYSTEM =====
+        // Active lead tab — 'locker' (default, backward compatible) or 'ncd'
+        let currentLeadTab = 'locker';
+        // Cached current-user permission set (loaded after login via /api/me/permissions)
+        let _myPermissions = null;
+
+        async function loadMyPermissions() {
+            try {
+                const r = await api('GET', '/api/me/permissions');
+                _myPermissions = r && Array.isArray(r.permissions) ? r.permissions : [];
+            } catch (_) { _myPermissions = []; }
+            // Toggle NCD tab visibility based on permission
+            const ncdTab = document.getElementById('leadTabNcd');
+            if (ncdTab) ncdTab.style.display = canAccess('leads_ncd') ? '' : 'none';
+        }
+
+        function canAccess(key) {
+            if (!currentUser) return false;
+            if (currentUser.role === 'headoffice') return true;
+            if (Array.isArray(_myPermissions)) return _myPermissions.includes(key);
+            return false;
+        }
+
+        function switchLeadTab(type) {
+            currentLeadTab = (type === 'ncd') ? 'ncd' : 'locker';
+            // Tab styling
+            const lockerBtn = document.getElementById('leadTabLocker');
+            const ncdBtn = document.getElementById('leadTabNcd');
+            if (lockerBtn && ncdBtn) {
+                if (currentLeadTab === 'locker') {
+                    lockerBtn.style.borderBottomColor = '#b8860b';
+                    lockerBtn.style.color = '#b8860b';
+                    ncdBtn.style.borderBottomColor = 'transparent';
+                    ncdBtn.style.color = '#666';
+                } else {
+                    ncdBtn.style.borderBottomColor = '#b8860b';
+                    ncdBtn.style.color = '#b8860b';
+                    lockerBtn.style.borderBottomColor = 'transparent';
+                    lockerBtn.style.color = '#666';
+                }
+            }
+            // Show/hide tables
+            document.getElementById('leadsLockerTableWrap').style.display = (currentLeadTab === 'locker') ? '' : 'none';
+            document.getElementById('leadsNcdTableWrap').style.display    = (currentLeadTab === 'ncd')    ? '' : 'none';
+            loadLeads();
+        }
 
         async function loadLeads() {
             try {
+                const tab = currentLeadTab || 'locker';
                 const branchId = currentBranchId || '';
                 const status = document.getElementById('leadStatusFilter').value;
                 const search = (document.getElementById('leadSearch').value || '').trim().toLowerCase();
-                let url = '/api/leads?';
-                if (branchId) url += `branch_id=${branchId}&`;
-                if (status) url += `status=${status}&`;
+                let url = `/api/leads?lead_type=${tab}&`;
+                // NCD leads are global — branch_id filter only applies to locker leads
+                if (branchId && tab === 'locker') url += `branch_id=${branchId}&`;
+                if (status) url += `status=${encodeURIComponent(status)}&`;
+                let summaryUrl = `/api/leads/summary?lead_type=${tab}`;
+                if (branchId && tab === 'locker') summaryUrl += `&branch_id=${branchId}`;
                 const [rows, summary] = await Promise.all([
                     api('GET', url),
-                    api('GET', `/api/leads/summary${branchId ? '?branch_id=' + branchId : ''}`)
+                    api('GET', summaryUrl)
                 ]);
+
+                // NCD branch — render the NCD-specific table and exit early
+                if (tab === 'ncd') return renderNcdLeads(rows, summary, search);
 
                 // Filter by search locally
                 let filtered = rows;
@@ -10407,6 +10667,209 @@
             } catch (err) {
                 alert('Failed to update: ' + err.message);
                 await loadLeads();
+            }
+        }
+
+        // ===== NCD LEADS (HO + permission-gated) =====
+        function fmtINR(n) {
+            const v = Number(n) || 0;
+            try { return v.toLocaleString('en-IN'); } catch (_) { return String(v); }
+        }
+
+        function renderNcdLeads(rows, summary, search) {
+            // Filter by name/phone/place
+            let filtered = rows || [];
+            if (search) {
+                filtered = filtered.filter(r =>
+                    (r.name || '').toLowerCase().includes(search) ||
+                    (r.phone || '').includes(search) ||
+                    (r.place || '').toLowerCase().includes(search)
+                );
+            }
+
+            // Summary cards (NCD-specific funnel)
+            const statusMap = {};
+            (summary && summary.by_status || []).forEach(s => statusMap[s.status] = s.c);
+            document.getElementById('leadsSummary').innerHTML = `
+                <div class="stat-card" style="border-left:4px solid #b8860b;">
+                    <div class="stat-label">Total NCD Leads</div>
+                    <div class="stat-value">${(summary && summary.total) || 0}</div>
+                </div>
+                <div class="stat-card" style="border-left:4px solid #3498db;">
+                    <div class="stat-label">New</div>
+                    <div class="stat-value">${statusMap['New'] || 0}</div>
+                </div>
+                <div class="stat-card" style="border-left:4px solid #f39c12;">
+                    <div class="stat-label">Contacted</div>
+                    <div class="stat-value">${statusMap['Contacted'] || 0}</div>
+                </div>
+                <div class="stat-card" style="border-left:4px solid #9b59b6;">
+                    <div class="stat-label">Interested</div>
+                    <div class="stat-value">${statusMap['Interested'] || 0}</div>
+                </div>
+                <div class="stat-card" style="border-left:4px solid #27ae60;">
+                    <div class="stat-label">Invested</div>
+                    <div class="stat-value">${statusMap['Invested'] || 0}</div>
+                </div>
+                <div class="stat-card" style="border-left:4px solid #16a085;">
+                    <div class="stat-label">Total Amount</div>
+                    <div class="stat-value">₹${fmtINR((summary && summary.total_amount) || 0)}</div>
+                </div>
+            `;
+
+            const tbody = document.getElementById('leadsNcdTable');
+            if (!tbody) return;
+            if (filtered.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#888;">No NCD leads found.</td></tr>';
+                return;
+            }
+            const statusColors = { New:'#3498db', Contacted:'#f39c12', Interested:'#9b59b6', Invested:'#27ae60', Lost:'#e74c3c' };
+            const ncdStatuses = ['New','Contacted','Interested','Invested','Lost'];
+            const canDelete = currentUser && currentUser.role === 'headoffice';
+            tbody.innerHTML = filtered.map(r => {
+                const dateRaw = r.created_at ? r.created_at.replace('T',' ').slice(0,16) : '-';
+                const sColor = statusColors[r.status] || '#888';
+                return `<tr>
+                    <td style="white-space:nowrap;font-size:12px;">${dateRaw}</td>
+                    <td><strong>${r.name || ''}</strong></td>
+                    <td>${r.phone || '-'}</td>
+                    <td>${r.place || '-'}</td>
+                    <td>${r.occupation || '-'}</td>
+                    <td style="text-align:right;">${r.amount ? '₹' + fmtINR(r.amount) : '-'}</td>
+                    <td>${r.reference || '-'}</td>
+                    <td><span style="font-size:12px;">${r.created_by_name || '-'}</span></td>
+                    <td>
+                        <select onchange="updateLeadStatus('${r.id}', this.value)" style="padding:4px 8px;border:2px solid ${sColor};border-radius:6px;font-size:12px;font-weight:600;color:${sColor};background:#fff;cursor:pointer;">
+                            ${ncdStatuses.map(s => `<option value="${s}" ${r.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+                        </select>
+                    </td>
+                    <td>
+                        <button class="btn btn-secondary" onclick="viewNcdLeadDetail('${r.id}')" style="font-size:11px;padding:3px 8px;">View</button>
+                        ${canDelete ? `<button class="btn btn-danger" onclick="deleteLead('${r.id}','${(r.name||'').replace(/'/g,'')}')" style="font-size:11px;padding:3px 8px;">Del</button>` : ''}
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function openNcdLeadModal() {
+            const modal = `
+            <div id="addNcdLeadModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
+                <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
+                    <h3 style="margin:0 0 4px;font-size:18px;color:#2c1810;">Add NCD Lead</h3>
+                    <div style="font-size:12px;color:#888;margin-bottom:16px;">All fields are optional except Name.</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Name *</label><input type="text" id="ncdName" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Phone</label><input type="tel" id="ncdPhone" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Place</label><input type="text" id="ncdPlace" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Occupation</label><input type="text" id="ncdOccupation" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Amount (₹)</label><input type="number" min="0" step="any" id="ncdAmount" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Reference</label><input type="text" id="ncdReference" placeholder="Referrer name / source" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                    </div>
+                    <div style="margin-top:12px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Narration</label><textarea id="ncdNarration" rows="3" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;"></textarea></div>
+                    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px;">
+                        <button class="btn btn-secondary" onclick="document.getElementById('addNcdLeadModal').remove()" style="padding:8px 20px;">Cancel</button>
+                        <button class="btn btn-primary" onclick="submitNcdLeadFromModal()" style="padding:8px 20px;background:#b8860b;border-color:#b8860b;">Add NCD Lead</button>
+                    </div>
+                </div>
+            </div>`;
+            const existing = document.getElementById('addNcdLeadModal');
+            if (existing) existing.remove();
+            document.body.insertAdjacentHTML('beforeend', modal);
+        }
+
+        async function submitNcdLeadFromModal() {
+            const name = document.getElementById('ncdName').value.trim();
+            if (!name) return alert('Name is required');
+            const phone = (document.getElementById('ncdPhone').value || '').replace(/[^0-9]/g,'').slice(0,10);
+            try {
+                await api('POST', '/api/leads', {
+                    lead_type: 'ncd',
+                    name,
+                    phone,
+                    place: document.getElementById('ncdPlace').value.trim(),
+                    occupation: document.getElementById('ncdOccupation').value.trim(),
+                    amount: parseFloat(document.getElementById('ncdAmount').value) || 0,
+                    narration: document.getElementById('ncdNarration').value.trim(),
+                    reference: document.getElementById('ncdReference').value.trim(),
+                    created_by: currentUser.id,
+                    created_by_name: currentUser.name
+                });
+                document.getElementById('addNcdLeadModal').remove();
+                await loadLeads();
+            } catch (err) {
+                alert('Failed: ' + err.message);
+            }
+        }
+
+        async function viewNcdLeadDetail(id) {
+            try {
+                const rows = await api('GET', '/api/leads?lead_type=ncd');
+                const r = rows.find(l => l.id === id);
+                if (!r) return alert('NCD lead not found');
+                const ncdStatuses = ['New','Contacted','Interested','Invested','Lost'];
+                const statusColors = { New:'#3498db', Contacted:'#f39c12', Interested:'#9b59b6', Invested:'#27ae60', Lost:'#e74c3c' };
+                const sColor = statusColors[r.status] || '#888';
+                const createdDate = r.created_at ? r.created_at.replace('T',' ').slice(0,16) : '-';
+                const modal = `
+                <div id="ncdLeadDetailModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)document.getElementById('ncdLeadDetailModal').remove()">
+                    <div style="background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:90vh;overflow-y:auto;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);" onclick="event.stopPropagation()">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                            <h3 style="margin:0;font-size:18px;color:#2c1810;">${r.name} <span style="font-weight:400;font-size:13px;color:#888;">— NCD Lead</span></h3>
+                            <span style="padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;color:#fff;background:${sColor};">${r.status}</span>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Name</label><input id="ncdEditName" type="text" value="${(r.name||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Phone</label><input id="ncdEditPhone" type="tel" value="${r.phone||''}" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Place</label><input id="ncdEditPlace" type="text" value="${(r.place||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Occupation</label><input id="ncdEditOccupation" type="text" value="${(r.occupation||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Amount (₹)</label><input id="ncdEditAmount" type="number" min="0" step="any" value="${r.amount||0}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
+                            <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Reference</label><input id="ncdEditReference" type="text" value="${(r.reference||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
+                        </div>
+                        <div style="margin-bottom:14px;">
+                            <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Narration</label>
+                            <textarea id="ncdEditNarration" rows="3" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;resize:vertical;font-family:inherit;">${r.narration || ''}</textarea>
+                        </div>
+                        <div style="margin-bottom:14px;">
+                            <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Status</label>
+                            <select id="ncdEditStatus" style="width:100%;padding:6px 10px;border:2px solid ${sColor};border-radius:6px;font-size:13px;font-weight:600;color:${sColor};">
+                                ${ncdStatuses.map(s => `<option value="${s}" ${r.status===s?'selected':''}>${s}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div style="border-top:1px solid #eee;padding-top:12px;display:flex;gap:8px;justify-content:space-between;flex-wrap:wrap;">
+                            <div style="font-size:11px;color:#888;align-self:center;">Created: ${createdDate} by ${r.created_by_name || '-'}</div>
+                            <div style="display:flex;gap:8px;">
+                                <button class="btn btn-primary" onclick="saveNcdLeadDetail('${r.id}')" style="padding:7px 16px;font-size:12px;background:#b8860b;border-color:#b8860b;">Save</button>
+                                <button class="btn btn-secondary" onclick="document.getElementById('ncdLeadDetailModal').remove()" style="padding:7px 16px;font-size:12px;">Close</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                const existing = document.getElementById('ncdLeadDetailModal');
+                if (existing) existing.remove();
+                document.body.insertAdjacentHTML('beforeend', modal);
+            } catch (err) {
+                alert('Failed to load NCD lead: ' + err.message);
+            }
+        }
+
+        async function saveNcdLeadDetail(id) {
+            try {
+                const data = {
+                    name: document.getElementById('ncdEditName').value.trim(),
+                    phone: (document.getElementById('ncdEditPhone').value || '').replace(/[^0-9]/g,'').slice(0,10),
+                    place: document.getElementById('ncdEditPlace').value.trim(),
+                    occupation: document.getElementById('ncdEditOccupation').value.trim(),
+                    amount: parseFloat(document.getElementById('ncdEditAmount').value) || 0,
+                    reference: document.getElementById('ncdEditReference').value.trim(),
+                    narration: document.getElementById('ncdEditNarration').value.trim(),
+                    status: document.getElementById('ncdEditStatus').value
+                };
+                if (!data.name) return alert('Name is required');
+                await api('PUT', `/api/leads/${id}`, data);
+                document.getElementById('ncdLeadDetailModal').remove();
+                await loadLeads();
+            } catch (err) {
+                alert('Failed to save: ' + err.message);
             }
         }
 
@@ -10639,6 +11102,8 @@
         }
 
         function openLeadModal() {
+            // Dispatch to NCD modal when the NCD tab is active
+            if (currentLeadTab === 'ncd') return openNcdLeadModal();
             const modal = `
             <div id="addLeadModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
                 <div style="background:#fff;border-radius:16px;max-width:450px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
