@@ -4836,13 +4836,23 @@ async function uploadToSharePoint(fileBuffer, fileName, subfolder, contentType) 
       : SHAREPOINT_CONFIG.baseFolder;
     const safeName = fileName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
 
-    // Simple upload (files < 4MB)
-    const uploadPath = `/v1.0/drives/${SP_DRIVE_ID}/root:/${folderPath}/${safeName}:/content`;
+    // CRITICAL: each path segment must be URL-encoded individually so that
+    // spaces and other special characters (e.g. "RS Puram", customer names
+    // with apostrophes) don't corrupt the HTTPS request line. Without this,
+    // Microsoft Graph rejects the malformed PUT in ~1s with no usable body
+    // and the upload appears to "fail randomly".
+    const encodedFolder = folderPath.split('/').map(encodeURIComponent).join('/');
+    const encodedName = encodeURIComponent(safeName);
+
+    // Simple upload (files < 4MB) — driveItem upload via path auto-creates
+    // missing parent folders, so we don't need to pre-create branch/tenant dirs.
+    const uploadPath = `/v1.0/drives/${SP_DRIVE_ID}/root:/${encodedFolder}/${encodedName}:/content`;
+    logInfo('SharePoint upload starting', { folderPath, safeName, fileSize: fileBuffer.length });
     const result = await msGraphUpload(uploadPath, fileBuffer, token, contentType || 'application/pdf');
     logInfo('SharePoint upload success', { fileName: safeName, webUrl: result.webUrl });
     return result.webUrl || result.id || 'uploaded';
   } catch (err) {
-    logError('SharePoint upload failed', { error: err.message || JSON.stringify(err), fileName });
+    logError('SharePoint upload failed', { error: err.message || JSON.stringify(err), fileName, subfolder });
     throw err;
   }
 }
