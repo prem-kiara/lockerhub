@@ -2953,6 +2953,7 @@
                                     <th>Phone</th>
                                     <th>Locker Size</th>
                                     <th>Branch</th>
+                                    <th>Follow-up</th>
                                     <th>Source</th>
                                     <th>Created By</th>
                                     <th>Status</th>
@@ -2960,7 +2961,7 @@
                                 </tr>
                             </thead>
                             <tbody id="leadsTable">
-                                <tr><td colspan="9" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="10" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -2977,13 +2978,14 @@
                                     <th>Occupation</th>
                                     <th>Amount</th>
                                     <th>Reference</th>
+                                    <th>Follow-up</th>
                                     <th>Created By</th>
                                     <th>Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="leadsNcdTable">
-                                <tr><td colspan="10" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="11" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -5423,6 +5425,20 @@
                     <div class="stat-card-value">${(leadAgg && leadAgg.ncd_total) || 0}</div>
                     <div class="stat-card-subtext">${(leadAgg && leadAgg.ncd_open) || 0} open · ₹${formatIndianNumber((leadAgg && leadAgg.ncd_amount) || 0)}</div>
                 </div>
+                ${(leadAgg && ((leadAgg.locker_followup_overdue||0) + (leadAgg.locker_followup_today||0)) > 0) ? `
+                <div class="stat-card" style="cursor:pointer;border-left:4px solid #e74c3c;background:#fff8f6;" onclick="switchSection('leads'); setTimeout(()=>switchLeadTab('locker'), 50);">
+                    <div class="stat-card-label">📞 Locker Follow-ups</div>
+                    <div class="stat-card-value" style="color:#c0392b;">${(leadAgg.locker_followup_overdue||0) + (leadAgg.locker_followup_today||0)}</div>
+                    <div class="stat-card-subtext">${leadAgg.locker_followup_overdue||0} overdue · ${leadAgg.locker_followup_today||0} due today</div>
+                </div>
+                ` : ''}
+                ${(leadAgg && ((leadAgg.ncd_followup_overdue||0) + (leadAgg.ncd_followup_today||0)) > 0) ? `
+                <div class="stat-card" style="cursor:pointer;border-left:4px solid #e74c3c;background:#fff8f6;" onclick="switchSection('leads'); setTimeout(()=>switchLeadTab('ncd'), 50);">
+                    <div class="stat-card-label">📞 NCD Follow-ups</div>
+                    <div class="stat-card-value" style="color:#c0392b;">${(leadAgg.ncd_followup_overdue||0) + (leadAgg.ncd_followup_today||0)}</div>
+                    <div class="stat-card-subtext">${leadAgg.ncd_followup_overdue||0} overdue · ${leadAgg.ncd_followup_today||0} due today</div>
+                </div>
+                ` : ''}
             `;
             document.getElementById('dashboardStats').innerHTML = summaryHtml;
             document.getElementById('dashboardContent').innerHTML = '';
@@ -6302,10 +6318,22 @@
                     window._pendingLeadConversion = null;
                 }
 
-                // For new tenants: prompt to record deposit + first year rent
+                // For new tenants: prompt to record deposit + first year rent,
+                // and if no customer dashboard password was provided inline, force a
+                // blocking prompt so it can't be forgotten.
                 if (newId) {
+                    const passwordWasSet = !!data.customer_password;
                     setTimeout(() => {
-                        openPostAllotmentModal(newId, name, branchId, data.locker_id, annualRent, deposit, data.lease_start);
+                        if (!passwordWasSet) {
+                            // Safety net: open the set-password modal first. It must be
+                            // explicitly acknowledged before the post-allotment modal
+                            // opens behind it.
+                            openForcedCustomerPasswordPrompt(newId, name, phone, () => {
+                                openPostAllotmentModal(newId, name, branchId, data.locker_id, annualRent, deposit, data.lease_start);
+                            });
+                        } else {
+                            openPostAllotmentModal(newId, name, branchId, data.locker_id, annualRent, deposit, data.lease_start);
+                        }
                     }, 300);
                 }
             } catch (error) {
@@ -9711,6 +9739,73 @@
         }
 
         // ===== Set Customer Password Modal =====
+        // Blocking post-creation prompt: fired after a new tenant is saved
+        // without an inline customer dashboard password. It replaces the usual
+        // set-password modal with one that cannot be closed without either
+        // setting a password or explicitly choosing "Skip for now" (which
+        // logs a warning and leaves the account unable to self-log-in).
+        function openForcedCustomerPasswordPrompt(tenantId, name, phone, onDone) {
+            // Remove any stray instance
+            const prev = document.getElementById('forceCustPwdModal');
+            if (prev) prev.remove();
+            const html = `
+            <div id="forceCustPwdModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);z-index:10050;display:flex;align-items:center;justify-content:center;padding:16px;">
+                <div style="background:#fff;border-radius:16px;max-width:460px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);border-top:5px solid #d35400;">
+                    <h3 style="margin:0 0 6px;font-size:18px;color:#2c1810;">🔑 Set Customer Dashboard Password</h3>
+                    <div style="font-size:12px;color:#7a6b5e;margin-bottom:14px;">
+                        Tenant: <strong>${(name||'').replace(/</g,'&lt;')}</strong>${phone ? ' · ' + phone : ''}
+                    </div>
+                    <div style="background:#fff4e0;border-left:3px solid #d35400;padding:10px 12px;border-radius:6px;margin-bottom:14px;font-size:13px;color:#7a4a00;">
+                        ⚠ You did not set a customer dashboard password. Without one, the customer cannot log in to the LockerHub app / web portal. Please set one now.
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size:12px;font-weight:600;">Password <span style="color:#888;font-weight:400;">— min 4 chars</span></label>
+                        <div style="display:flex;gap:8px;">
+                            <input type="text" id="forceCustPwdValue" placeholder="e.g., Welcome@123" maxlength="32" autocomplete="new-password" style="flex:1;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                            <button type="button" class="btn btn-secondary" style="padding:8px 12px;font-size:12px;" onclick="(function(){const n=Math.floor(1000+Math.random()*9000);document.getElementById('forceCustPwdValue').value='Lh'+n;})()">Generate</button>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">
+                        <button class="btn btn-secondary" onclick="skipForcedCustPwd()" style="padding:8px 14px;font-size:12px;color:#888;">Skip for now</button>
+                        <button class="btn btn-primary" onclick="saveForcedCustPwd()" style="padding:8px 18px;background:#d35400;border-color:#d35400;">Set Password</button>
+                    </div>
+                </div>
+            </div>`;
+            document.body.insertAdjacentHTML('beforeend', html);
+            // Store context for the save handler
+            window._forceCustPwdCtx = { tenantId, name, phone, onDone };
+            setTimeout(() => {
+                const el = document.getElementById('forceCustPwdValue');
+                if (el) el.focus();
+            }, 50);
+        }
+
+        async function saveForcedCustPwd() {
+            const ctx = window._forceCustPwdCtx || {};
+            const pwd = (document.getElementById('forceCustPwdValue').value || '').trim();
+            if (!pwd || pwd.length < 4) { alert('Password must be at least 4 characters'); return; }
+            try {
+                const result = await api('POST', `/api/tenants/${ctx.tenantId}/set-password`, { password: pwd });
+                document.getElementById('forceCustPwdModal').remove();
+                alert('✅ Customer password set. Share it with the customer: ' + pwd);
+                if (typeof ctx.onDone === 'function') ctx.onDone();
+                window._forceCustPwdCtx = null;
+            } catch (err) {
+                alert('Failed to set password: ' + err.message);
+            }
+        }
+
+        function skipForcedCustPwd() {
+            const ctx = window._forceCustPwdCtx || {};
+            if (!confirm('Skip setting the customer password?\n\nThe customer will NOT be able to log in to the app/web portal until someone sets it later from the tenant list (🔑 Login button).')) {
+                return;
+            }
+            console.warn('Customer password skipped for tenant', ctx.tenantId, ctx.name);
+            document.getElementById('forceCustPwdModal').remove();
+            if (typeof ctx.onDone === 'function') ctx.onDone();
+            window._forceCustPwdCtx = null;
+        }
+
         function openSetPasswordModal(tenantId, name, phone) {
             document.getElementById('custPwdTenantId').value = tenantId;
             document.getElementById('custPwdName').textContent = name;
@@ -10600,18 +10695,31 @@
                 // Summary cards
                 const statusMap = {};
                 (summary.by_status || []).forEach(s => statusMap[s.status] = s.c);
+                // Compute follow-up roll-ups for locker leads (excludes closed: Converted/Lost)
+                const _todayStrLk = new Date().toISOString().slice(0, 10);
+                let _lkOverdue = 0, _lkTodayDue = 0;
+                (rows || []).forEach(r => {
+                    if (!r.follow_up_date) return;
+                    if (r.status === 'Converted' || r.status === 'Lost') return;
+                    if (r.follow_up_date < _todayStrLk) _lkOverdue++;
+                    else if (r.follow_up_date === _todayStrLk) _lkTodayDue++;
+                });
                 document.getElementById('leadsSummary').innerHTML = `
                     <div class="stat-card" style="border-left:4px solid #b8860b;">
                         <div class="stat-label">Total Leads</div>
                         <div class="stat-value">${summary.total || 0}</div>
                     </div>
+                    <div class="stat-card" style="border-left:4px solid #e74c3c;">
+                        <div class="stat-label">⚠ Overdue Follow-ups</div>
+                        <div class="stat-value" style="color:${_lkOverdue>0?'#e74c3c':'inherit'};">${_lkOverdue}</div>
+                    </div>
+                    <div class="stat-card" style="border-left:4px solid #f39c12;">
+                        <div class="stat-label">📞 Due Today</div>
+                        <div class="stat-value" style="color:${_lkTodayDue>0?'#f39c12':'inherit'};">${_lkTodayDue}</div>
+                    </div>
                     <div class="stat-card" style="border-left:4px solid #3498db;">
                         <div class="stat-label">New</div>
                         <div class="stat-value">${statusMap['New'] || 0}</div>
-                    </div>
-                    <div class="stat-card" style="border-left:4px solid #f39c12;">
-                        <div class="stat-label">Contacted</div>
-                        <div class="stat-value">${statusMap['Contacted'] || 0}</div>
                     </div>
                     <div class="stat-card" style="border-left:4px solid #2980b9;">
                         <div class="stat-label">Visit Scheduled</div>
@@ -10628,20 +10736,44 @@
                 `;
 
                 if (filtered.length === 0) {
-                    document.getElementById('leadsTable').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#888;">No leads found.</td></tr>';
+                    document.getElementById('leadsTable').innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#888;">No leads found.</td></tr>';
                     return;
                 }
 
+                const _todayLk = new Date().toISOString().slice(0,10);
                 document.getElementById('leadsTable').innerHTML = filtered.map(r => {
                     const dateRaw = r.created_at ? r.created_at.replace('T',' ').slice(0,16) : '-';
                     const statusColors = { New: '#3498db', Contacted: '#f39c12', Interested: '#9b59b6', 'Visit Scheduled': '#2980b9', Converted: '#27ae60', 'Follow Up Later': '#e67e22', Lost: '#e74c3c' };
                     const sColor = statusColors[r.status] || '#888';
+                    // Follow-up badge: red=overdue, amber=today, green=upcoming, gray=none
+                    // (Closed leads — Converted/Lost — get a muted style.)
+                    let followCell = '<span style="color:#bbb;font-size:12px;">—</span>';
+                    if (r.follow_up_date) {
+                        const fud = r.follow_up_date;
+                        const closed = (r.status === 'Converted' || r.status === 'Lost');
+                        let bg = '#e8f5e9', fg = '#27ae60', label = fud;
+                        if (closed) { bg = '#f4f4f4'; fg = '#999'; }
+                        else if (fud < _todayLk) {
+                            bg = '#fdecea'; fg = '#c0392b';
+                            const days = Math.floor((new Date(_todayLk) - new Date(fud)) / 86400000);
+                            label = `${fud} · ${days}d overdue`;
+                        } else if (fud === _todayLk) {
+                            bg = '#fff4e0'; fg = '#d35400';
+                            label = `${fud} · TODAY`;
+                        } else {
+                            const days = Math.ceil((new Date(fud) - new Date(_todayLk)) / 86400000);
+                            label = `${fud} · in ${days}d`;
+                        }
+                        const noteTip = (r.follow_up_note || '').replace(/"/g, '&quot;');
+                        followCell = `<span title="${noteTip}" style="display:inline-block;padding:3px 8px;border-radius:10px;background:${bg};color:${fg};font-size:11px;font-weight:600;white-space:nowrap;">${label}</span>`;
+                    }
                     return `<tr>
                         <td style="white-space:nowrap;font-size:12px;">${dateRaw}</td>
                         <td><strong>${r.name}</strong>${r.email ? '<br><span style="font-size:11px;color:#888;">' + r.email + '</span>' : ''}</td>
                         <td>${r.phone || '-'}</td>
                         <td>${r.locker_size || '-'}</td>
                         <td>${r.branch_name || '-'}</td>
+                        <td>${followCell}</td>
                         <td><span style="font-size:11px;padding:2px 8px;border-radius:4px;background:${r.source === 'Existing Customer' ? '#27ae60' : r.source === 'Mobile App' ? '#1a73e8' : r.source === 'Web App' ? '#0d9488' : '#6b7280'};color:#fff;font-weight:${r.source === 'Existing Customer' ? '700' : '400'};">${r.source || 'Staff'}</span></td>
                         <td><span style="font-size:12px;">${r.created_by_name || '-'}</span></td>
                         <td>
@@ -10657,7 +10789,7 @@
                 }).join('');
             } catch (err) {
                 console.error('Failed to load leads:', err);
-                document.getElementById('leadsTable').innerHTML = '<tr><td colspan="8" style="color:red;padding:20px;">Failed to load leads.</td></tr>';
+                document.getElementById('leadsTable').innerHTML = '<tr><td colspan="10" style="color:red;padding:20px;">Failed to load leads.</td></tr>';
             }
         }
 
@@ -10690,18 +10822,31 @@
             // Summary cards (NCD-specific funnel)
             const statusMap = {};
             (summary && summary.by_status || []).forEach(s => statusMap[s.status] = s.c);
+            // Compute follow-up roll-ups from the live rows (excludes closed: Invested/Lost)
+            const _todayStr = new Date().toISOString().slice(0, 10);
+            let _overdue = 0, _todayDue = 0;
+            (rows || []).forEach(r => {
+                if (!r.follow_up_date) return;
+                if (r.status === 'Invested' || r.status === 'Lost') return;
+                if (r.follow_up_date < _todayStr) _overdue++;
+                else if (r.follow_up_date === _todayStr) _todayDue++;
+            });
             document.getElementById('leadsSummary').innerHTML = `
                 <div class="stat-card" style="border-left:4px solid #b8860b;">
                     <div class="stat-label">Total NCD Leads</div>
                     <div class="stat-value">${(summary && summary.total) || 0}</div>
                 </div>
+                <div class="stat-card" style="border-left:4px solid #e74c3c;">
+                    <div class="stat-label">⚠ Overdue Follow-ups</div>
+                    <div class="stat-value" style="color:${_overdue>0?'#e74c3c':'inherit'};">${_overdue}</div>
+                </div>
+                <div class="stat-card" style="border-left:4px solid #f39c12;">
+                    <div class="stat-label">📞 Due Today</div>
+                    <div class="stat-value" style="color:${_todayDue>0?'#f39c12':'inherit'};">${_todayDue}</div>
+                </div>
                 <div class="stat-card" style="border-left:4px solid #3498db;">
                     <div class="stat-label">New</div>
                     <div class="stat-value">${statusMap['New'] || 0}</div>
-                </div>
-                <div class="stat-card" style="border-left:4px solid #f39c12;">
-                    <div class="stat-label">Contacted</div>
-                    <div class="stat-value">${statusMap['Contacted'] || 0}</div>
                 </div>
                 <div class="stat-card" style="border-left:4px solid #9b59b6;">
                     <div class="stat-label">Interested</div>
@@ -10720,15 +10865,38 @@
             const tbody = document.getElementById('leadsNcdTable');
             if (!tbody) return;
             if (filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:#888;">No NCD leads found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:#888;">No NCD leads found.</td></tr>';
                 return;
             }
             const statusColors = { New:'#3498db', Contacted:'#f39c12', Interested:'#9b59b6', Invested:'#27ae60', Lost:'#e74c3c' };
             const ncdStatuses = ['New','Contacted','Interested','Invested','Lost'];
             const canDelete = currentUser && currentUser.role === 'headoffice';
+            const _today = new Date().toISOString().slice(0,10);
             tbody.innerHTML = filtered.map(r => {
                 const dateRaw = r.created_at ? r.created_at.replace('T',' ').slice(0,16) : '-';
                 const sColor = statusColors[r.status] || '#888';
+                // Follow-up badge: red=overdue, amber=today, green=upcoming, gray=none
+                // (Closed leads — Invested/Lost — get a muted style.)
+                let followCell = '<span style="color:#bbb;font-size:12px;">—</span>';
+                if (r.follow_up_date) {
+                    const fud = r.follow_up_date;
+                    const closed = (r.status === 'Invested' || r.status === 'Lost');
+                    let bg = '#e8f5e9', fg = '#27ae60', label = fud;
+                    if (closed) { bg = '#f4f4f4'; fg = '#999'; }
+                    else if (fud < _today) {
+                        bg = '#fdecea'; fg = '#c0392b';
+                        const days = Math.floor((new Date(_today) - new Date(fud)) / 86400000);
+                        label = `${fud} · ${days}d overdue`;
+                    } else if (fud === _today) {
+                        bg = '#fff4e0'; fg = '#d35400';
+                        label = `${fud} · TODAY`;
+                    } else {
+                        const days = Math.ceil((new Date(fud) - new Date(_today)) / 86400000);
+                        label = `${fud} · in ${days}d`;
+                    }
+                    const noteTip = (r.follow_up_note || '').replace(/"/g, '&quot;');
+                    followCell = `<span title="${noteTip}" style="display:inline-block;padding:3px 8px;border-radius:10px;background:${bg};color:${fg};font-size:11px;font-weight:600;white-space:nowrap;">${label}</span>`;
+                }
                 return `<tr>
                     <td style="white-space:nowrap;font-size:12px;">${dateRaw}</td>
                     <td><strong>${r.name || ''}</strong></td>
@@ -10737,6 +10905,7 @@
                     <td>${r.occupation || '-'}</td>
                     <td style="text-align:right;">${r.amount ? '₹' + fmtINR(r.amount) : '-'}</td>
                     <td>${r.reference || '-'}</td>
+                    <td>${followCell}</td>
                     <td><span style="font-size:12px;">${r.created_by_name || '-'}</span></td>
                     <td>
                         <select onchange="updateLeadStatus('${r.id}', this.value)" style="padding:4px 8px;border:2px solid ${sColor};border-radius:6px;font-size:12px;font-weight:600;color:${sColor};background:#fff;cursor:pointer;">
@@ -10765,6 +10934,10 @@
                         <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Amount (₹)</label><input type="number" min="0" step="any" id="ncdAmount" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
                         <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Reference</label><input type="text" id="ncdReference" placeholder="Referrer name / source" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
                     </div>
+                    <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Follow-up Date <span style="color:#888;font-weight:400;">(reminder)</span></label><input type="date" id="ncdFollowUpDate" min="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Follow-up Note</label><input type="text" id="ncdFollowUpNote" placeholder="e.g., Will invest in 2 days" maxlength="500" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                    </div>
                     <div style="margin-top:12px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Narration</label><textarea id="ncdNarration" rows="3" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;"></textarea></div>
                     <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px;">
                         <button class="btn btn-secondary" onclick="document.getElementById('addNcdLeadModal').remove()" style="padding:8px 20px;">Cancel</button>
@@ -10791,6 +10964,8 @@
                     amount: parseFloat(document.getElementById('ncdAmount').value) || 0,
                     narration: document.getElementById('ncdNarration').value.trim(),
                     reference: document.getElementById('ncdReference').value.trim(),
+                    follow_up_date: document.getElementById('ncdFollowUpDate').value || '',
+                    follow_up_note: document.getElementById('ncdFollowUpNote').value.trim(),
                     created_by: currentUser.id,
                     created_by_name: currentUser.name
                 });
@@ -10824,6 +10999,16 @@
                             <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Occupation</label><input id="ncdEditOccupation" type="text" value="${(r.occupation||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
                             <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Amount (₹)</label><input id="ncdEditAmount" type="number" min="0" step="any" value="${r.amount||0}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
                             <div><label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Reference</label><input id="ncdEditReference" type="text" value="${(r.reference||'').replace(/"/g,'&quot;')}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;"></div>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;padding:10px;background:#fefcf7;border:1px solid #f3e6c4;border-radius:8px;">
+                            <div>
+                                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">📅 Follow-up Date <span style="color:#bbb;">(reminder)</span></label>
+                                <input id="ncdEditFollowUpDate" type="date" value="${r.follow_up_date || ''}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Follow-up Note</label>
+                                <input id="ncdEditFollowUpNote" type="text" value="${(r.follow_up_note||'').replace(/"/g,'&quot;')}" maxlength="500" placeholder="e.g., Will invest in 2 days" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+                            </div>
                         </div>
                         <div style="margin-bottom:14px;">
                             <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Narration</label>
@@ -10862,6 +11047,8 @@
                     amount: parseFloat(document.getElementById('ncdEditAmount').value) || 0,
                     reference: document.getElementById('ncdEditReference').value.trim(),
                     narration: document.getElementById('ncdEditNarration').value.trim(),
+                    follow_up_date: document.getElementById('ncdEditFollowUpDate').value || '',
+                    follow_up_note: document.getElementById('ncdEditFollowUpNote').value.trim(),
                     status: document.getElementById('ncdEditStatus').value
                 };
                 if (!data.name) return alert('Name is required');
@@ -10941,6 +11128,18 @@
                             </div>
                         </div>
 
+                        <!-- Follow-up reminder -->
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;padding:10px;background:#fefcf7;border:1px solid #f3e6c4;border-radius:8px;">
+                            <div>
+                                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">📅 Follow-up Date <span style="color:#bbb;">(reminder)</span></label>
+                                <input id="ldFollowUpDate" type="date" value="${r.follow_up_date || ''}" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}>
+                            </div>
+                            <div>
+                                <label style="font-size:11px;color:#888;display:block;margin-bottom:2px;">Follow-up Note</label>
+                                <input id="ldFollowUpNote" type="text" value="${(r.follow_up_note||'').replace(/"/g,'&quot;')}" maxlength="500" placeholder="e.g., Visit next Monday" style="width:100%;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;" ${isConverted ? 'disabled' : ''}>
+                            </div>
+                        </div>
+
                         <!-- Initial Notes (from lead creation) -->
                         ${r.notes ? `<div style="background:#f9f6f0;border-radius:8px;padding:10px 12px;margin-bottom:12px;"><div style="font-size:10px;color:#888;margin-bottom:2px;">Lead Notes</div><div style="font-size:13px;">${r.notes}</div></div>` : ''}
 
@@ -10982,7 +11181,9 @@
                     email: document.getElementById('ldEmail').value.trim(),
                     locker_size: document.getElementById('ldSize').value,
                     status: document.getElementById('ldStatus').value,
-                    visit_time: document.getElementById('ldVisitTime').value
+                    visit_time: document.getElementById('ldVisitTime').value,
+                    follow_up_date: document.getElementById('ldFollowUpDate').value || '',
+                    follow_up_note: document.getElementById('ldFollowUpNote').value.trim()
                 };
                 if (!data.name) return alert('Name is required');
                 // Prevent backdated visit times
@@ -11117,6 +11318,10 @@
                         </select>
                     </div>
                     <div style="margin-bottom:14px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Notes</label><textarea id="mlNotes" rows="2" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;"></textarea></div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;padding:10px;background:#fefcf7;border:1px solid #f3e6c4;border-radius:8px;">
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">📅 Follow-up Date <span style="color:#888;font-weight:400;">(reminder)</span></label><input type="date" id="mlFollowUpDate" min="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Follow-up Note</label><input type="text" id="mlFollowUpNote" placeholder="e.g., Visit next Monday" maxlength="500" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                    </div>
                     <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px;">
                         <button class="btn btn-secondary" onclick="document.getElementById('addLeadModal').remove()" style="padding:8px 20px;">Cancel</button>
                         <button class="btn btn-primary" onclick="submitLeadFromModal()" style="padding:8px 20px;background:#b8860b;border-color:#b8860b;">Add Lead</button>
@@ -11141,6 +11346,8 @@
                     locker_size: document.getElementById('mlSize').value,
                     branch_id: currentBranchId || '',
                     notes: document.getElementById('mlNotes').value.trim(),
+                    follow_up_date: document.getElementById('mlFollowUpDate').value || '',
+                    follow_up_note: document.getElementById('mlFollowUpNote').value.trim(),
                     created_by: currentUser.id,
                     created_by_name: currentUser.name
                 });

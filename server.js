@@ -754,6 +754,8 @@ addColumnIfMissing('leads', 'occupation', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'amount', "REAL DEFAULT 0");
 addColumnIfMissing('leads', 'narration', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'reference', "TEXT DEFAULT ''");
+addColumnIfMissing('leads', 'follow_up_date', "TEXT DEFAULT ''");
+addColumnIfMissing('leads', 'follow_up_note', "TEXT DEFAULT ''");
 // Backfill any NULL lead_type rows to 'locker' so filters never miss them
 try { db.prepare("UPDATE leads SET lead_type = 'locker' WHERE lead_type IS NULL OR lead_type = ''").run(); } catch (e) {}
 
@@ -2573,6 +2575,122 @@ checkLeaseRenewalReminders();
 // Also run every hour via setInterval
 setInterval(checkLeaseRenewalReminders, 60 * 60 * 1000);
 
+// ── NCD Follow-up Reminders ─────────────────────────────────────────────────
+// Persists a notification for every NCD lead whose follow_up_date is today or
+// in the past, and which is still open (not Invested / not Lost). De-dupes by
+// (lead id + follow_up_date) so the same lead won't double-notify for the same
+// scheduled date. Notifications are persisted to the `notifications` table so
+// nothing is missed even if no one is logged in when they fire.
+function checkNcdFollowUpReminders() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    // Pull every open NCD lead with a follow-up date <= today
+    const leads = db.prepare(`
+      SELECT id, name, phone, place, amount, follow_up_date, follow_up_note, status, created_by_name
+      FROM leads
+      WHERE lead_type = 'ncd'
+        AND follow_up_date IS NOT NULL
+        AND follow_up_date != ''
+        AND follow_up_date <= ?
+        AND status NOT IN ('Invested', 'Lost')
+      ORDER BY follow_up_date ASC
+    `).all(today);
+
+    for (const l of leads) {
+      // De-dupe: tag every reminder with a stable marker that includes the
+      // lead id AND the follow_up_date so re-scheduling produces a fresh alert.
+      const dedupeMarker = `[NCDFU:${l.id}:${l.follow_up_date}]`;
+      const existing = db.prepare(
+        "SELECT id FROM notifications WHERE type = 'ncd_followup' AND message LIKE ? LIMIT 1"
+      ).get(`%${dedupeMarker}%`);
+      if (existing) continue;
+
+      const overdueDays = Math.floor((new Date(today) - new Date(l.follow_up_date)) / (1000 * 60 * 60 * 24));
+      const urgency = overdueDays > 0 ? `OVERDUE ${overdueDays}d` : 'TODAY';
+      const amountStr = l.amount > 0 ? ` · ₹${Number(l.amount).toLocaleString('en-IN')}` : '';
+      const noteStr = l.follow_up_note ? ` — ${l.follow_up_note}` : '';
+      const phoneStr = l.phone ? ` (${l.phone})` : '';
+      const placeStr = l.place ? `, ${l.place}` : '';
+
+      // Notification is global to head office (NCD is HO-scoped). branch_id='' so
+      // the SSE broadcaster delivers to all HO sessions.
+      createNotification(
+        '',
+        'headoffice',
+        'ncd_followup',
+        `📞 NCD Follow-up ${urgency}: ${l.name}`,
+        `${l.name}${phoneStr}${placeStr}${amountStr} — scheduled for ${l.follow_up_date}${noteStr}. ${dedupeMarker}`,
+        '' // no tenant_id (NCD leads are not tenants)
+      );
+      logInfo('NCD follow-up reminder created', { leadId: l.id, name: l.name, follow_up_date: l.follow_up_date, urgency });
+    }
+  } catch (err) {
+    logError('NCD follow-up reminder check failed', { error: err.message });
+  }
+}
+
+// Run at startup and then every hour, same cadence as lease renewals
+checkNcdFollowUpReminders();
+setInterval(checkNcdFollowUpReminders, 60 * 60 * 1000);
+
+// ── Locker Lead Follow-up Reminders ─────────────────────────────────────────
+// Mirrors checkNcdFollowUpReminders for locker leads. Key differences:
+//  - Open status set is different: Converted/Lost are closed for locker leads
+//  - Notifications are scoped to the lead's branch (so both the branch AND HO
+//    see them — HO always receives branch-scoped notifications via SSE)
+//  - Distinct dedupe marker ([LOCKFU:...]) so it never collides with NCD
+function checkLockerFollowUpReminders() {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const leads = db.prepare(`
+      SELECT l.id, l.name, l.phone, l.branch_id, l.locker_size, l.follow_up_date,
+             l.follow_up_note, l.status, l.created_by_name, b.name as branch_name
+      FROM leads l
+      LEFT JOIN branches b ON l.branch_id = b.id
+      WHERE (l.lead_type = 'locker' OR l.lead_type IS NULL OR l.lead_type = '')
+        AND l.follow_up_date IS NOT NULL
+        AND l.follow_up_date != ''
+        AND l.follow_up_date <= ?
+        AND l.status NOT IN ('Converted', 'Lost')
+      ORDER BY l.follow_up_date ASC
+    `).all(today);
+
+    for (const l of leads) {
+      const dedupeMarker = `[LOCKFU:${l.id}:${l.follow_up_date}]`;
+      const existing = db.prepare(
+        "SELECT id FROM notifications WHERE type = 'locker_followup' AND message LIKE ? LIMIT 1"
+      ).get(`%${dedupeMarker}%`);
+      if (existing) continue;
+
+      const overdueDays = Math.floor((new Date(today) - new Date(l.follow_up_date)) / (1000 * 60 * 60 * 24));
+      const urgency = overdueDays > 0 ? `OVERDUE ${overdueDays}d` : 'TODAY';
+      const phoneStr = l.phone ? ` (${l.phone})` : '';
+      const sizeStr = l.locker_size ? ` · ${l.locker_size}` : '';
+      const branchStr = l.branch_name ? ` @ ${l.branch_name}` : '';
+      const noteStr = l.follow_up_note ? ` — ${l.follow_up_note}` : '';
+
+      // Scope to the lead's branch (empty branch_id means HO-only). The existing
+      // SSE broadcaster in createNotification() will also deliver to all HO
+      // sessions regardless of branch_id, so nothing is missed.
+      createNotification(
+        l.branch_id || '',
+        'all',
+        'locker_followup',
+        `📞 Locker Lead Follow-up ${urgency}: ${l.name}`,
+        `${l.name}${phoneStr}${sizeStr}${branchStr} — scheduled for ${l.follow_up_date}${noteStr}. ${dedupeMarker}`,
+        ''
+      );
+      logInfo('Locker lead follow-up reminder created', { leadId: l.id, name: l.name, follow_up_date: l.follow_up_date, urgency });
+    }
+  } catch (err) {
+    logError('Locker lead follow-up reminder check failed', { error: err.message });
+  }
+}
+
+// Run at startup and then every hour
+checkLockerFollowUpReminders();
+setInterval(checkLockerFollowUpReminders, 60 * 60 * 1000);
+
 // ============================
 //  PAYOUTS (INTEREST)
 // ============================
@@ -2821,14 +2939,24 @@ app.get('/api/stats/leads', requireAuth, requireRole('headoffice'), (req, res) =
     const ncdInvested = db.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(amount),0) as amt FROM leads WHERE lead_type = 'ncd' AND status = 'Invested'`).get();
     const lockerLeadAgg = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'locker' OR lead_type IS NULL OR lead_type = ''`).get();
     const lockerLeadOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND status NOT IN ('Converted','Lost')`).get();
+    // Follow-up reminder rollups — overdue + due today, only counting open leads
+    const today = new Date().toISOString().slice(0, 10);
+    const ncdOverdue = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'ncd' AND follow_up_date != '' AND follow_up_date IS NOT NULL AND follow_up_date < ? AND status NOT IN ('Invested','Lost')`).get(today);
+    const ncdDueToday = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'ncd' AND follow_up_date = ? AND status NOT IN ('Invested','Lost')`).get(today);
+    const lockOverdue = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND follow_up_date != '' AND follow_up_date IS NOT NULL AND follow_up_date < ? AND status NOT IN ('Converted','Lost')`).get(today);
+    const lockDueToday = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND follow_up_date = ? AND status NOT IN ('Converted','Lost')`).get(today);
     res.json({
       ncd_total: ncdAgg.c || 0,
       ncd_open: ncdOpen.c || 0,
       ncd_amount: ncdAgg.amt || 0,
       ncd_invested_count: ncdInvested.c || 0,
       ncd_invested_amount: ncdInvested.amt || 0,
+      ncd_followup_overdue: ncdOverdue.c || 0,
+      ncd_followup_today: ncdDueToday.c || 0,
       locker_leads_total: lockerLeadAgg.c || 0,
-      locker_leads_open: lockerLeadOpen.c || 0
+      locker_leads_open: lockerLeadOpen.c || 0,
+      locker_followup_overdue: lockOverdue.c || 0,
+      locker_followup_today: lockDueToday.c || 0
     });
   } catch (err) {
     logError('Stats leads failed', { error: err.message });
@@ -5244,18 +5372,29 @@ app.post('/api/leads', requireAuth, (req, res) => {
       const amount     = parseFloat(req.body.amount) || 0;
       const narration  = (req.body.narration || '').toString();
       const reference  = (req.body.reference || '').toString().slice(0, 200);
+      // Follow-up reminder fields (optional). Validate YYYY-MM-DD format if provided.
+      let follow_up_date = (req.body.follow_up_date || '').toString().trim();
+      if (follow_up_date && !/^\d{4}-\d{2}-\d{2}$/.test(follow_up_date)) {
+        return res.status(400).json({ error: 'Follow-up date must be in YYYY-MM-DD format' });
+      }
+      const follow_up_note = (req.body.follow_up_note || '').toString().slice(0, 500);
       // NCD leads are global (no branch_id), default status 'New'
       db.prepare(`INSERT INTO leads
-        (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, place, occupation, amount, narration, reference)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, place, occupation, amount, narration, reference, follow_up_date, follow_up_note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, name.trim(), phone, email || '', '', '', notes || '', 'New', created_by, created_by_name, 'Staff',
-        'ncd', place, occupation, amount, narration, reference
+        'ncd', place, occupation, amount, narration, reference, follow_up_date, follow_up_note
       );
       logInfo('NCD lead created', { id, name: name.trim(), by: created_by_name });
     } else {
-      // Locker lead — original behavior preserved
-      db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        id, name.trim(), phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name, 'Staff', 'locker'
+      // Locker lead — original behavior preserved, now with optional follow-up reminder
+      let lock_fud = (req.body.follow_up_date || '').toString().trim();
+      if (lock_fud && !/^\d{4}-\d{2}-\d{2}$/.test(lock_fud)) {
+        return res.status(400).json({ error: 'Follow-up date must be in YYYY-MM-DD format' });
+      }
+      const lock_fun = (req.body.follow_up_note || '').toString().slice(0, 500);
+      db.prepare(`INSERT INTO leads (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, follow_up_date, follow_up_note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, name.trim(), phone, email || '', locker_size || '', branch_id || '', notes || '', 'New', created_by, created_by_name, 'Staff', 'locker', lock_fud, lock_fun
       );
       logInfo('Lead created', { id, name: name.trim(), phone, created_by: created_by_name });
     }
@@ -5264,6 +5403,14 @@ app.post('/api/leads', requireAuth, (req, res) => {
     const newLead = db.prepare('SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id WHERE l.id = ?').get(id);
     if (newLead && typeof broadcastNewLead === 'function') {
       try { broadcastNewLead(newLead); } catch (_) {}
+    }
+    // If a lead was created with a follow-up date that's already due, fire
+    // the persistent reminder immediately so it's not missed.
+    if (req.body.follow_up_date) {
+      try {
+        if (lead_type === 'ncd') checkNcdFollowUpReminders();
+        else checkLockerFollowUpReminders();
+      } catch (_) {}
     }
     res.json({ id, success: true });
   } catch (err) {
@@ -5296,7 +5443,13 @@ app.get('/api/leads', requireAuth, (req, res) => {
     if (created_by) { conditions.push('l.created_by = ?'); params.push(created_by); }
     if (status) { conditions.push('l.status = ?'); params.push(status); }
     if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
-    sql += ' ORDER BY l.created_at DESC';
+    // Prioritize follow-ups for both lead types — overdue/today first (ascending
+    // date), leads with no follow-up date sink to the bottom, then newest first
+    // as a tiebreaker. Leads without follow-up dates behave as before.
+    sql += ` ORDER BY
+      CASE WHEN l.follow_up_date IS NULL OR l.follow_up_date = '' THEN 1 ELSE 0 END ASC,
+      l.follow_up_date ASC,
+      l.created_at DESC`;
     const rows = db.prepare(sql).all(...params);
     res.json(rows);
   } catch (err) {
@@ -5346,7 +5499,14 @@ app.put('/api/leads/:id', requireAuth, (req, res) => {
       }
     }
 
-    const commonFields = ['status', 'notes', 'name', 'phone', 'email'];
+    // Validate follow_up_date format if provided (applies to both lead types)
+    if (req.body.follow_up_date !== undefined && req.body.follow_up_date) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.follow_up_date).trim())) {
+        return res.status(400).json({ error: 'Follow-up date must be in YYYY-MM-DD format' });
+      }
+    }
+
+    const commonFields = ['status', 'notes', 'name', 'phone', 'email', 'follow_up_date', 'follow_up_note'];
     const lockerOnly   = ['branch_id', 'visit_time', 'locker_size', 'converted_tenant_id'];
     const ncdOnly      = ['place', 'occupation', 'amount', 'narration', 'reference'];
     const allowed = isNcd ? commonFields.concat(ncdOnly) : commonFields.concat(lockerOnly);
@@ -5357,6 +5517,14 @@ app.put('/api/leads/:id', requireAuth, (req, res) => {
       }
     });
     logInfo('Lead updated', { id: req.params.id, type: lead.lead_type || 'locker', status: req.body.status });
+    // If the follow-up date was set/updated, fire the appropriate reminder
+    // check immediately so the persistent notification lands right away.
+    if (req.body.follow_up_date !== undefined) {
+      try {
+        if (isNcd) checkNcdFollowUpReminders();
+        else checkLockerFollowUpReminders();
+      } catch (_) {}
+    }
     res.json({ ok: true });
   } catch (err) {
     logError('Lead update failed', { error: err.message });
