@@ -39,11 +39,15 @@
             background: var(--bg);
             color: var(--text);
             line-height: 1.6;
+            overflow-x: hidden;     /* page never scrolls horizontally on any breakpoint */
         }
 
         .app-container {
             display: flex;
             height: 100vh;
+            min-width: 0;           /* allow flex children to shrink */
+            width: 100%;
+            overflow-x: hidden;
         }
 
         .sidebar {
@@ -267,10 +271,16 @@
 
         .main-content {
             flex: 1;
+            min-width: 0;          /* CRITICAL: lets inner overflow-x:auto work */
             margin-left: 250px;
             display: flex;
             flex-direction: column;
             height: 100vh;
+            overflow-x: hidden;    /* page itself never scrolls horizontally */
+        }
+
+        .screen {
+            min-width: 0;          /* same fix one level deeper for safety */
         }
 
         .topbar {
@@ -328,7 +338,9 @@
 
         .content-area {
             flex: 1;
+            min-width: 0;          /* CRITICAL: lets inner overflow-x:auto work in tables */
             overflow-y: auto;
+            overflow-x: hidden;    /* horizontal overflow stays inside table-container */
             padding: 32px;
         }
 
