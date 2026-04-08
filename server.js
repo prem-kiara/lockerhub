@@ -4735,16 +4735,26 @@ async function getMsGraphToken() {
       let data = '';
       res.on('data', c => data += c);
       res.on('end', () => {
-        try {
-          const json = JSON.parse(data);
-          if (json.access_token) {
-            _msTokenCache = { token: json.access_token, expiresAt: Date.now() + (json.expires_in * 1000) };
-            resolve(json.access_token);
-          } else {
-            reject(new Error(json.error_description || json.error || 'Token fetch failed'));
-          }
-        } catch (e) { reject(e); }
+        // Status check before any JSON.parse — empty body on either path must
+        // produce a clear error, not the cryptic "Unexpected end of JSON input".
+        if (!data) {
+          return reject(new Error('MS Graph token endpoint returned empty body (status ' + res.statusCode + ')'));
+        }
+        let json;
+        try { json = JSON.parse(data); }
+        catch (e) {
+          return reject(new Error('MS Graph token endpoint returned non-JSON (status ' + res.statusCode + '): ' + data.slice(0, 200)));
+        }
+        if (res.statusCode >= 200 && res.statusCode < 300 && json.access_token) {
+          _msTokenCache = { token: json.access_token, expiresAt: Date.now() + (json.expires_in * 1000) };
+          return resolve(json.access_token);
+        }
+        reject(new Error('MS Graph token fetch failed (' + res.statusCode + '): ' + (json.error_description || json.error || 'unknown error')));
       });
+    });
+    // Token endpoint should respond in well under 30s; fail fast if it stalls.
+    req.setTimeout(30000, () => {
+      req.destroy(new Error('MS Graph token request timed out after 30s'));
     });
     req.on('error', reject);
     req.write(body);
@@ -4767,12 +4777,23 @@ function msGraphRequest(method, apiPath, body) {
         let data = '';
         res.on('data', c => data += c);
         res.on('end', () => {
-          try {
-            const json = JSON.parse(data);
-            if (res.statusCode >= 200 && res.statusCode < 300) resolve(json);
-            else reject({ status: res.statusCode, message: json.error?.message || data });
-          } catch (e) { reject(e); }
+          // 204 No Content (e.g. DELETE) is a valid empty response.
+          if (res.statusCode === 204) return resolve({});
+          if (!data) {
+            if (res.statusCode >= 200 && res.statusCode < 300) return resolve({});
+            return reject(new Error('MS Graph ' + method + ' ' + apiPath + ' returned empty body (status ' + res.statusCode + ')'));
+          }
+          let json;
+          try { json = JSON.parse(data); }
+          catch (e) {
+            return reject(new Error('MS Graph ' + method + ' ' + apiPath + ' returned non-JSON (status ' + res.statusCode + '): ' + data.slice(0, 200)));
+          }
+          if (res.statusCode >= 200 && res.statusCode < 300) return resolve(json);
+          reject({ status: res.statusCode, message: json.error?.message || json.error_description || data });
         });
+      });
+      req.setTimeout(60000, () => {
+        req.destroy(new Error('MS Graph ' + method + ' ' + apiPath + ' timed out after 60s'));
       });
       req.on('error', reject);
       if (body) req.write(JSON.stringify(body));
