@@ -4710,13 +4710,42 @@ const SHAREPOINT_CONFIG = {
   // Sub-folders: Application (agreements), Payment Receipt (receipts)
 };
 
+// Surface missing SharePoint config at startup so ops can fix it BEFORE
+// users hit "Save to Repo" and see opaque 502s in the browser.
+(function checkSharePointConfig() {
+  const missing = [];
+  if (!SHAREPOINT_CONFIG.tenantId)     missing.push('MS_TENANT_ID');
+  if (!SHAREPOINT_CONFIG.clientId)     missing.push('MS_CLIENT_ID');
+  if (!SHAREPOINT_CONFIG.clientSecret) missing.push('MS_CLIENT_SECRET');
+  if (missing.length) {
+    console.warn('  ⚠️  SharePoint NOT configured — missing: ' + missing.join(', ') + '. Save-to-Repo will fail until these are set in .env.');
+  } else {
+    console.log('  ✅ SharePoint config loaded (tenant ' + String(SHAREPOINT_CONFIG.tenantId).slice(0, 8) + '…)');
+  }
+})();
+
 let _msTokenCache = { token: null, expiresAt: 0 };
 
 async function getMsGraphToken() {
   if (_msTokenCache.token && Date.now() < _msTokenCache.expiresAt - 60000) {
     return _msTokenCache.token;
   }
-  const tokenUrl = `https://login.microsoftonline.com/${SHAREPOINT_CONFIG.tenantId}/oauth2/v2.0/token`;
+  // Fail fast with a clear message if any required env var is missing.
+  // Without this, an empty tenantId silently produces a malformed URL like
+  // https://login.microsoftonline.com//oauth2/v2.0/token → 404 empty body,
+  // which used to surface as "Unexpected end of JSON input".
+  const missing = [];
+  if (!SHAREPOINT_CONFIG.tenantId)     missing.push('MS_TENANT_ID');
+  if (!SHAREPOINT_CONFIG.clientId)     missing.push('MS_CLIENT_ID');
+  if (!SHAREPOINT_CONFIG.clientSecret) missing.push('MS_CLIENT_SECRET');
+  if (missing.length) {
+    throw new Error('SharePoint not configured — missing env var(s): ' + missing.join(', ') + '. Set them in .env and restart pm2.');
+  }
+  // Microsoft tenant IDs are GUIDs. A common mistake is to paste a tenant
+  // *name* (e.g. "kiaramfi.onmicrosoft.com") which also works, OR to leave a
+  // trailing slash / quote — which produces 404. Trim defensively.
+  const tenantId = String(SHAREPOINT_CONFIG.tenantId).trim().replace(/^\/|\/$/g, '');
+  const tokenUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
   const body = new URLSearchParams({
     client_id: SHAREPOINT_CONFIG.clientId,
     client_secret: SHAREPOINT_CONFIG.clientSecret,
@@ -4738,7 +4767,12 @@ async function getMsGraphToken() {
         // Status check before any JSON.parse — empty body on either path must
         // produce a clear error, not the cryptic "Unexpected end of JSON input".
         if (!data) {
-          return reject(new Error('MS Graph token endpoint returned empty body (status ' + res.statusCode + ')'));
+          // 404 here almost always means the tenant ID in the URL is wrong.
+          // Include a hint so ops can immediately diagnose the .env mistake.
+          const hint = res.statusCode === 404
+            ? ' — this usually means MS_TENANT_ID is wrong or malformed (using "' + tenantId + '"). Verify it against the Azure portal → Microsoft Entra ID → Overview → Tenant ID.'
+            : '';
+          return reject(new Error('MS Graph token endpoint returned empty body (status ' + res.statusCode + ')' + hint));
         }
         let json;
         try { json = JSON.parse(data); }
