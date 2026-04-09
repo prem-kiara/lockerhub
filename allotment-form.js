@@ -336,8 +336,20 @@ function page3(doc, t, branch) {
   const rentWordsStr = t.rent_amount ? `(Rupees ${numberToWords(t.rent_amount)} only)` : '(Rupees ........................................ only)';
   const branchAddr = branch.location || branch.address || '..............................';
 
+  // Build the GST/waiver suffix if the tenant has a stored breakup
+  let rentSuffix = '';
+  if (Number(t.base_amount) > 0) {
+    const waiver = Number(t.waiver_amount) || 0;
+    const cgst = Number(t.cgst_amount) || 0;
+    const sgst = Number(t.sgst_amount) || 0;
+    const parts = [];
+    if (waiver > 0) parts.push(`after a waiver of Rs. ${formatRupees(waiver)} on the annual rent of Rs. ${formatRupees(t.base_amount)}`);
+    parts.push(`inclusive of CGST @ 9% (Rs. ${formatRupees(cgst)}) and SGST @ 9% (Rs. ${formatRupees(sgst)})`);
+    rentSuffix = ` [${parts.join('; ')}]`;
+  }
+
   doc.font('Helvetica').fontSize(8.5).fillColor('black');
-  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ${branchAddr} (hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'} (hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Hi-Tech Locker No. ${t.locker_number || '........'}, Key No. ................., Locker type ${t.locker_size || '........'}, Cabinet No. ................., for a period of 12 months from the ${dayStr} day of ${monthStr} 20${yearStr} at a rental of ${rentStr} ${rentWordsStr} for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
+  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ${branchAddr} (hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'} (hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Hi-Tech Locker No. ${t.locker_number || '........'}, Key No. ................., Locker type ${t.locker_size || '........'}, Cabinet No. ................., for a period of 12 months from the ${dayStr} day of ${monthStr} 20${yearStr} at a rental of ${rentStr} ${rentWordsStr}${rentSuffix} for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
   doc.text(agText, M, y, { width: W - 2 * M - 150, align: 'justify', lineGap: 1.5 });
   y = doc.y + 10;
 
@@ -816,6 +828,23 @@ function pageAcknowledgement(doc, t, branch, locker) {
   field(doc, 'Cabinet No.:', W / 2 + 10, y - 16, '', 115, 80);
   y += 2;
   y = field(doc, 'Received Locker Rent: Rs.', M, y, t.rent_amount ? formatRupees(t.rent_amount) : '', 115, 155);
+  // If we have a GST/waiver breakup, render a small itemised note below the rent line
+  if (Number(t.base_amount) > 0) {
+    const base = Number(t.base_amount) || 0;
+    const waiv = Number(t.waiver_amount) || 0;
+    const taxable = Number(t.taxable_amount) || (base - waiv);
+    const cgst = Number(t.cgst_amount) || 0;
+    const sgst = Number(t.sgst_amount) || 0;
+    doc.font('Helvetica').fontSize(7).fillColor('#666666');
+    const parts = [`Base: Rs. ${formatRupees(base)}`];
+    if (waiv > 0) parts.push(`Waiver: Rs. ${formatRupees(waiv)}`);
+    parts.push(`Taxable: Rs. ${formatRupees(taxable)}`);
+    parts.push(`CGST @ 9%: Rs. ${formatRupees(cgst)}`);
+    parts.push(`SGST @ 9%: Rs. ${formatRupees(sgst)}`);
+    tx(doc, parts.join('   |   '), M + 10, y);
+    doc.fillColor('black');
+    y += 12;
+  }
   y = field(doc, 'Received Deposit: Rs.', M, y, t.deposit_amount ? formatRupees(t.deposit_amount) : '', 115, 135);
 
   y += 8;

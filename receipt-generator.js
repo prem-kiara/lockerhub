@@ -64,6 +64,67 @@ function numberToWords(num) {
 
 function capitalize(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
 
+// True if the payment has a stored waiver/GST breakup (new rows); false for
+// legacy rows where we should fall back to the single "Amount Received" line.
+function hasBreakup(payment) {
+  return payment && Number(payment.base_amount) > 0;
+}
+
+// Render the itemised breakup (Base / Waiver / Taxable / CGST / SGST / Total)
+// inside a fixed-height box. Returns the box height so the caller can advance y.
+function renderBreakupBox(doc, payment, x, y, width, opts) {
+  const o = opts || {};
+  const GOLD_C = '#b8860b';
+  const DARK_C = '#2c1810';
+  const GREY_C = '#666666';
+  const LABEL_SIZE = o.compact ? 8 : 9;
+  const VALUE_SIZE = o.compact ? 8 : 9;
+  const ROW_H = o.compact ? 13 : 16;
+  const PAD_X = 12;
+  const PAD_Y = 10;
+
+  const base = Number(payment.base_amount) || 0;
+  const waiver = Number(payment.waiver_amount) || 0;
+  const taxable = Number(payment.taxable_amount) || (base - waiver);
+  const cgst = Number(payment.cgst_amount) || 0;
+  const sgst = Number(payment.sgst_amount) || 0;
+  const total = Number(payment.amount) || (taxable + cgst + sgst);
+
+  const lines = [];
+  lines.push(['Annual Rent (Base)', formatRupees(base)]);
+  if (waiver > 0) lines.push(['Waiver Applied', '- ' + formatRupees(waiver), true]);
+  lines.push(['Taxable Value', formatRupees(taxable)]);
+  lines.push(['CGST @ 9%', formatRupees(cgst)]);
+  lines.push(['SGST @ 9%', formatRupees(sgst)]);
+
+  const boxH = PAD_Y * 2 + lines.length * ROW_H + ROW_H + 4; // + total row
+  // Background
+  doc.save().fillColor('#faf6f0').rect(x, y, width, boxH).fill().restore();
+  doc.save().strokeColor(GOLD_C).lineWidth(1.2).rect(x, y, width, boxH).stroke().restore();
+
+  let cy = y + PAD_Y;
+  for (const [label, val, isWaiver] of lines) {
+    doc.font('Helvetica').fontSize(LABEL_SIZE).fillColor(isWaiver ? '#27ae60' : GREY_C);
+    doc.text(String(label), x + PAD_X, cy, { lineBreak: false });
+    const valStr = 'Rs. ' + String(val);
+    doc.font(isWaiver ? 'Helvetica-Bold' : 'Helvetica-Bold').fontSize(VALUE_SIZE).fillColor(isWaiver ? '#27ae60' : DARK_C);
+    const vw = doc.widthOfString(valStr);
+    doc.text(valStr, x + width - PAD_X - vw, cy, { lineBreak: false });
+    cy += ROW_H;
+  }
+  // Divider before total
+  doc.save().strokeColor('#e0d4c0').lineWidth(0.5).moveTo(x + PAD_X, cy).lineTo(x + width - PAD_X, cy).stroke().restore();
+  cy += 4;
+  // Total row
+  doc.font('Helvetica-Bold').fontSize(LABEL_SIZE + 1).fillColor(DARK_C);
+  doc.text('Total Payable', x + PAD_X, cy, { lineBreak: false });
+  const totalStr = 'Rs. ' + formatRupees(total);
+  doc.font('Helvetica-Bold').fontSize(VALUE_SIZE + 3).fillColor(GOLD_C);
+  const tw = doc.widthOfString(totalStr);
+  doc.text(totalStr, x + width - PAD_X - tw, cy - 2, { lineBreak: false });
+  return boxH;
+}
+
 function renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, startY, renderOpts) {
   const rOpts = renderOpts || {};
   let y2 = startY;
@@ -145,30 +206,39 @@ function renderCustomerCopy(doc, payment, tenant, branch, locker, contentW, star
 
   y2 += isFullPage ? 15 : 5;
 
-  // Amount box
-  const boxH = isFullPage ? 55 : 35;
-  doc.save().fillColor('#faf6f0').rect(M, y2, contentW, boxH).fill().restore();
-  doc.save().strokeColor(GOLD).lineWidth(isFullPage ? 1.5 : 1).rect(M, y2, contentW, boxH).stroke().restore();
-
-  if (isFullPage) {
-    doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
-    tx(doc, 'Amount Received:', M + 15, y2 + 10);
-    doc.font('Helvetica-Bold').fontSize(22).fillColor(GOLD);
-    const amountStr = `Rs.${formatRupees(payment.amount || 0)}`;
-    const amountW = doc.widthOfString(amountStr);
-    tx(doc, amountStr, W - M - 15 - amountW, y2 + 6);
-    doc.font('Helvetica').fontSize(9).fillColor('#666666');
-    tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 15, y2 + 34);
+  // Amount box — new breakup mode (waiver + CGST/SGST) when present,
+  // otherwise fall back to the legacy single-line "Amount Received" display.
+  if (hasBreakup(payment) && (payment.type === 'rent' || !payment.type)) {
+    const breakH = renderBreakupBox(doc, payment, M, y2, contentW, { compact: !isFullPage });
+    // Amount in words just below the box
+    doc.font('Helvetica').fontSize(isFullPage ? 8.5 : 7).fillColor('#666666');
+    tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only, inclusive of CGST 9% + SGST 9%)`, M + 12, y2 + breakH + 3);
+    y2 += breakH + (isFullPage ? 18 : 12);
   } else {
-    doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK);
-    tx(doc, 'Amount:', M + 10, y2 + 5);
-    doc.font('Helvetica-Bold').fontSize(16).fillColor(GOLD);
-    const amt2 = `Rs.${formatRupees(payment.amount || 0)}`;
-    tx(doc, amt2, M + 75, y2 + 3);
-    doc.font('Helvetica').fontSize(7.5).fillColor('#666666');
-    tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 10, y2 + 22);
+    const boxH = isFullPage ? 55 : 35;
+    doc.save().fillColor('#faf6f0').rect(M, y2, contentW, boxH).fill().restore();
+    doc.save().strokeColor(GOLD).lineWidth(isFullPage ? 1.5 : 1).rect(M, y2, contentW, boxH).stroke().restore();
+
+    if (isFullPage) {
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
+      tx(doc, 'Amount Received:', M + 15, y2 + 10);
+      doc.font('Helvetica-Bold').fontSize(22).fillColor(GOLD);
+      const amountStr = `Rs.${formatRupees(payment.amount || 0)}`;
+      const amountW = doc.widthOfString(amountStr);
+      tx(doc, amountStr, W - M - 15 - amountW, y2 + 6);
+      doc.font('Helvetica').fontSize(9).fillColor('#666666');
+      tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 15, y2 + 34);
+    } else {
+      doc.font('Helvetica-Bold').fontSize(10).fillColor(DARK);
+      tx(doc, 'Amount:', M + 10, y2 + 5);
+      doc.font('Helvetica-Bold').fontSize(16).fillColor(GOLD);
+      const amt2 = `Rs.${formatRupees(payment.amount || 0)}`;
+      tx(doc, amt2, M + 75, y2 + 3);
+      doc.font('Helvetica').fontSize(7.5).fillColor('#666666');
+      tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only)`, M + 10, y2 + 22);
+    }
+    y2 += boxH + (isFullPage ? 10 : 7);
   }
-  y2 += boxH + (isFullPage ? 10 : 7);
 
   // Notes (full page only)
   if (isFullPage && payment.notes) {
@@ -365,22 +435,29 @@ function generateReceiptBuffer(payment, tenant, branch, locker, options) {
       y += 16;
 
       // ===== AMOUNT BOX =====
-      doc.save().fillColor('#faf6f0').rect(M, y, contentW, 55).fill().restore();
-      doc.save().strokeColor(GOLD).lineWidth(1.5).rect(M, y, contentW, 55).stroke().restore();
+      if (hasBreakup(payment) && (payment.type === 'rent' || !payment.type)) {
+        const breakH = renderBreakupBox(doc, payment, M, y, contentW, { compact: false });
+        doc.font('Helvetica').fontSize(9).fillColor('#666666');
+        tx(doc, `(Rupees ${numberToWords(payment.amount || 0)} only, inclusive of CGST 9% + SGST 9%)`, M + 15, y + breakH + 4);
+        y += breakH + 18;
+      } else {
+        doc.save().fillColor('#faf6f0').rect(M, y, contentW, 55).fill().restore();
+        doc.save().strokeColor(GOLD).lineWidth(1.5).rect(M, y, contentW, 55).stroke().restore();
 
-      doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
-      tx(doc, 'Amount Received:', M + 15, y + 10);
+        doc.font('Helvetica-Bold').fontSize(12).fillColor(DARK);
+        tx(doc, 'Amount Received:', M + 15, y + 10);
 
-      doc.font('Helvetica-Bold').fontSize(22).fillColor(GOLD);
-      const amountStr = `Rs.${formatRupees(payment.amount || 0)}`;
-      const amountW = doc.widthOfString(amountStr);
-      tx(doc, amountStr, W - M - 15 - amountW, y + 6);
+        doc.font('Helvetica-Bold').fontSize(22).fillColor(GOLD);
+        const amountStr = `Rs.${formatRupees(payment.amount || 0)}`;
+        const amountW = doc.widthOfString(amountStr);
+        tx(doc, amountStr, W - M - 15 - amountW, y + 6);
 
-      // Amount in words
-      doc.font('Helvetica').fontSize(9).fillColor('#666666');
-      const wordsStr = `(Rupees ${numberToWords(payment.amount || 0)} only)`;
-      tx(doc, wordsStr, M + 15, y + 34);
-      y += 65;
+        // Amount in words
+        doc.font('Helvetica').fontSize(9).fillColor('#666666');
+        const wordsStr = `(Rupees ${numberToWords(payment.amount || 0)} only)`;
+        tx(doc, wordsStr, M + 15, y + 34);
+        y += 65;
+      }
 
       // ===== NOTES =====
       if (payment.notes) {

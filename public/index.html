@@ -1166,8 +1166,14 @@
             }
 
             .notif-dropdown {
-                width: calc(100vw - 32px);
-                right: -60px;
+                position: fixed;
+                top: 60px;
+                right: 12px;
+                left: 12px;
+                width: auto;
+                max-width: none;
+                max-height: calc(100vh - 80px);
+                overflow-y: auto;
             }
 
             /* Table scroll indicator */
@@ -2952,7 +2958,8 @@
                             <option value="Lost">Lost</option>
                         </select>
                         <input type="text" id="leadSearch" placeholder="Search by name or phone..." oninput="loadLeads()" style="padding:8px 12px; border:1px solid #ddd; border-radius:6px; font-size:13px; min-width:200px;">
-                        <button class="btn btn-primary" onclick="openLeadModal()" style="margin-left:auto;">+ Add Lead</button>
+                        <button id="ncdReportBtn" class="btn btn-secondary" onclick="downloadNcdLeadsReport()" style="margin-left:auto;display:none;">⬇ Download NCD Report (Excel)</button>
+                        <button id="addLeadBtn" class="btn btn-primary" onclick="openLeadModal()">+ Add Lead</button>
                     </div>
 
                     <!-- Locker leads table -->
@@ -3431,10 +3438,11 @@
                     <div id="paymentTenantInfo" style="display:none; background:var(--bg-warm); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:16px; font-size:13px;">
                         <span id="paymentTenantLocker"></span> &nbsp;|&nbsp; <span id="paymentTenantRent"></span>
                     </div>
+                    <div id="paymentRentBreakup" style="display:none;background:#faf6f0;border:1px solid #e3d5c3;border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:12px;"></div>
                     <div class="form-row">
                         <div class="form-group">
                             <label for="paymentType">Payment Type</label>
-                            <select id="paymentType" required>
+                            <select id="paymentType" required onchange="populatePaymentDetails()">
                                 <option value="rent">Rent</option>
                                 <option value="deposit">Deposit</option>
                             </select>
@@ -3492,6 +3500,41 @@
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
                 <button class="btn btn-primary" onclick="savePayment()">Save Payment</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Waiver Modal -->
+    <div id="waiverModal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="waiverModalTitle">Rent Waiver</h2>
+                <button class="modal-close" onclick="closeModal('waiverModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="waiverTenantInfo" style="background:var(--bg-warm); border:1px solid var(--border); border-radius:8px; padding:12px 14px; margin-bottom:14px; font-size:13px;"></div>
+
+                <div id="waiverExisting" style="margin-bottom:16px;"></div>
+
+                <div id="waiverRequestForm">
+                    <div style="font-weight:600; margin-bottom:8px;">Request a New Waiver</div>
+                    <div class="form-group">
+                        <label for="waiverAmount">Waiver Amount (₹)</label>
+                        <input type="number" id="waiverAmount" min="1" step="100" placeholder="e.g. 5000">
+                    </div>
+                    <div class="form-group">
+                        <label for="waiverReason">Reason / Approved By</label>
+                        <textarea id="waiverReason" rows="2" placeholder="e.g. Approved by Gokul (Director), long-standing customer"></textarea>
+                    </div>
+                    <div id="waiverBreakupPreview" style="background:#faf6f0;border:1px solid #e3d5c3;border-radius:6px;padding:10px 12px;font-size:12px;margin-bottom:12px;display:none;"></div>
+                    <div style="font-size:11px;color:var(--text-light);margin-bottom:10px;">
+                        Waivers must be approved by Eashwar, Head Office or root before the customer can pay. The approver cannot be the same user who requested it.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('waiverModal')">Close</button>
+                <button class="btn btn-primary" id="waiverRequestBtn" onclick="submitWaiverRequest()">Submit Request</button>
             </div>
         </div>
     </div>
@@ -3671,12 +3714,10 @@
                     <div class="form-row">
                         <div class="form-group">
                             <label for="userRole">Role</label>
-                            <select id="userRole" required onchange="updateBranchSelectForUser()">
+                            <select id="userRole" required onchange="onUserRoleChange()">
                                 <option value="">Select role</option>
-                                <option value="headoffice">Head Office Admin</option>
-                                <option value="branch">Branch Staff</option>
-                                <option value="lead_agent">Lead Agent</option>
                             </select>
+                            <small id="userRoleHint" style="color:#7a6b5e;font-size:11px;display:block;margin-top:4px;"></small>
                         </div>
                         <div class="form-group" id="userBranchGroup" style="display: none;">
                             <label for="userBranch">Branch</label>
@@ -3688,12 +3729,14 @@
 
                     <!-- Permissions wizard — only for non-HO roles. HO always has all permissions. -->
                     <div id="userPermissionsBlock" style="display:none;border-top:1px solid #eee;padding-top:14px;margin-top:6px;">
-                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
                             <label style="font-weight:600;font-size:13px;color:#2c1810;">Permissions</label>
-                            <div style="display:flex;gap:8px;">
-                                <button type="button" class="btn btn-secondary" onclick="userPermsApplyDefaults()" style="font-size:11px;padding:4px 10px;">Apply Role Defaults</button>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                <button type="button" class="btn btn-secondary" onclick="userPermsApplyDefaults()" style="font-size:11px;padding:4px 10px;">Reset to Role</button>
                                 <button type="button" class="btn btn-secondary" onclick="userPermsToggleAll(true)" style="font-size:11px;padding:4px 10px;">Select All</button>
                                 <button type="button" class="btn btn-secondary" onclick="userPermsToggleAll(false)" style="font-size:11px;padding:4px 10px;">Clear</button>
+                                <button type="button" class="btn btn-primary" onclick="saveAsNewRole()" style="font-size:11px;padding:4px 10px;">Save as New Role…</button>
+                                <button type="button" class="btn btn-secondary" onclick="updateCurrentCustomRole()" id="userUpdateRoleBtn" style="font-size:11px;padding:4px 10px;display:none;">Update This Role</button>
                             </div>
                         </div>
                         <div style="font-size:12px;color:#888;margin-bottom:10px;">
@@ -5774,6 +5817,7 @@
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
                               <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
+                              <button class="btn btn-secondary" onclick="openWaiverModal('${t.id}')" style="font-size:11px;padding:4px 8px;background:#f59e0b;color:#fff;">Waiver</button>
                               ${(currentUser.role === 'headoffice' || currentUser.role === 'branch') ? `<button class="btn btn-primary" onclick="quickEsign('${t.id}', '${t.branch_id}', 'agreement')" style="font-size:11px;padding:4px 8px;background:#6366f1;">E-Sign</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openSetPasswordModal('${t.id}', '${(t.name||'').replace(/'/g, "\\'")}', '${t.phone||''}')" style="font-size:11px;padding:4px 8px;">🔑 Login</button>` : ''}
                               ${(currentUser.role === 'headoffice' || currentUser.role === 'branch') ? `<button class="btn btn-secondary" onclick="closeAccount('${t.id}','${(t.name||'').replace(/'/g, "\\'")}')" style="font-size:11px;padding:4px 8px;background:#dc2626;color:#fff;">Close</button>` : ''}
@@ -6686,11 +6730,12 @@
             }
         }
 
-        function populatePaymentDetails() {
+        async function populatePaymentDetails() {
             const select = document.getElementById('paymentTenant');
             const opt = select.options[select.selectedIndex];
             if (!opt || !opt.value) {
                 document.getElementById('paymentTenantInfo').style.display = 'none';
+                document.getElementById('paymentRentBreakup').style.display = 'none';
                 return;
             }
             const annualRent = parseFloat(opt.getAttribute('data-rent')) || 0;
@@ -6703,6 +6748,44 @@
             // Auto-fill amount with annual rent
             if (!document.getElementById('paymentAmount').value || document.getElementById('paymentAmount').value === '0') {
                 document.getElementById('paymentAmount').value = annualRent;
+            }
+
+            await refreshPaymentRentBreakup(opt.value, annualRent);
+        }
+
+        async function refreshPaymentRentBreakup(tenantId, annualRent) {
+            const box = document.getElementById('paymentRentBreakup');
+            const paymentType = document.getElementById('paymentType').value;
+            if (paymentType !== 'rent') {
+                box.style.display = 'none';
+                return;
+            }
+            try {
+                const waivers = await api('GET', `/api/waivers?tenant_id=${tenantId}`);
+                const active = (waivers || []).find(w => w.status === 'Approved');
+                const pending = (waivers || []).find(w => w.status === 'Pending');
+                const base = Number(annualRent) || 0;
+                const waiver = active ? Number(active.amount) : 0;
+                const taxable = Math.max(0, base - waiver);
+                const cgst = Math.round(taxable * 0.09 * 100) / 100;
+                const sgst = Math.round(taxable * 0.09 * 100) / 100;
+                const total = Math.round((taxable + cgst + sgst) * 100) / 100;
+                let html = '';
+                if (pending) {
+                    html += `<div style="color:#c0392b;font-weight:600;margin-bottom:6px;">⚠ Waiver request of ₹${formatIndianNumber(pending.amount)} is pending approval — payment is blocked until it is approved or revoked.</div>`;
+                }
+                html += `<div style="font-weight:600;margin-bottom:4px;">Rent Calculation (server-verified on save)</div>`;
+                html += `<div>Annual Rent (Base): <strong>₹${formatIndianNumber(base)}</strong></div>`;
+                if (waiver > 0) html += `<div style="color:#27ae60;">Waiver Applied: <strong>− ₹${formatIndianNumber(waiver)}</strong> (approved by ${active.approved_by_name || '-'})</div>`;
+                html += `<div>Taxable Value: ₹${formatIndianNumber(taxable)}</div>`;
+                html += `<div>CGST @ 9%: ₹${formatIndianNumber(cgst)} &nbsp; | &nbsp; SGST @ 9%: ₹${formatIndianNumber(sgst)}</div>`;
+                html += `<div style="margin-top:6px;padding-top:6px;border-top:1px solid #e3d5c3;"><strong>Total Payable: ₹${formatIndianNumber(total)}</strong></div>`;
+                box.innerHTML = html;
+                box.style.display = 'block';
+                // Auto-update the amount field to match server calculation
+                document.getElementById('paymentAmount').value = total;
+            } catch (err) {
+                box.style.display = 'none';
             }
         }
 
@@ -6741,7 +6824,136 @@
                 await loadPayments();
             } catch (error) {
                 hideLoading();
-                alert('Failed to save payment: ' + error.message);
+                // Friendly handling of waiver_pending 409
+                if (error && /waiver/i.test(error.message || '')) {
+                    alert('This rent payment is blocked because a waiver is pending approval.\n\n' + error.message + '\n\nPlease ask an approver (Eashwar / HO / root) to approve or revoke the waiver before recording payment.');
+                } else {
+                    alert('Failed to save payment: ' + error.message);
+                }
+            }
+        }
+
+        // ===== Waivers =====
+        let _waiverTenantCache = null;
+
+        async function openWaiverModal(tenantId) {
+            try {
+                // Load tenant
+                let tenant = (allTenantsCache || []).find(t => t.id === tenantId);
+                if (!tenant) {
+                    const tenants = await api('GET', '/api/tenants?branch_id=all');
+                    allTenantsCache = tenants;
+                    tenant = tenants.find(t => t.id === tenantId);
+                }
+                if (!tenant) { alert('Tenant not found'); return; }
+                _waiverTenantCache = tenant;
+
+                document.getElementById('waiverModalTitle').textContent = 'Rent Waiver — ' + tenant.name;
+                const rent = Number(tenant.annual_rent || 0);
+                document.getElementById('waiverTenantInfo').innerHTML = `
+                    <div style="font-weight:600;margin-bottom:4px;">${tenant.name}</div>
+                    <div>Locker: <strong>${tenant.locker_number || '-'}</strong> &nbsp;|&nbsp; Annual Rent: <strong>₹${formatIndianNumber(rent)}</strong></div>
+                    <div style="font-size:11px;color:var(--text-light);margin-top:4px;">18% GST (CGST 9% + SGST 9%) will be added on the net taxable amount (rent − waiver).</div>
+                `;
+                document.getElementById('waiverAmount').value = '';
+                document.getElementById('waiverReason').value = '';
+                document.getElementById('waiverBreakupPreview').style.display = 'none';
+
+                // Load existing waivers
+                await renderWaiverHistory(tenantId);
+
+                document.getElementById('waiverModal').classList.add('active');
+            } catch (err) {
+                alert('Failed to open waiver: ' + err.message);
+            }
+        }
+
+        async function renderWaiverHistory(tenantId) {
+            const container = document.getElementById('waiverExisting');
+            try {
+                const list = await api('GET', `/api/waivers?tenant_id=${tenantId}`);
+                const canApprove = (currentUser.role === 'headoffice' || String(currentUser.username||'').toLowerCase() === 'eashwar' || String(currentUser.username||'').toLowerCase() === 'root');
+                if (!list || list.length === 0) {
+                    container.innerHTML = '<div style="font-size:12px;color:var(--text-light);padding:8px 0;">No waiver history for this tenant.</div>';
+                    document.getElementById('waiverRequestBtn').style.display = '';
+                    document.getElementById('waiverRequestForm').style.display = '';
+                    return;
+                }
+                const hasPendingOrApproved = list.some(w => w.status === 'Pending' || w.status === 'Approved');
+                container.innerHTML = '<div style="font-weight:600;margin-bottom:6px;">Waiver History</div>' + list.map(w => {
+                    const statusColor = w.status === 'Approved' ? '#27ae60' : w.status === 'Pending' ? '#d97706' : '#7a6b5e';
+                    const canRevoke = canApprove && (w.status === 'Pending' || w.status === 'Approved');
+                    const canApproveThis = canApprove && w.status === 'Pending' && w.requested_by_id !== currentUser.id;
+                    const revokeBtn = canRevoke ? `<button class="btn btn-danger" onclick="revokeWaiver('${w.id}')" style="font-size:11px;padding:3px 8px;">Revoke</button>` : '';
+                    const approveBtn = canApproveThis ? `<button class="btn btn-primary" onclick="approveWaiver('${w.id}')" style="font-size:11px;padding:3px 8px;background:#27ae60;">Approve</button>` : '';
+                    const selfBlock = (canApprove && w.status === 'Pending' && w.requested_by_id === currentUser.id) ? '<span style="font-size:10px;color:#d97706;">(cannot self-approve)</span>' : '';
+                    return `
+                    <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:6px;padding:10px 12px;margin-bottom:6px;font-size:12px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+                            <div>
+                                <strong style="color:${statusColor};">${w.status}</strong> &nbsp; ₹${formatIndianNumber(w.amount)}
+                                <div style="color:var(--text-light);font-size:11px;margin-top:2px;">${w.reason || '-'}</div>
+                                <div style="color:var(--text-light);font-size:11px;">Requested by ${w.requested_by_name || '-'}${w.approved_by_name ? ' · Approved by ' + w.approved_by_name : ''}${w.revoked_by_name ? ' · Revoked by ' + w.revoked_by_name : ''}</div>
+                            </div>
+                            <div style="display:flex;gap:6px;flex-shrink:0;">${approveBtn}${revokeBtn}${selfBlock}</div>
+                        </div>
+                    </div>`;
+                }).join('');
+                // Block new request if there's already an active one
+                document.getElementById('waiverRequestForm').style.display = hasPendingOrApproved ? 'none' : '';
+                document.getElementById('waiverRequestBtn').style.display = hasPendingOrApproved ? 'none' : '';
+            } catch (err) {
+                container.innerHTML = '<div style="color:#c0392b;font-size:12px;">Failed to load waiver history: ' + err.message + '</div>';
+            }
+        }
+
+        async function submitWaiverRequest() {
+            const tenant = _waiverTenantCache;
+            if (!tenant) return;
+            const amount = parseFloat(document.getElementById('waiverAmount').value) || 0;
+            const reason = document.getElementById('waiverReason').value.trim();
+            if (amount <= 0) { alert('Enter a waiver amount'); return; }
+            if (amount >= Number(tenant.annual_rent || 0)) { alert('Waiver must be less than the annual rent'); return; }
+            if (!reason) { alert('Please enter a reason / approver name'); return; }
+            showLoading('Submitting waiver request...');
+            try {
+                await api('POST', '/api/waivers', { tenant_id: tenant.id, amount, reason });
+                hideLoading();
+                await renderWaiverHistory(tenant.id);
+                document.getElementById('waiverAmount').value = '';
+                document.getElementById('waiverReason').value = '';
+            } catch (err) {
+                hideLoading();
+                alert('Failed to request waiver: ' + err.message);
+            }
+        }
+
+        async function approveWaiver(id) {
+            if (!confirm('Approve this waiver? Once approved, it will be applied to the pending rent and GST will be recalculated.')) return;
+            showLoading('Approving waiver...');
+            try {
+                await api('POST', `/api/waivers/${id}/approve`, {});
+                hideLoading();
+                if (_waiverTenantCache) await renderWaiverHistory(_waiverTenantCache.id);
+                await loadPayments().catch(()=>{});
+            } catch (err) {
+                hideLoading();
+                alert('Failed to approve waiver: ' + err.message);
+            }
+        }
+
+        async function revokeWaiver(id) {
+            const reason = prompt('Reason for revoking this waiver?');
+            if (reason === null) return;
+            showLoading('Revoking waiver...');
+            try {
+                await api('POST', `/api/waivers/${id}/revoke`, { reason });
+                hideLoading();
+                if (_waiverTenantCache) await renderWaiverHistory(_waiverTenantCache.id);
+                await loadPayments().catch(()=>{});
+            } catch (err) {
+                hideLoading();
+                alert('Failed to revoke waiver: ' + err.message);
             }
         }
 
@@ -7300,7 +7512,7 @@
                 <tr>
                     <td><strong>${u.name}</strong></td>
                     <td><code style="background:#f5f0eb;padding:2px 8px;border-radius:4px;font-size:13px;">${u.username}</code></td>
-                    <td><span class="badge ${roleBadges[u.role] || 'badge-primary'}">${roleLabels[u.role] || capitalize(u.role)}</span></td>
+                    <td><span class="badge ${roleBadges[u.role] || 'badge-primary'}">${u.custom_role_name ? u.custom_role_name : (roleLabels[u.role] || capitalize(u.role))}</span>${u.custom_role_name ? `<div style="font-size:10px;color:#888;margin-top:2px;">based on ${roleLabels[u.role] || u.role}</div>` : ''}</td>
                     <td>${u.branch_name || (u.role === 'lead_agent' ? 'All Branches' : 'All Branches')}</td>
                     <td>
                         <div class="action-buttons">
@@ -7344,17 +7556,62 @@
         }
 
         // ===== USER PERMISSION WIZARD =====
-        let _permCatalog = null;     // { catalog: {...}, role_defaults: {...} }
+        let _permCatalog = null;     // { catalog, role_defaults, custom_roles, base_roles }
         let _userEditTarget = null;  // user object during edit (for permission preselect)
 
-        async function ensurePermCatalog() {
-            if (_permCatalog) return _permCatalog;
+        async function ensurePermCatalog(force) {
+            if (_permCatalog && !force) return _permCatalog;
             try {
                 _permCatalog = await api('GET', '/api/permissions/catalog');
             } catch (_) {
-                _permCatalog = { catalog: {}, role_defaults: {} };
+                _permCatalog = { catalog: {}, role_defaults: {}, custom_roles: [], base_roles: [] };
             }
             return _permCatalog;
+        }
+
+        // Role dropdown value format:
+        //   "base:headoffice" | "base:branch" | "base:lead_agent"
+        //   "custom:<id>"
+        // Helpers to parse / build
+        function _roleValueBase(v) {
+            if (!v) return '';
+            if (v.indexOf('custom:') === 0) {
+                const cr = ((_permCatalog && _permCatalog.custom_roles) || []).find(r => r.id === v.slice(7));
+                return cr ? cr.base_role : '';
+            }
+            if (v.indexOf('base:') === 0) return v.slice(5);
+            // Legacy: raw base role
+            return v;
+        }
+        function _roleValueCustomId(v) {
+            return (v && v.indexOf('custom:') === 0) ? v.slice(7) : '';
+        }
+
+        function populateUserRoleDropdown(selectedValue) {
+            const sel = document.getElementById('userRole');
+            if (!sel) return;
+            const baseRoles = (_permCatalog && _permCatalog.base_roles) || [
+                { key: 'headoffice', label: 'Head Office Admin', scope: 'All branches' },
+                { key: 'branch', label: 'Branch Staff', scope: 'Own branch only' },
+                { key: 'lead_agent', label: 'Lead Agent', scope: 'Leads only' }
+            ];
+            const customs = (_permCatalog && _permCatalog.custom_roles) || [];
+            let html = '<option value="">Select role</option>';
+            html += '<optgroup label="Built-in roles">';
+            baseRoles.forEach(b => {
+                html += `<option value="base:${b.key}">${b.label}</option>`;
+            });
+            html += '</optgroup>';
+            if (customs.length) {
+                html += '<optgroup label="Custom roles">';
+                customs.forEach(c => {
+                    const baseLabel = (baseRoles.find(b => b.key === c.base_role) || {}).label || c.base_role;
+                    html += `<option value="custom:${c.id}">${c.name} — based on ${baseLabel}</option>`;
+                });
+                html += '</optgroup>';
+            }
+            sel.innerHTML = html;
+            if (selectedValue) sel.value = selectedValue;
         }
 
         function userPermsRender(preselected) {
@@ -7382,10 +7639,27 @@
             document.getElementById('userPermissionsList').innerHTML = html;
         }
 
+        function _permsForRoleValue(v) {
+            if (!v) return [];
+            const customId = _roleValueCustomId(v);
+            if (customId) {
+                const cr = ((_permCatalog && _permCatalog.custom_roles) || []).find(r => r.id === customId);
+                if (cr) {
+                    try { return Array.isArray(cr.permissions) ? cr.permissions : JSON.parse(cr.permissions || '[]'); } catch(_) { return []; }
+                }
+                return [];
+            }
+            const base = _roleValueBase(v);
+            if (base === 'headoffice') {
+                // HO gets all
+                return Object.keys((_permCatalog && _permCatalog.catalog) || {});
+            }
+            return (_permCatalog && _permCatalog.role_defaults && _permCatalog.role_defaults[base]) || [];
+        }
+
         function userPermsApplyDefaults() {
-            const role = document.getElementById('userRole').value;
-            const defaults = (_permCatalog && _permCatalog.role_defaults && _permCatalog.role_defaults[role]) || [];
-            userPermsRender(defaults);
+            const v = document.getElementById('userRole').value;
+            userPermsRender(_permsForRoleValue(v));
         }
 
         function userPermsToggleAll(on) {
@@ -7400,14 +7674,37 @@
         }
 
         function userPermsBlockVisibility() {
-            const role = document.getElementById('userRole').value;
+            const v = document.getElementById('userRole').value;
+            const base = _roleValueBase(v);
             const block = document.getElementById('userPermissionsBlock');
             // HO always has all perms — hide the picker for HO
-            block.style.display = (role && role !== 'headoffice') ? 'block' : 'none';
+            block.style.display = (base && base !== 'headoffice') ? 'block' : 'none';
+            // Show "Update This Role" only when a custom role is selected
+            const customId = _roleValueCustomId(v);
+            const updBtn = document.getElementById('userUpdateRoleBtn');
+            if (updBtn) updBtn.style.display = customId ? 'inline-block' : 'none';
+            // Role hint text
+            const hint = document.getElementById('userRoleHint');
+            if (hint) {
+                if (customId) {
+                    const cr = ((_permCatalog && _permCatalog.custom_roles) || []).find(r => r.id === customId);
+                    hint.textContent = cr ? `Custom role (scope: ${cr.base_role})` : '';
+                } else if (base) {
+                    const br = ((_permCatalog && _permCatalog.base_roles) || []).find(b => b.key === base);
+                    hint.textContent = br && br.scope ? `Scope: ${br.scope}` : '';
+                } else {
+                    hint.textContent = '';
+                }
+            }
         }
 
-        // Patch the existing role-change handler so permission block shows/hides too
-        const _origUpdateBranchSelectForUser = (typeof updateBranchSelectForUser === 'function') ? updateBranchSelectForUser : null;
+        // Called from the role <select> onchange
+        function onUserRoleChange() {
+            updateBranchSelectForUser();
+            // Auto-populate the permission checkboxes to match the selected role
+            const v = document.getElementById('userRole').value;
+            if (v) userPermsRender(_permsForRoleValue(v));
+        }
 
         // Add user modal
         async function openAddUserModal() {
@@ -7421,7 +7718,8 @@
             document.getElementById('userPasswordGroup').style.display = 'block';
             document.getElementById('userBranchGroup').style.display = 'none';
             _userEditTarget = null;
-            await ensurePermCatalog();
+            await ensurePermCatalog(true);
+            populateUserRoleDropdown('');
             userPermsRender([]);
             userPermsBlockVisibility();
             loadBranchSelectorForUser();
@@ -7444,7 +7742,12 @@
             document.getElementById('userPassword').value = '';
             document.getElementById('userPasswordHint').textContent = 'Leave blank to keep current password';
             document.getElementById('userPasswordGroup').style.display = 'block';
-            document.getElementById('userRole').value = user.role;
+
+            _userEditTarget = user;
+            await ensurePermCatalog(true);
+            // Build dropdown and pre-select the user's current role (custom or base)
+            const selValue = user.custom_role_id ? `custom:${user.custom_role_id}` : `base:${user.role}`;
+            populateUserRoleDropdown(selValue);
 
             await loadBranchSelectorForUser();
             updateBranchSelectForUser();
@@ -7452,16 +7755,21 @@
                 document.getElementById('userBranch').value = user.branch_id;
             }
 
-            _userEditTarget = user;
-            await ensurePermCatalog();
-            // Prefer explicit per-user permissions; fall back to role defaults
+            // Pre-select permissions:
+            //   1) per-user override if present
+            //   2) else effective_permissions from server
+            //   3) else derive from selected role
             let preselect = [];
-            if (Array.isArray(user.permissions) && user.permissions.length) {
-                preselect = user.permissions;
+            let userPerms = user.permissions;
+            if (typeof userPerms === 'string' && userPerms.trim()) {
+                try { userPerms = JSON.parse(userPerms); } catch(_) { userPerms = []; }
+            }
+            if (Array.isArray(userPerms) && userPerms.length) {
+                preselect = userPerms;
             } else if (Array.isArray(user.effective_permissions) && user.effective_permissions.length) {
                 preselect = user.effective_permissions;
             } else {
-                preselect = (_permCatalog && _permCatalog.role_defaults && _permCatalog.role_defaults[user.role]) || [];
+                preselect = _permsForRoleValue(selValue);
             }
             userPermsRender(preselect);
             userPermsBlockVisibility();
@@ -7470,8 +7778,9 @@
         }
 
         function updateBranchSelectForUser() {
-            const role = document.getElementById('userRole').value;
-            document.getElementById('userBranchGroup').style.display = role === 'branch' ? 'block' : 'none';
+            const v = document.getElementById('userRole').value;
+            const base = _roleValueBase(v);
+            document.getElementById('userBranchGroup').style.display = base === 'branch' ? 'block' : 'none';
             try { userPermsBlockVisibility(); } catch (_) {}
         }
 
@@ -7495,39 +7804,116 @@
             const name = document.getElementById('userName').value.trim();
             const username = document.getElementById('userUsername').value.trim();
             const password = document.getElementById('userPassword').value;
-            const role = document.getElementById('userRole').value;
-            const branch_id = role === 'branch' ? document.getElementById('userBranch').value : null;
+            const roleValue = document.getElementById('userRole').value;
+            const baseRole = _roleValueBase(roleValue);
+            const custom_role_id = _roleValueCustomId(roleValue);
+            const branch_id = baseRole === 'branch' ? document.getElementById('userBranch').value : null;
 
             // Validation
             if (!name) { errorEl.textContent = 'Name is required'; errorEl.style.display = 'block'; return; }
             if (!username) { errorEl.textContent = 'Username is required'; errorEl.style.display = 'block'; return; }
             if (!isEdit && !password) { errorEl.textContent = 'Password is required'; errorEl.style.display = 'block'; return; }
             if (password && password.length < 6) { errorEl.textContent = 'Password must be at least 6 characters'; errorEl.style.display = 'block'; return; }
-            if (!role) { errorEl.textContent = 'Please select a role'; errorEl.style.display = 'block'; return; }
-            if (role === 'branch' && !branch_id) { errorEl.textContent = 'Please select a branch for branch staff'; errorEl.style.display = 'block'; return; }
+            if (!roleValue) { errorEl.textContent = 'Please select a role'; errorEl.style.display = 'block'; return; }
+            if (baseRole === 'branch' && !branch_id) { errorEl.textContent = 'Please select a branch for branch staff'; errorEl.style.display = 'block'; return; }
 
             // Collect permissions from the wizard (only meaningful for non-HO roles)
-            const permissions = (role && role !== 'headoffice') ? userPermsCollect() : [];
+            const permissions = (baseRole && baseRole !== 'headoffice') ? userPermsCollect() : [];
+
+            // Decide whether to store a per-user override.
+            // If the user is on a custom role and their ticks match the custom role's
+            // permissions exactly, send [] so they inherit (and auto-update when the role changes).
+            let permissionsToSend = permissions;
+            if (custom_role_id) {
+                const cr = ((_permCatalog && _permCatalog.custom_roles) || []).find(r => r.id === custom_role_id);
+                let crPerms = [];
+                try { crPerms = cr ? (Array.isArray(cr.permissions) ? cr.permissions : JSON.parse(cr.permissions || '[]')) : []; } catch(_) {}
+                const a = [...permissions].sort().join('|');
+                const b = [...crPerms].sort().join('|');
+                if (a === b) permissionsToSend = [];
+            } else if (baseRole && baseRole !== 'headoffice') {
+                // If ticks match base role defaults exactly, inherit (empty override)
+                const defaults = (_permCatalog && _permCatalog.role_defaults && _permCatalog.role_defaults[baseRole]) || [];
+                const a = [...permissions].sort().join('|');
+                const b = [...defaults].sort().join('|');
+                if (a === b) permissionsToSend = [];
+            }
 
             try {
+                const body = { name, username, role: baseRole, branch_id, custom_role_id: custom_role_id || '' };
                 if (isEdit) {
-                    // Update user details
-                    await api('PUT', `/api/users/${editId}`, { name, username, role, branch_id });
-                    // Update password if provided
+                    await api('PUT', `/api/users/${editId}`, body);
                     if (password) {
                         await api('PUT', `/api/users/${editId}/password`, { password });
                     }
-                    // Update permissions (HO sends empty array - server treats HO as all-perms)
                     try {
-                        await api('PUT', `/api/users/${editId}/permissions`, { permissions });
+                        await api('PUT', `/api/users/${editId}/permissions`, { permissions: permissionsToSend });
                     } catch (e) { console.warn('perm update failed', e); }
                 } else {
-                    await api('POST', '/api/users', { name, username, password, role, branch_id, permissions });
+                    await api('POST', '/api/users', { ...body, password, permissions: permissionsToSend });
                 }
                 closeModal('userModal');
                 await loadUsers();
             } catch (error) {
                 errorEl.textContent = error.message || 'Failed to save user';
+                errorEl.style.display = 'block';
+            }
+        }
+
+        // ===== Save / update custom roles from inside the user modal =====
+        async function saveAsNewRole() {
+            const errorEl = document.getElementById('userFormError');
+            errorEl.style.display = 'none';
+            const roleValue = document.getElementById('userRole').value;
+            const baseRole = _roleValueBase(roleValue);
+            if (!baseRole || baseRole === 'headoffice') {
+                alert('Pick Branch Staff or Lead Agent as the parent role first — Head Office roles always have all permissions.');
+                return;
+            }
+            const perms = userPermsCollect();
+            if (!perms.length) {
+                if (!confirm('This role has zero permissions. Save anyway?')) return;
+            }
+            const name = prompt('New role name (e.g. "Branch Cashier", "Senior Lead Agent"):');
+            if (!name || !name.trim()) return;
+            try {
+                const created = await api('POST', '/api/custom-roles', {
+                    name: name.trim(),
+                    base_role: baseRole,
+                    permissions: perms
+                });
+                // Refresh catalog and reselect the new role
+                await ensurePermCatalog(true);
+                populateUserRoleDropdown(`custom:${created.id}`);
+                userPermsBlockVisibility();
+                alert(`Role "${name.trim()}" created. It's now selected for this user.`);
+            } catch (e) {
+                errorEl.textContent = e.message || 'Failed to create role';
+                errorEl.style.display = 'block';
+            }
+        }
+
+        async function updateCurrentCustomRole() {
+            const errorEl = document.getElementById('userFormError');
+            errorEl.style.display = 'none';
+            const roleValue = document.getElementById('userRole').value;
+            const customId = _roleValueCustomId(roleValue);
+            if (!customId) return;
+            const cr = ((_permCatalog && _permCatalog.custom_roles) || []).find(r => r.id === customId);
+            if (!cr) return;
+            const perms = userPermsCollect();
+            if (!confirm(`Update role "${cr.name}" with these permissions? This will apply to ALL ${cr.user_count || 0} user(s) on this role.`)) return;
+            try {
+                await api('PUT', `/api/custom-roles/${customId}`, {
+                    name: cr.name,
+                    base_role: cr.base_role,
+                    permissions: perms
+                });
+                await ensurePermCatalog(true);
+                populateUserRoleDropdown(`custom:${customId}`);
+                alert(`Role "${cr.name}" updated.`);
+            } catch (e) {
+                errorEl.textContent = e.message || 'Failed to update role';
                 errorEl.style.display = 'block';
             }
         }
@@ -10705,13 +11091,60 @@
                 }
             }
             // Show/hide tables
-            document.getElementById('leadsLockerTableWrap').style.display = (currentLeadTab === 'locker') ? '' : 'none';
-            document.getElementById('leadsNcdTableWrap').style.display    = (currentLeadTab === 'ncd')    ? '' : 'none';
+            const lockerWrap = document.getElementById('leadsLockerTableWrap');
+            const ncdWrap    = document.getElementById('leadsNcdTableWrap');
+            lockerWrap.style.display = (currentLeadTab === 'locker') ? '' : 'none';
+            ncdWrap.style.display    = (currentLeadTab === 'ncd')    ? '' : 'none';
+            // Reset horizontal scroll so the first column is always visible on mobile
+            lockerWrap.scrollLeft = 0;
+            ncdWrap.scrollLeft = 0;
+            // Show the NCD report button only on the NCD tab
+            const ncdReportBtn = document.getElementById('ncdReportBtn');
+            if (ncdReportBtn) ncdReportBtn.style.display = (currentLeadTab === 'ncd') ? 'inline-block' : 'none';
             loadLeads();
+        }
+
+        // Stream-download the NCD Leads Excel report (auth header is required, so we fetch
+        // as a blob and trigger a client-side save rather than linking directly).
+        async function downloadNcdLeadsReport() {
+            const btn = document.getElementById('ncdReportBtn');
+            const orig = btn ? btn.textContent : '';
+            if (btn) { btn.disabled = true; btn.textContent = 'Generating…'; }
+            try {
+                const token = localStorage.getItem('lockerhub_token') || '';
+                const resp = await fetch('/api/reports/ncd-leads.xlsx', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                if (!resp.ok) {
+                    let msg = 'Failed to generate report';
+                    try { const j = await resp.json(); if (j && j.error) msg = j.error; } catch (_) {}
+                    throw new Error(msg);
+                }
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                const today = new Date().toISOString().slice(0, 10);
+                a.href = url;
+                a.download = `NCD-Leads-Report-${today}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (err) {
+                alert(err.message || 'Failed to download report');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = orig; }
+            }
         }
 
         async function loadLeads() {
             try {
+                // Reset horizontal scroll on both wraps so the first column
+                // is always visible when the page re-renders (mobile fix).
+                const _lkWrap = document.getElementById('leadsLockerTableWrap');
+                const _ncWrap = document.getElementById('leadsNcdTableWrap');
+                if (_lkWrap) _lkWrap.scrollLeft = 0;
+                if (_ncWrap) _ncWrap.scrollLeft = 0;
                 const tab = currentLeadTab || 'locker';
                 const branchId = currentBranchId || '';
                 const status = document.getElementById('leadStatusFilter').value;

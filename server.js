@@ -351,19 +351,37 @@ const ROLE_DEFAULT_PERMISSIONS = {
   ]
 };
 
+// Look up a custom role's permissions from the DB (best-effort — swallows errors if
+// the table doesn't exist yet on very old installs so boot never breaks).
+function getCustomRolePermissions(customRoleId) {
+  if (!customRoleId) return null;
+  try {
+    const row = db.prepare('SELECT permissions FROM custom_roles WHERE id = ?').get(customRoleId);
+    if (!row) return null;
+    const parsed = JSON.parse(row.permissions || '[]');
+    if (!Array.isArray(parsed)) return null;
+    return parsed.filter(k => PERMISSION_CATALOG[k]);
+  } catch (_) { return null; }
+}
+
 function parseUserPermissions(user) {
   if (!user) return [];
   if (user.role === 'headoffice') return Object.keys(PERMISSION_CATALOG); // HO = all
+  // 1) Explicit per-user override wins (set by editing the checkboxes for that user)
   let overrides = [];
   if (user.permissions) {
     try {
       const parsed = JSON.parse(user.permissions);
       if (Array.isArray(parsed)) overrides = parsed.filter(k => PERMISSION_CATALOG[k]);
-    } catch (_) { /* corrupt JSON — ignore, fall back to role defaults */ }
+    } catch (_) { /* corrupt JSON — ignore, fall back further */ }
   }
-  // If overrides exist, they REPLACE the role default (explicit wizard selection).
-  // If no overrides, fall back to role defaults so existing branch users don't lose access.
   if (overrides.length > 0) return overrides;
+  // 2) Custom role's permission list (auto-updates when role is edited)
+  if (user.custom_role_id) {
+    const crPerms = getCustomRolePermissions(user.custom_role_id);
+    if (crPerms && crPerms.length > 0) return crPerms;
+  }
+  // 3) Built-in base role default
   return (ROLE_DEFAULT_PERMISSIONS[user.role] || []).slice();
 }
 
@@ -762,6 +780,24 @@ try { db.prepare("UPDATE leads SET lead_type = 'locker' WHERE lead_type IS NULL 
 // Per-user permission overrides (JSON object). NULL/empty = role defaults only.
 addColumnIfMissing('users', 'permissions', "TEXT DEFAULT ''");
 
+// Custom roles — user-defined role templates with a base role (for scope) + permission array.
+// Built-in base roles (headoffice/branch/lead_agent) stay read-only; custom roles sit alongside.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS custom_roles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    base_role TEXT NOT NULL,
+    permissions TEXT NOT NULL DEFAULT '[]',
+    created_by_id TEXT DEFAULT '',
+    created_by_name TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+`);
+// Users can optionally belong to a custom role. If set, its permissions override the
+// base role defaults but still lose to an explicit per-user permissions override.
+addColumnIfMissing('users', 'custom_role_id', "TEXT DEFAULT ''");
+
 // Nominee details
 addColumnIfMissing('tenants', 'nominee_name', "TEXT DEFAULT ''");
 addColumnIfMissing('tenants', 'nominee_phone', "TEXT DEFAULT ''");
@@ -861,6 +897,78 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS idx_fcm_token ON fcm_tokens(token);
   CREATE INDEX IF NOT EXISTS idx_fcm_phone ON fcm_tokens(tenant_phone);
 `);
+
+// ────────────────────────────────────────────────────────────────────────────
+// Rent waivers — maker/checker workflow. A staff member requests a waiver
+// amount against a tenant's annual rent; an approver (HO role / 'eashwar' /
+// 'root', never the same user who requested) must approve before any rent
+// payment can be recorded against that tenant. Approved waivers act as a
+// permanent discount on all future rent computations until revoked.
+// Idempotent: CREATE TABLE IF NOT EXISTS, safe on existing databases.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS waivers (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    branch_id TEXT DEFAULT '',
+    amount REAL NOT NULL DEFAULT 0,
+    reason TEXT DEFAULT '',
+    status TEXT DEFAULT 'Pending',         -- Pending | Approved | Revoked
+    requested_by_id TEXT DEFAULT '',
+    requested_by_name TEXT DEFAULT '',
+    approved_by_id TEXT DEFAULT '',
+    approved_by_name TEXT DEFAULT '',
+    approval_note TEXT DEFAULT '',
+    revoked_by_id TEXT DEFAULT '',
+    revoked_by_name TEXT DEFAULT '',
+    revoke_reason TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    approved_at TEXT DEFAULT '',
+    revoked_at TEXT DEFAULT '',
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_waivers_tenant ON waivers(tenant_id);
+  CREATE INDEX IF NOT EXISTS idx_waivers_status ON waivers(status);
+`);
+
+// Payment breakup columns for waiver + GST. We store the decomposition on the
+// payment row itself so receipts/reports have everything they need without a
+// join. Old rows keep all these as 0, and the receipt generator falls back to
+// the plain `amount` field when base_amount is 0 — so historical receipts
+// render identically to before.
+addColumnIfMissing('payments', 'base_amount',   'REAL DEFAULT 0');  // rent before waiver/tax
+addColumnIfMissing('payments', 'waiver_amount', 'REAL DEFAULT 0');  // approved waiver applied
+addColumnIfMissing('payments', 'taxable_amount','REAL DEFAULT 0');  // base - waiver
+addColumnIfMissing('payments', 'cgst_amount',   'REAL DEFAULT 0');  // 9% of taxable
+addColumnIfMissing('payments', 'sgst_amount',   'REAL DEFAULT 0');  // 9% of taxable
+addColumnIfMissing('payments', 'gst_amount',    'REAL DEFAULT 0');  // cgst + sgst (convenience)
+addColumnIfMissing('payments', 'waiver_id',     "TEXT DEFAULT ''"); // link to waivers.id that was applied
+
+// One-time backfill: any open rent payment (Pending/Overdue) that predates the
+// waiver+GST feature will have base_amount = 0. Recompute its breakup from the
+// tenant's current annual_rent so the display + receipt match the new rules.
+// PAID rows are never touched — historical receipts stay exactly as they were.
+try {
+  const stalePending = db.prepare(
+    "SELECT id, tenant_id FROM payments WHERE type = 'rent' AND (status = 'Pending' OR status = 'Overdue') AND (base_amount IS NULL OR base_amount = 0)"
+  ).all();
+  for (const row of stalePending) {
+    const t = db.prepare('SELECT annual_rent FROM tenants WHERE id = ?').get(row.tenant_id);
+    if (!t || !(Number(t.annual_rent) > 0)) continue;
+    const base = Number(t.annual_rent);
+    const taxable = Math.round(base * 100) / 100;
+    const cgst = Math.round(base * 0.09 * 100) / 100;
+    const sgst = Math.round(base * 0.09 * 100) / 100;
+    const gst = Math.round((cgst + sgst) * 100) / 100;
+    const total = Math.round((taxable + gst) * 100) / 100;
+    db.prepare(`
+      UPDATE payments SET amount = ?, base_amount = ?, waiver_amount = 0, taxable_amount = ?, cgst_amount = ?, sgst_amount = ?, gst_amount = ?
+      WHERE id = ?
+    `).run(total, base, taxable, cgst, sgst, gst, row.id);
+  }
+  if (stalePending.length) logInfo(`Backfilled GST breakup on ${stalePending.length} pending rent payment(s)`);
+} catch (e) {
+  logError('Pending rent GST backfill failed', { error: e.message });
+}
 
 // Migration: Update locker type rates (L10 Large: 20k/3L, L6 Medium: 10k/2L)
 // Only updates the locker_types template — existing tenants keep their original rates
@@ -1761,19 +1869,25 @@ app.post('/api/tenants', requireAuth, requireRole('headoffice', 'branch'), async
         logInfo('Auto-created deposit payment', { paymentId: depId, tenantId: id, amount: d.deposit });
       }
 
-      // Auto-generate pending annual rent payment if annual_rent > 0
+      // Auto-generate pending annual rent payment if annual_rent > 0.
+      // New tenants can't have a waiver yet (it's requested post-creation),
+      // so breakup = base + 18% GST. Full decomposition is persisted so
+      // receipts render the CGST/SGST lines correctly.
       if (d.annual_rent && parseFloat(d.annual_rent) > 0) {
         const rentId = genId();
         const rentReceipt = getNextReceiptNo();
         const startDate = d.lease_start || new Date().toISOString().split('T')[0];
-        // Calculate period as FY year
         const startDt = new Date(startDate);
         const fy = startDt.getMonth() >= 3 ? startDt.getFullYear() : startDt.getFullYear() - 1;
         const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
-        db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-          rentId, d.branch_id, id, d.locker_id || '', 'rent', period, parseFloat(d.annual_rent), startDate, 'Pending', '', '', '', rentReceipt, 'Auto-generated on tenant creation'
+        const bk = computeRentBreakup(parseFloat(d.annual_rent), 0);
+        db.prepare(`INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes,
+          base_amount, waiver_amount, taxable_amount, cgst_amount, sgst_amount, gst_amount, waiver_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          rentId, d.branch_id, id, d.locker_id || '', 'rent', period, bk.total, startDate, 'Pending', '', '', '', rentReceipt, 'Auto-generated on tenant creation',
+          bk.base, bk.waiver, bk.taxable, bk.cgst, bk.sgst, bk.gst, ''
         );
-        logInfo('Auto-created rent payment', { paymentId: rentId, tenantId: id, amount: d.annual_rent, period });
+        logInfo('Auto-created rent payment', { paymentId: rentId, tenantId: id, total: bk.total, base: bk.base, gst: bk.gst, period });
       }
 
       logInfo('Tenant created', { id, name: d.name, locker: d.locker_id, branch: d.branch_id, deposit: d.deposit, annual_rent: d.annual_rent });
@@ -2053,8 +2167,10 @@ app.delete('/api/tenants/:id', requireAuth, requireRole('headoffice'), (req, res
     const delAppointments = db.prepare('DELETE FROM appointments WHERE tenant_id = ?').run(req.params.id);
     const delEsign = db.prepare('DELETE FROM esign_requests WHERE tenant_id = ?').run(req.params.id);
     const delFeedback = db.prepare('DELETE FROM feedback WHERE tenant_id = ?').run(req.params.id);
+    let delWaivers = { changes: 0 };
+    try { delWaivers = db.prepare('DELETE FROM waivers WHERE tenant_id = ?').run(req.params.id); } catch (_) { /* table may not exist on very old installs */ }
     db.prepare('DELETE FROM tenants WHERE id = ?').run(req.params.id);
-    logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes, appointments_removed: delAppointments.changes, esign_removed: delEsign.changes, feedback_removed: delFeedback.changes });
+    logWarn('Tenant deleted', { id: req.params.id, name: tenant ? tenant.name : '', payments_removed: delPayments.changes, payouts_removed: delPayouts.changes, visits_removed: delVisits.changes, appointments_removed: delAppointments.changes, esign_removed: delEsign.changes, feedback_removed: delFeedback.changes, waivers_removed: delWaivers.changes });
     res.json({ ok: true });
   } catch (err) {
     logWarn('Tenant delete failed', { id: req.params.id, error: err.message });
@@ -2131,6 +2247,14 @@ app.get('/api/allotment-form/:id', requireAuth, async (req, res) => {
     const paidRent = payments.find(p => p.type === 'rent' && p.status === 'Paid');
     tenant.deposit_amount = paidDeposit ? paidDeposit.amount : 0;
     tenant.rent_amount = paidRent ? paidRent.amount : 0;
+    if (paidRent && Number(paidRent.base_amount) > 0) {
+      tenant.base_amount = paidRent.base_amount;
+      tenant.waiver_amount = paidRent.waiver_amount;
+      tenant.taxable_amount = paidRent.taxable_amount;
+      tenant.cgst_amount = paidRent.cgst_amount;
+      tenant.sgst_amount = paidRent.sgst_amount;
+      tenant.gst_amount = paidRent.gst_amount;
+    }
 
     const pdfBuffer = await generatePdfBuffer(tenant, branch || {}, locker || {});
 
@@ -2178,6 +2302,248 @@ app.get('/api/receipt/:paymentId', requireAuth, async (req, res) => {
 });
 
 // ============================
+//  WAIVER + GST HELPERS
+// ============================
+// Tax + waiver policy (kept as module-level constants so the receipt generator
+// and front-end both read the same source of truth via /api/config/tax).
+const GST_RATE = 0.18;   // 18% total
+const CGST_RATE = 0.09;  //  9%
+const SGST_RATE = 0.09;  //  9%
+
+function round2(n) { return Math.round(Number(n || 0) * 100) / 100; }
+
+// Compute the canonical rent breakup given the base rent and an optional waiver.
+// Formula per user's spec: GST is charged on (base - waiver), not on the full base.
+function computeRentBreakup(baseRent, waiverAmount) {
+  const base = Math.max(0, Number(baseRent) || 0);
+  const waiver = Math.max(0, Math.min(Number(waiverAmount) || 0, base));
+  const taxable = round2(base - waiver);
+  const cgst = round2(taxable * CGST_RATE);
+  const sgst = round2(taxable * SGST_RATE);
+  const gst = round2(cgst + sgst);
+  const total = round2(taxable + gst);
+  return { base: round2(base), waiver: round2(waiver), taxable, cgst, sgst, gst, total };
+}
+
+// Returns the currently-active (Approved, not Revoked) waiver row for a tenant,
+// or null. "Latest approved" semantics so editing a waiver = revoking old +
+// creating a new approved one.
+function getActiveWaiver(tenantId) {
+  if (!tenantId) return null;
+  return db.prepare(
+    "SELECT * FROM waivers WHERE tenant_id = ? AND status = 'Approved' ORDER BY approved_at DESC, created_at DESC LIMIT 1"
+  ).get(tenantId);
+}
+
+// Returns the currently-pending (awaiting approval) waiver for a tenant, or null.
+// Used to BLOCK rent payment recording while a waiver is in flight.
+function getPendingWaiver(tenantId) {
+  if (!tenantId) return null;
+  return db.prepare(
+    "SELECT * FROM waivers WHERE tenant_id = ? AND status = 'Pending' ORDER BY created_at DESC LIMIT 1"
+  ).get(tenantId);
+}
+
+// Approval authority: HO role users, OR username 'eashwar'/'root' (case-insens).
+// The same user who created the waiver can NEVER approve/revoke it (maker-checker).
+function canApproveWaivers(user) {
+  if (!user) return false;
+  const uname = String(user.username || '').toLowerCase();
+  if (uname === 'root' || uname === 'eashwar') return true;
+  if (user.role === 'headoffice') return true;
+  return false;
+}
+
+// ============================
+//  WAIVERS API
+// ============================
+// List waivers for a tenant (all statuses), newest first.
+app.get('/api/waivers', requireAuth, (req, res) => {
+  try {
+    const { tenant_id, status } = req.query;
+    let sql = 'SELECT * FROM waivers WHERE 1=1';
+    const params = [];
+    if (tenant_id) { sql += ' AND tenant_id = ?'; params.push(tenant_id); }
+    if (status)    { sql += ' AND status = ?';    params.push(status); }
+    sql += ' ORDER BY created_at DESC';
+    res.json(db.prepare(sql).all(...params));
+  } catch (err) {
+    logError('Waiver list failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to list waivers' });
+  }
+});
+
+// Pending waivers queue — for the approval dashboard.
+app.get('/api/waivers/pending', requireAuth, (req, res) => {
+  try {
+    const rows = db.prepare(`
+      SELECT w.*, t.name as tenant_name, t.phone as tenant_phone, t.annual_rent as tenant_annual_rent,
+             b.name as branch_name, l.number as locker_number
+      FROM waivers w
+      LEFT JOIN tenants t ON w.tenant_id = t.id
+      LEFT JOIN branches b ON w.branch_id = b.id
+      LEFT JOIN lockers l ON t.locker_id = l.id
+      WHERE w.status = 'Pending'
+      ORDER BY w.created_at ASC
+    `).all();
+    res.json(rows);
+  } catch (err) {
+    logError('Pending waiver list failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to list pending waivers' });
+  }
+});
+
+// Create a new waiver request (Pending). Any authenticated HO/branch staff can
+// request. Blocks if there's already a pending/approved waiver on the tenant —
+// to modify, revoke the existing one first.
+app.post('/api/waivers', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const { tenant_id, amount, reason } = req.body || {};
+    if (!tenant_id) return res.status(400).json({ error: 'tenant_id is required' });
+    const amt = parseFloat(amount);
+    if (isNaN(amt) || amt <= 0) return res.status(400).json({ error: 'Waiver amount must be > 0' });
+
+    const tenant = db.prepare('SELECT id, branch_id, name, annual_rent FROM tenants WHERE id = ?').get(tenant_id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    if (amt >= Number(tenant.annual_rent || 0)) {
+      return res.status(400).json({ error: `Waiver (₹${amt}) cannot equal or exceed annual rent (₹${tenant.annual_rent})` });
+    }
+
+    // Prevent concurrent / stacked waivers
+    const existingPending = getPendingWaiver(tenant_id);
+    if (existingPending) return res.status(409).json({ error: 'A waiver request is already pending approval for this tenant. Revoke it first to create a new one.' });
+    const existingActive = getActiveWaiver(tenant_id);
+    if (existingActive) return res.status(409).json({ error: `This tenant already has an approved waiver of ₹${existingActive.amount}. Revoke it first to create a new one.` });
+
+    const id = genId();
+    db.prepare(`
+      INSERT INTO waivers (id, tenant_id, branch_id, amount, reason, status, requested_by_id, requested_by_name)
+      VALUES (?, ?, ?, ?, ?, 'Pending', ?, ?)
+    `).run(id, tenant_id, tenant.branch_id || '', amt, reason || '', req.user.id || '', req.user.name || req.user.username || '');
+
+    logInfo('Waiver requested', { id, tenant_id, amount: amt, by: req.user.username });
+
+    // Notify approvers
+    createNotification(
+      '', 'headoffice', 'waiver_request',
+      '🏷️ Waiver Approval Needed',
+      `${req.user.name || req.user.username} requested a ₹${amt.toLocaleString('en-IN')} rent waiver for ${tenant.name}${reason ? ' — ' + reason : ''}. [WAIVER:${id}]`,
+      tenant_id
+    );
+
+    res.json({ id, status: 'Pending' });
+  } catch (err) {
+    logError('Waiver creation failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to create waiver' });
+  }
+});
+
+// Approve a pending waiver. Only approvers, and NEVER the same user who requested.
+app.post('/api/waivers/:id/approve', requireAuth, (req, res) => {
+  try {
+    if (!canApproveWaivers(req.user)) return res.status(403).json({ error: 'You are not authorised to approve waivers' });
+    const w = db.prepare('SELECT * FROM waivers WHERE id = ?').get(req.params.id);
+    if (!w) return res.status(404).json({ error: 'Waiver not found' });
+    if (w.status !== 'Pending') return res.status(400).json({ error: `Waiver is already ${w.status}` });
+    // Maker-checker: same user cannot approve their own request
+    if (w.requested_by_id && req.user.id && w.requested_by_id === req.user.id) {
+      return res.status(403).json({ error: 'Maker-checker: you cannot approve a waiver you created yourself. Another approver must confirm.' });
+    }
+
+    const note = (req.body && req.body.note) || '';
+    db.prepare(`
+      UPDATE waivers SET status = 'Approved', approved_by_id = ?, approved_by_name = ?, approval_note = ?, approved_at = datetime('now')
+      WHERE id = ?
+    `).run(req.user.id || '', req.user.name || req.user.username || '', note, req.params.id);
+
+    logInfo('Waiver approved', { id: req.params.id, by: req.user.username });
+
+    // If there's an existing pending rent payment for this tenant, recompute its
+    // amount so the branch staff sees the correct (waivered + GST) total.
+    recomputePendingRentPayment(w.tenant_id);
+
+    const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(w.tenant_id);
+    createNotification(
+      w.branch_id || '', 'all', 'waiver_approved',
+      '✅ Waiver Approved',
+      `Waiver of ₹${Number(w.amount).toLocaleString('en-IN')} for ${tenant ? tenant.name : 'tenant'} approved by ${req.user.name || req.user.username}. Rent payment can now be collected.`,
+      w.tenant_id
+    );
+
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Waiver approval failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to approve waiver' });
+  }
+});
+
+// Revoke a waiver (either a pending request or an already-approved one, so long
+// as no rent payment has been recorded under it yet). Approvers only. Maker-
+// checker does NOT apply to revocation — fixing a mistake you flagged yourself
+// should always be allowed.
+app.post('/api/waivers/:id/revoke', requireAuth, (req, res) => {
+  try {
+    if (!canApproveWaivers(req.user)) return res.status(403).json({ error: 'You are not authorised to revoke waivers' });
+    const w = db.prepare('SELECT * FROM waivers WHERE id = ?').get(req.params.id);
+    if (!w) return res.status(404).json({ error: 'Waiver not found' });
+    if (w.status === 'Revoked') return res.status(400).json({ error: 'Waiver already revoked' });
+
+    // Block if a paid rent payment already consumed this waiver
+    const consumed = db.prepare("SELECT id, receipt_no FROM payments WHERE waiver_id = ? AND status = 'Paid' LIMIT 1").get(req.params.id);
+    if (consumed) {
+      return res.status(409).json({ error: `Cannot revoke — waiver already applied to paid receipt ${consumed.receipt_no}. Reverse the payment first.` });
+    }
+
+    const reason = (req.body && req.body.reason) || '';
+    db.prepare(`
+      UPDATE waivers SET status = 'Revoked', revoked_by_id = ?, revoked_by_name = ?, revoke_reason = ?, revoked_at = datetime('now')
+      WHERE id = ?
+    `).run(req.user.id || '', req.user.name || req.user.username || '', reason, req.params.id);
+
+    logInfo('Waiver revoked', { id: req.params.id, by: req.user.username, reason });
+
+    // Recompute any pending rent payment so the total falls back to base + GST
+    recomputePendingRentPayment(w.tenant_id);
+
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Waiver revocation failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to revoke waiver' });
+  }
+});
+
+// Expose the tax config so the front-end can do the same math client-side for
+// previews without hard-coding rates in two places.
+app.get('/api/config/tax', requireAuth, (req, res) => {
+  res.json({ gst_rate: GST_RATE, cgst_rate: CGST_RATE, sgst_rate: SGST_RATE, gstin: '33AAGCK3310G1Z2' });
+});
+
+// Helper: when a waiver is approved/revoked, update any open pending rent
+// payment row for that tenant so the amount + breakup columns reflect reality.
+function recomputePendingRentPayment(tenantId) {
+  try {
+    const tenant = db.prepare('SELECT annual_rent FROM tenants WHERE id = ?').get(tenantId);
+    if (!tenant) return;
+    const pending = db.prepare(
+      "SELECT id FROM payments WHERE tenant_id = ? AND type = 'rent' AND (status = 'Pending' OR status = 'Overdue') LIMIT 1"
+    ).get(tenantId);
+    if (!pending) return;
+    const active = getActiveWaiver(tenantId);
+    const waiverAmt = active ? Number(active.amount) || 0 : 0;
+    const bk = computeRentBreakup(Number(tenant.annual_rent) || 0, waiverAmt);
+    db.prepare(`
+      UPDATE payments SET
+        amount = ?, base_amount = ?, waiver_amount = ?, taxable_amount = ?,
+        cgst_amount = ?, sgst_amount = ?, gst_amount = ?, waiver_id = ?
+      WHERE id = ?
+    `).run(bk.total, bk.base, bk.waiver, bk.taxable, bk.cgst, bk.sgst, bk.gst, active ? active.id : '', pending.id);
+    logInfo('Recomputed pending rent payment', { tenant_id: tenantId, payment_id: pending.id, total: bk.total, waiver: bk.waiver });
+  } catch (err) {
+    logError('recomputePendingRentPayment failed', { tenant_id: tenantId, error: err.message });
+  }
+}
+
+// ============================
 //  PAYMENTS
 // ============================
 app.get('/api/payments', requireAuth, enforceBranchScope, (req, res) => {
@@ -2222,6 +2588,33 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
     if (tenant) locker_id = tenant.locker_id || '';
   }
 
+  // ── WAIVER + GST (only on type=rent) ──────────────────────────────────────
+  // For rent payments, the server is the source of truth on the computed total.
+  // Base = tenant.annual_rent, waiver = approved waiver (or 0), taxable = base-waiver,
+  // GST = 18% of taxable. Anything the client sent in d.amount is IGNORED for
+  // rent; we use the computed total. Deposit/penalty/other pass through as-is.
+  let rentBreakup = null;
+  let rentWaiverId = '';
+  if (type === 'rent') {
+    // Block if a waiver request is still awaiting approval — the user spec says
+    // "only then can the customer pay" after the waiver is confirmed.
+    const pendingW = getPendingWaiver(d.tenant_id);
+    if (pendingW) {
+      return res.status(409).json({
+        error: `Cannot record rent payment — a waiver request of ₹${pendingW.amount} is pending approval. Please get it approved or revoked first.`,
+        waiver_pending: true, waiver_id: pendingW.id
+      });
+    }
+    const tenantRow = db.prepare('SELECT annual_rent FROM tenants WHERE id = ?').get(d.tenant_id);
+    const baseRent = Number(tenantRow && tenantRow.annual_rent) || 0;
+    const activeW = getActiveWaiver(d.tenant_id);
+    const waiverAmt = activeW ? Number(activeW.amount) || 0 : 0;
+    rentWaiverId = activeW ? activeW.id : '';
+    rentBreakup = computeRentBreakup(baseRent, waiverAmt);
+    // Override the client-provided amount with the server-computed total
+    d.amount = rentBreakup.total;
+  }
+
   // Check if there's an existing Pending/Overdue payment for the same tenant+type to update instead of duplicate
   const existingPending = d.tenant_id ? db.prepare(
     "SELECT id, receipt_no FROM payments WHERE tenant_id = ? AND type = ? AND (status = 'Pending' OR status = 'Overdue') LIMIT 1"
@@ -2230,10 +2623,21 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
   const isRoot = req.user.username === 'root';
 
   if (existingPending) {
-    // Update the existing pending record instead of creating a duplicate
-    db.prepare(`UPDATE payments SET locker_id = ?, period = ?, amount = ?, due_date = ?, status = ?, paid_on = ?, method = ?, ref_no = ?, notes = ? WHERE id = ?`).run(
-      locker_id, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || '', existingPending.id
-    );
+    // Update the existing pending record instead of creating a duplicate.
+    // For rent, also persist the waiver+GST breakup so receipts render it.
+    if (rentBreakup) {
+      db.prepare(`UPDATE payments SET locker_id = ?, period = ?, amount = ?, due_date = ?, status = ?, paid_on = ?, method = ?, ref_no = ?, notes = ?,
+        base_amount = ?, waiver_amount = ?, taxable_amount = ?, cgst_amount = ?, sgst_amount = ?, gst_amount = ?, waiver_id = ?
+        WHERE id = ?`).run(
+        locker_id, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || '',
+        rentBreakup.base, rentBreakup.waiver, rentBreakup.taxable, rentBreakup.cgst, rentBreakup.sgst, rentBreakup.gst, rentWaiverId,
+        existingPending.id
+      );
+    } else {
+      db.prepare(`UPDATE payments SET locker_id = ?, period = ?, amount = ?, due_date = ?, status = ?, paid_on = ?, method = ?, ref_no = ?, notes = ? WHERE id = ?`).run(
+        locker_id, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', d.notes || '', existingPending.id
+      );
+    }
     logInfo('Payment updated (matched pending)', { id: existingPending.id, receipt_no: existingPending.receipt_no, type, tenant: d.tenant_id, amount: d.amount, status: d.status });
 
     // Push notification to customer when payment is marked as Paid
@@ -2271,9 +2675,18 @@ app.post('/api/payments', requireAuth, requireRole('headoffice', 'branch'), (req
     // Create a new payment record
     const id = genId();
     const receipt_no = d.receipt_no || getNextReceiptNo();
-    db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-      id, d.branch_id, d.tenant_id, locker_id, type, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || ''
-    );
+    if (rentBreakup) {
+      db.prepare(`INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes,
+        base_amount, waiver_amount, taxable_amount, cgst_amount, sgst_amount, gst_amount, waiver_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, d.branch_id, d.tenant_id, locker_id, type, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || '',
+        rentBreakup.base, rentBreakup.waiver, rentBreakup.taxable, rentBreakup.cgst, rentBreakup.sgst, rentBreakup.gst, rentWaiverId
+      );
+    } else {
+      db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        id, d.branch_id, d.tenant_id, locker_id, type, d.period || '', d.amount || 0, d.due_date || '', d.status || 'Pending', d.paid_on || '', d.method || '', d.ref_no || '', receipt_no, d.notes || ''
+      );
+    }
     logInfo('Payment recorded', { id, receipt_no, type, tenant: d.tenant_id, amount: d.amount, period: d.period, status: d.status, by: req.user.username });
 
     // Push notification to customer when payment is marked as Paid
@@ -2310,12 +2723,48 @@ app.put('/api/payments/:id', requireAuth, requireRole('headoffice', 'branch'), (
     if (d.amount !== undefined && (isNaN(parseFloat(d.amount)) || parseFloat(d.amount) <= 0)) {
       return res.status(400).json({ error: 'Amount must be greater than 0' });
     }
+
+    // For rent updates (particularly "mark as Paid"), enforce the same
+    // waiver+GST rules as POST /api/payments so the receipt stays consistent.
+    const existing = db.prepare('SELECT * FROM payments WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Payment not found' });
+    const effectiveType = d.type || existing.type;
+    let rentBreakup = null, rentWaiverId = '';
+    if (effectiveType === 'rent') {
+      // Block if a waiver is still pending on this tenant
+      const pendingW = getPendingWaiver(existing.tenant_id);
+      if (pendingW) {
+        return res.status(409).json({
+          error: `Cannot update rent payment — a waiver request of ₹${pendingW.amount} is pending approval. Approve or revoke it first.`,
+          waiver_pending: true, waiver_id: pendingW.id
+        });
+      }
+      // Recompute breakup from the tenant's current annual_rent + active waiver.
+      // This makes the "mark as Paid" click do the right thing automatically.
+      const tenantRow = db.prepare('SELECT annual_rent FROM tenants WHERE id = ?').get(existing.tenant_id);
+      const baseRent = Number(tenantRow && tenantRow.annual_rent) || 0;
+      const activeW = getActiveWaiver(existing.tenant_id);
+      const waiverAmt = activeW ? Number(activeW.amount) || 0 : 0;
+      rentWaiverId = activeW ? activeW.id : '';
+      rentBreakup = computeRentBreakup(baseRent, waiverAmt);
+      // Force the amount to the computed total — ignore client value for rent
+      d.amount = rentBreakup.total;
+    }
+
     const allowedFields = ['tenant_id', 'locker_id', 'type', 'period', 'amount', 'due_date', 'status', 'paid_on', 'method', 'ref_no', 'receipt_no', 'notes'];
     const fields = []; const vals = [];
     for (const [k, v] of Object.entries(d)) {
       if (!allowedFields.includes(k)) continue;
       fields.push(`${k} = ?`);
       vals.push(v);
+    }
+    // Persist breakup columns alongside the update for rent
+    if (rentBreakup) {
+      ['base_amount','waiver_amount','taxable_amount','cgst_amount','sgst_amount','gst_amount','waiver_id'].forEach((col, i) => {
+        const vals2 = [rentBreakup.base, rentBreakup.waiver, rentBreakup.taxable, rentBreakup.cgst, rentBreakup.sgst, rentBreakup.gst, rentWaiverId];
+        fields.push(`${col} = ?`);
+        vals.push(vals2[i]);
+      });
     }
     // Auto-fill paid_on when marking as Paid
     if (d.status === 'Paid' && !d.paid_on) {
@@ -2463,7 +2912,8 @@ app.post('/api/renewals/:id/renew', requireAuth, requireRole('headoffice', 'bran
 
     db.prepare('UPDATE tenants SET lease_start = ?, lease_end = ? WHERE id = ?').run(newStart, newEnd, req.params.id);
 
-    // Auto-create pending rent payment for the new lease period
+    // Auto-create pending rent payment for the new lease period.
+    // Apply any currently-approved waiver and the 18% GST breakup.
     let rentPaymentCreated = false;
     if (tenant.annual_rent && parseFloat(tenant.annual_rent) > 0) {
       const rentId = genId();
@@ -2471,10 +2921,16 @@ app.post('/api/renewals/:id/renew', requireAuth, requireRole('headoffice', 'bran
       const startDt = new Date(newStart);
       const fy = startDt.getMonth() >= 3 ? startDt.getFullYear() : startDt.getFullYear() - 1;
       const period = `FY ${fy}-${String(fy + 1).slice(2)}`;
-      db.prepare('INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
-        rentId, tenant.branch_id, req.params.id, tenant.locker_id || '', 'rent', period, parseFloat(tenant.annual_rent), newStart, 'Pending', '', '', '', rentReceipt, 'Auto-generated on lease renewal'
+      const activeW = getActiveWaiver(req.params.id);
+      const waiverAmt = activeW ? Number(activeW.amount) || 0 : 0;
+      const bk = computeRentBreakup(parseFloat(tenant.annual_rent), waiverAmt);
+      db.prepare(`INSERT INTO payments (id, branch_id, tenant_id, locker_id, type, period, amount, due_date, status, paid_on, method, ref_no, receipt_no, notes,
+        base_amount, waiver_amount, taxable_amount, cgst_amount, sgst_amount, gst_amount, waiver_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        rentId, tenant.branch_id, req.params.id, tenant.locker_id || '', 'rent', period, bk.total, newStart, 'Pending', '', '', '', rentReceipt, 'Auto-generated on lease renewal',
+        bk.base, bk.waiver, bk.taxable, bk.cgst, bk.sgst, bk.gst, activeW ? activeW.id : ''
       );
-      logInfo('Auto-created renewal rent payment', { paymentId: rentId, tenantId: req.params.id, amount: tenant.annual_rent, period });
+      logInfo('Auto-created renewal rent payment', { paymentId: rentId, tenantId: req.params.id, total: bk.total, base: bk.base, gst: bk.gst, waiver: bk.waiver, period });
       rentPaymentCreated = true;
     }
 
@@ -2581,9 +3037,46 @@ setInterval(checkLeaseRenewalReminders, 60 * 60 * 1000);
 // (lead id + follow_up_date) so the same lead won't double-notify for the same
 // scheduled date. Notifications are persisted to the `notifications` table so
 // nothing is missed even if no one is logged in when they fire.
+// Refresh "TODAY" / "OVERDUE Nd" labels on existing follow-up notifications.
+// The urgency label gets baked into the notification title/message at creation
+// time, and the (lead id + follow_up_date) dedupe marker prevents re-creation,
+// so a notification created yesterday saying "TODAY" will still say "TODAY"
+// the day after. This pass re-computes the label based on the current date and
+// updates the row in place. Safe to call on every cron tick.
+function refreshFollowUpNotificationLabels(markerPrefix, titlePrefix) {
+  try {
+    // Use IST (Asia/Kolkata, UTC+5:30) so "today" matches the user's calendar day
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const rows = db.prepare(
+      "SELECT id, title, message FROM notifications WHERE message LIKE ?"
+    ).all(`%[${markerPrefix}:%`);
+    const markerRe = new RegExp(`\\[${markerPrefix}:[^:\\]]+:(\\d{4}-\\d{2}-\\d{2})\\]`);
+    const labelRe = /(TODAY|OVERDUE \d+d|UPCOMING \d+d)/;
+    for (const row of rows) {
+      const m = (row.message || '').match(markerRe);
+      if (!m) continue;
+      const followDate = m[1];
+      const diffDays = Math.floor((new Date(today) - new Date(followDate)) / 86400000);
+      let newLabel;
+      if (diffDays > 0) newLabel = `OVERDUE ${diffDays}d`;
+      else if (diffDays === 0) newLabel = 'TODAY';
+      else newLabel = `UPCOMING ${-diffDays}d`;
+      const newTitle = (row.title || '').replace(labelRe, newLabel);
+      // Only update if the label actually changed, to avoid SSE noise
+      if (newTitle !== row.title) {
+        db.prepare("UPDATE notifications SET title = ? WHERE id = ?").run(newTitle, row.id);
+      }
+    }
+  } catch (err) {
+    logError('Follow-up notification label refresh failed', { error: err.message, markerPrefix });
+  }
+}
+
 function checkNcdFollowUpReminders() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    refreshFollowUpNotificationLabels('NCDFU', '📞 NCD Follow-up');
+    // Use IST (Asia/Kolkata, UTC+5:30) so "today" matches the user's calendar day
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     // Pull every open NCD lead with a follow-up date <= today
     const leads = db.prepare(`
       SELECT id, name, phone, place, amount, follow_up_date, follow_up_note, status, created_by_name
@@ -2641,7 +3134,9 @@ setInterval(checkNcdFollowUpReminders, 60 * 60 * 1000);
 //  - Distinct dedupe marker ([LOCKFU:...]) so it never collides with NCD
 function checkLockerFollowUpReminders() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    refreshFollowUpNotificationLabels('LOCKFU', '📞 Locker Lead Follow-up');
+    // Use IST (Asia/Kolkata, UTC+5:30) so "today" matches the user's calendar day
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const leads = db.prepare(`
       SELECT l.id, l.name, l.phone, l.branch_id, l.locker_size, l.follow_up_date,
              l.follow_up_note, l.status, l.created_by_name, b.name as branch_name
@@ -2940,7 +3435,8 @@ app.get('/api/stats/leads', requireAuth, requireRole('headoffice'), (req, res) =
     const lockerLeadAgg = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'locker' OR lead_type IS NULL OR lead_type = ''`).get();
     const lockerLeadOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND status NOT IN ('Converted','Lost')`).get();
     // Follow-up reminder rollups — overdue + due today, only counting open leads
-    const today = new Date().toISOString().slice(0, 10);
+    // Use IST (Asia/Kolkata, UTC+5:30) so "today" matches the user's calendar day
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const ncdOverdue = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'ncd' AND follow_up_date != '' AND follow_up_date IS NOT NULL AND follow_up_date < ? AND status NOT IN ('Invested','Lost')`).get(today);
     const ncdDueToday = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE lead_type = 'ncd' AND follow_up_date = ? AND status NOT IN ('Invested','Lost')`).get(today);
     const lockOverdue = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND follow_up_date != '' AND follow_up_date IS NOT NULL AND follow_up_date < ? AND status NOT IN ('Converted','Lost')`).get(today);
@@ -2970,10 +3466,10 @@ app.get('/api/stats/leads', requireAuth, requireRole('headoffice'), (req, res) =
 app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
   try {
     const backup = {
-      version: 7,
+      version: 9,
       export_date: new Date().toISOString(),
       branches: db.prepare('SELECT * FROM branches').all(),
-      users: db.prepare('SELECT id, username, name, role, branch_id, created_at FROM users').all(),
+      users: db.prepare('SELECT id, username, name, role, branch_id, permissions, custom_role_id, created_at FROM users').all(),
       locker_types: db.prepare('SELECT * FROM locker_types').all(),
       units: db.prepare('SELECT * FROM units').all(),
       lockers: db.prepare('SELECT * FROM lockers').all(),
@@ -2992,7 +3488,9 @@ app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
       notifications: db.prepare('SELECT * FROM notifications').all(),
       audit_log: db.prepare('SELECT * FROM audit_log').all(),
       locker_transfer_requests: db.prepare('SELECT * FROM locker_transfer_requests').all(),
-      fcm_tokens: db.prepare('SELECT * FROM fcm_tokens').all()
+      fcm_tokens: db.prepare('SELECT * FROM fcm_tokens').all(),
+      waivers: db.prepare('SELECT * FROM waivers').all(),
+      custom_roles: (() => { try { return db.prepare('SELECT * FROM custom_roles').all(); } catch (_) { return []; } })()
     };
     res.json(backup);
   } catch (err) {
@@ -3005,7 +3503,7 @@ app.get('/api/backup', requireAuth, requireRole('headoffice'), (req, res) => {
 //  USERS MANAGEMENT
 // ============================
 app.get('/api/users', requireAuth, requireRole('headoffice'), (req, res) => {
-  const rows = db.prepare('SELECT u.id, u.username, u.name, u.role, u.branch_id, u.permissions, b.name as branch_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id ORDER BY u.role, u.name').all();
+  const rows = db.prepare("SELECT u.id, u.username, u.name, u.role, u.branch_id, u.permissions, COALESCE(u.custom_role_id,'') as custom_role_id, b.name as branch_name, cr.name as custom_role_name FROM users u LEFT JOIN branches b ON u.branch_id = b.id LEFT JOIN custom_roles cr ON cr.id = u.custom_role_id ORDER BY u.role, u.name").all();
   // Decorate each user with the resolved (effective) permission list for the UI
   const users = rows.map(u => ({
     ...u,
@@ -3017,12 +3515,21 @@ app.get('/api/users', requireAuth, requireRole('headoffice'), (req, res) => {
 // Create a user. New optional field: permissions (array of keys from PERMISSION_CATALOG).
 // If permissions is omitted/empty, the user inherits role defaults — same as before.
 app.post('/api/users', requireAuth, requireRole('headoffice'), async (req, res) => {
-  const { username, password, name, role, branch_id, permissions } = req.body;
+  const { username, password, name, role, branch_id, permissions, custom_role_id } = req.body;
   if (!username || !password || !name) return res.status(400).json({ error: 'Username, password, and name are required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
   const validRoles = ['headoffice', 'branch', 'lead_agent'];
-  const finalRole = role || 'branch';
+  let finalRole = role || 'branch';
   if (!validRoles.includes(finalRole)) return res.status(400).json({ error: 'Invalid role' });
+
+  // If a custom role is specified, derive the effective base role from it
+  let finalCustomRoleId = '';
+  if (custom_role_id) {
+    const cr = db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(custom_role_id);
+    if (!cr) return res.status(400).json({ error: 'Invalid custom role' });
+    finalCustomRoleId = cr.id;
+    finalRole = cr.base_role; // scope follows the base role
+  }
 
   // Validate permissions array (if any) against the catalog
   let permJson = '';
@@ -3034,10 +3541,10 @@ app.post('/api/users', requireAuth, requireRole('headoffice'), async (req, res) 
   const id = genId();
   try {
     const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id, permissions) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-      id, username, hashedPassword, name, finalRole, branch_id || null, permJson
+    db.prepare('INSERT INTO users (id, username, password, name, role, branch_id, permissions, custom_role_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+      id, username, hashedPassword, name, finalRole, branch_id || null, permJson, finalCustomRoleId
     );
-    logInfo('User created', { id, username, role: finalRole, perms: permJson ? JSON.parse(permJson).length : 'role-default' });
+    logInfo('User created', { id, username, role: finalRole, custom_role_id: finalCustomRoleId || null, perms: permJson ? JSON.parse(permJson).length : 'role-default' });
     res.json({ id });
   } catch (e) {
     res.status(400).json({ error: 'Username already exists' });
@@ -3077,7 +3584,7 @@ app.get('/api/branch-staff', requireAuth, requireRole('headoffice', 'branch'), (
 });
 
 app.put('/api/users/:id', requireAuth, requireRole('headoffice'), (req, res) => {
-  const { name, role, branch_id, username } = req.body;
+  const { name, role, branch_id, username, custom_role_id } = req.body;
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   if (!user) return res.status(404).json({ error: 'User not found' });
   // Only root can edit root
@@ -3086,6 +3593,7 @@ app.put('/api/users/:id', requireAuth, requireRole('headoffice'), (req, res) => 
   }
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
   const validRoles = ['headoffice', 'branch', 'lead_agent'];
+  let finalRole = role || user.role;
   if (role && !validRoles.includes(role)) return res.status(400).json({ error: 'Invalid role' });
   // Prevent changing root's username
   if (user.username === 'root' && username && username !== 'root') {
@@ -3096,10 +3604,18 @@ app.put('/api/users/:id', requireAuth, requireRole('headoffice'), (req, res) => 
     const existing = db.prepare('SELECT id FROM users WHERE LOWER(username) = ? AND id != ?').get(username.toLowerCase(), req.params.id);
     if (existing) return res.status(400).json({ error: 'Username already taken' });
   }
-  db.prepare('UPDATE users SET name = ?, role = ?, branch_id = ?, username = ? WHERE id = ?').run(
-    name.trim(), role || user.role, branch_id || null, username || user.username, req.params.id
+  // Resolve custom role if provided (empty string = detach)
+  let finalCustomRoleId = '';
+  if (custom_role_id) {
+    const cr = db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(custom_role_id);
+    if (!cr) return res.status(400).json({ error: 'Invalid custom role' });
+    finalCustomRoleId = cr.id;
+    finalRole = cr.base_role; // scope follows base role
+  }
+  db.prepare('UPDATE users SET name = ?, role = ?, branch_id = ?, username = ?, custom_role_id = ? WHERE id = ?').run(
+    name.trim(), finalRole, branch_id || null, username || user.username, finalCustomRoleId, req.params.id
   );
-  logInfo('User updated', { id: req.params.id, name, role });
+  logInfo('User updated', { id: req.params.id, name, role: finalRole, custom_role_id: finalCustomRoleId || null });
   res.json({ ok: true });
 });
 
@@ -3959,7 +4475,8 @@ app.post('/api/customer/request-new-locker', requireAuth, (req, res) => {
     const targetBranch = branch_id || tenant.branch_id || '';
 
     // Rate limit: max 2 requests per day
-    const today = new Date().toISOString().slice(0, 10);
+    // Use IST (Asia/Kolkata, UTC+5:30) so "today" matches the user's calendar day
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const recentCount = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE phone = ? AND source = 'Existing Customer' AND created_at >= ?").get(tenant.phone, today + ' 00:00:00');
     if (recentCount && recentCount.cnt >= 2) {
       return res.status(429).json({ error: 'You have already submitted a request today. Our team will contact you shortly.' });
@@ -4388,7 +4905,8 @@ app.post('/api/public/enquiry', (req, res) => {
     const cleanPhone = (phone || '').replace(/[^0-9]/g, '').slice(0, 10);
     if (!cleanPhone || cleanPhone.length !== 10) return res.status(400).json({ error: 'Please provide a valid 10-digit phone number' });
     // Rate limit: max 3 enquiries per phone per day
-    const today = new Date().toISOString().slice(0, 10);
+    // Use IST (Asia/Kolkata, UTC+5:30) so "today" matches the user's calendar day
+    const today = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const recentCount = db.prepare("SELECT COUNT(*) as cnt FROM leads WHERE phone = ? AND created_at >= ?").get(cleanPhone, today + ' 00:00:00');
     if (recentCount && recentCount.cnt >= 3) {
       return res.status(429).json({ error: 'Too many enquiries. Please try again tomorrow or call us directly.' });
@@ -4998,6 +5516,14 @@ app.post('/api/esign/initiate', requireAuth, requireRole('headoffice', 'branch')
       const paidRent = payments.find(p => p.type === 'rent' && p.status === 'Paid');
       tenant.deposit_amount = paidDeposit ? paidDeposit.amount : 0;
       tenant.rent_amount = paidRent ? paidRent.amount : 0;
+      if (paidRent && Number(paidRent.base_amount) > 0) {
+        tenant.base_amount = paidRent.base_amount;
+        tenant.waiver_amount = paidRent.waiver_amount;
+        tenant.taxable_amount = paidRent.taxable_amount;
+        tenant.cgst_amount = paidRent.cgst_amount;
+        tenant.sgst_amount = paidRent.sgst_amount;
+        tenant.gst_amount = paidRent.gst_amount;
+      }
       const branchShort = (branch && branch.name ? branch.name.replace(/\s+/g, '').substring(0, 4).toUpperCase() : 'HQ');
       const year = new Date(tenant.lease_start || tenant.created_at || Date.now()).getFullYear();
       const tenantSeq = db.prepare('SELECT COUNT(*) as cnt FROM tenants WHERE branch_id = ? AND created_at <= ?').get(tenant.branch_id, tenant.created_at || new Date().toISOString());
@@ -5724,9 +6250,419 @@ app.get('/api/leads/summary', requireAuth, (req, res) => {
   }
 });
 
-// Permission catalog — used by the user creation wizard frontend
+// ============================
+//  NCD LEADS — EXCEL REPORT
+// ============================
+// GET /api/reports/ncd-leads.xlsx — streams a multi-sheet workbook:
+//   1. Summary           — headline totals (count, pipeline amount, invested, conversion)
+//   2. Status Breakdown  — count + amount per status
+//   3. Agent Breakdown   — count + amount per created_by_name
+//   4. Lead List         — full row-level dump of every NCD lead
+// Requires leads_ncd permission (HO always has it via hasPermission).
+app.get('/api/reports/ncd-leads.xlsx', requireAuth, (req, res) => {
+  if (!hasPermission(req.user, 'leads_ncd')) {
+    return res.status(403).json({ error: 'You do not have permission to view NCD leads' });
+  }
+  let ExcelJS;
+  try {
+    ExcelJS = require('exceljs');
+  } catch (e) {
+    logError('exceljs not installed', { error: e.message });
+    return res.status(500).json({ error: 'Excel library not installed. Run: npm install exceljs' });
+  }
+
+  try {
+    // Pull all NCD leads with their branch name (if any)
+    const rows = db.prepare(`
+      SELECT l.*, b.name as branch_name
+      FROM leads l
+      LEFT JOIN branches b ON l.branch_id = b.id
+      WHERE l.lead_type = 'ncd'
+      ORDER BY l.created_at DESC
+    `).all();
+
+    // Aggregations
+    const totalCount  = rows.length;
+    const totalAmount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const investedRows = rows.filter(r => r.status === 'Invested');
+    const lostRows     = rows.filter(r => r.status === 'Lost');
+    const openRows     = rows.filter(r => r.status !== 'Invested' && r.status !== 'Lost');
+    const investedCount  = investedRows.length;
+    const investedAmount = investedRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const openAmount     = openRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    const conversionRate = totalCount > 0 ? (investedCount / totalCount * 100) : 0;
+
+    // Status breakdown
+    const statusMap = {};
+    rows.forEach(r => {
+      const s = r.status || 'Unknown';
+      if (!statusMap[s]) statusMap[s] = { count: 0, amount: 0 };
+      statusMap[s].count++;
+      statusMap[s].amount += Number(r.amount) || 0;
+    });
+    // Preserve the canonical funnel order, then any extras
+    const canonicalStatuses = ['New', 'Contacted', 'Interested', 'Invested', 'Lost'];
+    const statusOrder = canonicalStatuses.concat(
+      Object.keys(statusMap).filter(s => !canonicalStatuses.includes(s))
+    ).filter(s => statusMap[s]);
+
+    // Agent breakdown
+    const agentMap = {};
+    rows.forEach(r => {
+      const a = (r.created_by_name && r.created_by_name.trim()) || 'Unassigned';
+      if (!agentMap[a]) agentMap[a] = { count: 0, amount: 0, invested: 0, invested_amount: 0 };
+      agentMap[a].count++;
+      agentMap[a].amount += Number(r.amount) || 0;
+      if (r.status === 'Invested') {
+        agentMap[a].invested++;
+        agentMap[a].invested_amount += Number(r.amount) || 0;
+      }
+    });
+    const agentOrder = Object.keys(agentMap).sort((a, b) => agentMap[b].amount - agentMap[a].amount);
+
+    // Build workbook
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'LockerHub';
+    wb.created = new Date();
+
+    // Shared styles
+    const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2C1810' } };
+    const headerFont = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+    const titleFont  = { bold: true, size: 16, color: { argb: 'FF2C1810' } };
+    const borderThin = { style: 'thin', color: { argb: 'FFCCCCCC' } };
+    const fullBorder = { top: borderThin, left: borderThin, bottom: borderThin, right: borderThin };
+    const inrFmt = '"₹"#,##0.00;[Red]"-₹"#,##0.00';
+    const intFmt = '#,##0';
+
+    function styleHeaderRow(row) {
+      row.eachCell(cell => {
+        cell.fill = headerFill;
+        cell.font = headerFont;
+        cell.alignment = { vertical: 'middle', horizontal: 'left' };
+        cell.border = fullBorder;
+      });
+      row.height = 20;
+    }
+    function borderDataRows(ws, startRow, endRow) {
+      for (let i = startRow; i <= endRow; i++) {
+        ws.getRow(i).eachCell(cell => { cell.border = fullBorder; });
+      }
+    }
+
+    // ─── Sheet 1: Summary ───────────────────────────────────────────────
+    const s1 = wb.addWorksheet('Summary');
+    s1.columns = [
+      { width: 32 },
+      { width: 22 }
+    ];
+    s1.mergeCells('A1:B1');
+    s1.getCell('A1').value = 'NCD Leads Report';
+    s1.getCell('A1').font = titleFont;
+    s1.getCell('A1').alignment = { horizontal: 'center' };
+    s1.getRow(1).height = 26;
+    s1.getCell('A2').value = 'Generated';
+    s1.getCell('B2').value = new Date();
+    s1.getCell('B2').numFmt = 'dd-mmm-yyyy hh:mm';
+    s1.getCell('A3').value = 'Generated by';
+    s1.getCell('B3').value = req.user.name || req.user.username || '';
+
+    s1.addRow([]);
+    const s1Header = s1.addRow(['Metric', 'Value']);
+    styleHeaderRow(s1Header);
+    const summaryRows = [
+      ['Total NCD Leads',          totalCount,      intFmt],
+      ['Open Leads',               openRows.length, intFmt],
+      ['Invested Leads',           investedCount,   intFmt],
+      ['Lost Leads',               lostRows.length, intFmt],
+      ['Total Pipeline Amount',    totalAmount,     inrFmt],
+      ['Open Pipeline Amount',     openAmount,      inrFmt],
+      ['Invested Amount',          investedAmount,  inrFmt],
+      ['Conversion Rate',          conversionRate / 100, '0.00%']
+    ];
+    const s1Start = s1.rowCount + 1;
+    summaryRows.forEach(([label, value, fmt]) => {
+      const r = s1.addRow([label, value]);
+      r.getCell(1).font = { bold: true };
+      r.getCell(2).numFmt = fmt;
+      r.getCell(2).alignment = { horizontal: 'right' };
+    });
+    borderDataRows(s1, s1Start, s1.rowCount);
+
+    // ─── Sheet 2: Status Breakdown ──────────────────────────────────────
+    const s2 = wb.addWorksheet('Status Breakdown');
+    s2.columns = [
+      { header: 'Status',    key: 'status', width: 20 },
+      { header: 'Count',     key: 'count',  width: 14 },
+      { header: 'Amount',    key: 'amount', width: 22 },
+      { header: '% of Total', key: 'pct',   width: 14 }
+    ];
+    styleHeaderRow(s2.getRow(1));
+    const s2Start = 2;
+    statusOrder.forEach(s => {
+      const entry = statusMap[s];
+      const pct = totalCount > 0 ? entry.count / totalCount : 0;
+      const r = s2.addRow({ status: s, count: entry.count, amount: entry.amount, pct });
+      r.getCell('count').numFmt = intFmt;
+      r.getCell('amount').numFmt = inrFmt;
+      r.getCell('pct').numFmt = '0.0%';
+    });
+    const s2TotalRow = s2.addRow({ status: 'TOTAL', count: totalCount, amount: totalAmount, pct: 1 });
+    s2TotalRow.font = { bold: true };
+    s2TotalRow.getCell('count').numFmt = intFmt;
+    s2TotalRow.getCell('amount').numFmt = inrFmt;
+    s2TotalRow.getCell('pct').numFmt = '0.0%';
+    borderDataRows(s2, s2Start, s2.rowCount);
+
+    // ─── Sheet 3: Agent Breakdown ───────────────────────────────────────
+    const s3 = wb.addWorksheet('Agent Breakdown');
+    s3.columns = [
+      { header: 'Created By',       key: 'agent',    width: 28 },
+      { header: 'Leads',            key: 'count',    width: 12 },
+      { header: 'Pipeline Amount',  key: 'amount',   width: 22 },
+      { header: 'Invested Leads',   key: 'invested', width: 16 },
+      { header: 'Invested Amount',  key: 'iamt',     width: 22 },
+      { header: 'Conversion',       key: 'conv',     width: 14 }
+    ];
+    styleHeaderRow(s3.getRow(1));
+    const s3Start = 2;
+    agentOrder.forEach(a => {
+      const e = agentMap[a];
+      const conv = e.count > 0 ? e.invested / e.count : 0;
+      const r = s3.addRow({
+        agent: a, count: e.count, amount: e.amount,
+        invested: e.invested, iamt: e.invested_amount, conv
+      });
+      r.getCell('count').numFmt = intFmt;
+      r.getCell('amount').numFmt = inrFmt;
+      r.getCell('invested').numFmt = intFmt;
+      r.getCell('iamt').numFmt = inrFmt;
+      r.getCell('conv').numFmt = '0.0%';
+    });
+    const s3TotalRow = s3.addRow({
+      agent: 'TOTAL', count: totalCount, amount: totalAmount,
+      invested: investedCount, iamt: investedAmount,
+      conv: totalCount > 0 ? investedCount / totalCount : 0
+    });
+    s3TotalRow.font = { bold: true };
+    s3TotalRow.getCell('count').numFmt = intFmt;
+    s3TotalRow.getCell('amount').numFmt = inrFmt;
+    s3TotalRow.getCell('invested').numFmt = intFmt;
+    s3TotalRow.getCell('iamt').numFmt = inrFmt;
+    s3TotalRow.getCell('conv').numFmt = '0.0%';
+    borderDataRows(s3, s3Start, s3.rowCount);
+
+    // ─── Sheet 4: Lead List (full dump) ─────────────────────────────────
+    const s4 = wb.addWorksheet('Lead List');
+    s4.columns = [
+      { header: '#',              key: 'idx',        width: 6 },
+      { header: 'Name',           key: 'name',       width: 24 },
+      { header: 'Phone',          key: 'phone',      width: 16 },
+      { header: 'Email',          key: 'email',      width: 26 },
+      { header: 'Place',          key: 'place',      width: 20 },
+      { header: 'Occupation',     key: 'occupation', width: 20 },
+      { header: 'Amount',         key: 'amount',     width: 18 },
+      { header: 'Status',         key: 'status',     width: 14 },
+      { header: 'Reference',      key: 'reference',  width: 22 },
+      { header: 'Source',         key: 'source',     width: 16 },
+      { header: 'Follow-up Date', key: 'fud',        width: 14 },
+      { header: 'Follow-up Note', key: 'fun',        width: 32 },
+      { header: 'Narration',      key: 'narration',  width: 36 },
+      { header: 'Notes',          key: 'notes',      width: 32 },
+      { header: 'Created By',     key: 'cby',        width: 22 },
+      { header: 'Branch',         key: 'branch',     width: 18 },
+      { header: 'Created At',     key: 'cat',        width: 18 },
+      { header: 'Updated At',     key: 'uat',        width: 18 }
+    ];
+    styleHeaderRow(s4.getRow(1));
+    const s4Start = 2;
+    rows.forEach((r, i) => {
+      const row = s4.addRow({
+        idx: i + 1,
+        name: r.name || '',
+        phone: r.phone || '',
+        email: r.email || '',
+        place: r.place || '',
+        occupation: r.occupation || '',
+        amount: Number(r.amount) || 0,
+        status: r.status || '',
+        reference: r.reference || '',
+        source: r.source || '',
+        fud: r.follow_up_date || '',
+        fun: r.follow_up_note || '',
+        narration: r.narration || '',
+        notes: r.notes || '',
+        cby: r.created_by_name || '',
+        branch: r.branch_name || '',
+        cat: r.created_at ? r.created_at.replace('T', ' ').slice(0, 16) : '',
+        uat: r.updated_at ? r.updated_at.replace('T', ' ').slice(0, 16) : ''
+      });
+      row.getCell('amount').numFmt = inrFmt;
+    });
+    if (rows.length > 0) {
+      borderDataRows(s4, s4Start, s4.rowCount);
+      s4.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: s4.columnCount } };
+    }
+    s4.views = [{ state: 'frozen', ySplit: 1 }];
+
+    // Stream
+    const today = new Date().toISOString().slice(0, 10);
+    const filename = `NCD-Leads-Report-${today}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    wb.xlsx.write(res).then(() => {
+      res.end();
+      logInfo('NCD leads report generated', { rows: totalCount, user: req.user.username });
+    }).catch(err => {
+      logError('NCD leads report stream failed', { error: err.message });
+      if (!res.headersSent) res.status(500).json({ error: 'Report generation failed' });
+    });
+  } catch (err) {
+    logError('NCD leads report failed', { error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: 'Report generation failed: ' + err.message });
+  }
+});
+
+// Permission catalog — used by the user creation wizard frontend.
+// Also bundles the custom roles list so the frontend has everything in one call.
 app.get('/api/permissions/catalog', requireAuth, requireRole('headoffice'), (req, res) => {
-  res.json({ catalog: PERMISSION_CATALOG, role_defaults: ROLE_DEFAULT_PERMISSIONS });
+  let customRoles = [];
+  try {
+    customRoles = db.prepare('SELECT id, name, base_role, permissions FROM custom_roles ORDER BY name').all().map(r => ({
+      id: r.id,
+      name: r.name,
+      base_role: r.base_role,
+      permissions: (() => { try { return JSON.parse(r.permissions || '[]'); } catch (_) { return []; } })()
+    }));
+  } catch (_) { /* table may not exist yet */ }
+  res.json({
+    catalog: PERMISSION_CATALOG,
+    role_defaults: ROLE_DEFAULT_PERMISSIONS,
+    custom_roles: customRoles,
+    base_roles: [
+      { key: 'headoffice', label: 'Head Office Admin', scope: 'all_branches', editable: false },
+      { key: 'branch',     label: 'Branch Staff',      scope: 'own_branch',   editable: false },
+      { key: 'lead_agent', label: 'Lead Agent',        scope: 'lead_only',    editable: false }
+    ]
+  });
+});
+
+// ===== CUSTOM ROLES CRUD =====
+// List custom roles (HO only — roles affect authorisation)
+app.get('/api/custom-roles', requireAuth, requireRole('headoffice'), (req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM custom_roles ORDER BY name').all().map(r => ({
+      ...r,
+      permissions: (() => { try { return JSON.parse(r.permissions || '[]'); } catch (_) { return []; } })(),
+      user_count: db.prepare('SELECT COUNT(*) as c FROM users WHERE custom_role_id = ?').get(r.id).c
+    }));
+    res.json(rows);
+  } catch (err) {
+    logError('Custom role list failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to list custom roles' });
+  }
+});
+
+// Create a new custom role
+app.post('/api/custom-roles', requireAuth, requireRole('headoffice'), (req, res) => {
+  try {
+    const { name, base_role, permissions } = req.body || {};
+    const trimmedName = (name || '').trim();
+    if (!trimmedName) return res.status(400).json({ error: 'Role name is required' });
+    if (trimmedName.length > 50) return res.status(400).json({ error: 'Role name must be 50 characters or less' });
+    const validBase = ['headoffice', 'branch', 'lead_agent'];
+    if (!validBase.includes(base_role)) return res.status(400).json({ error: 'Invalid base role' });
+    if (!Array.isArray(permissions)) return res.status(400).json({ error: 'permissions must be an array' });
+
+    // Reject names that collide with built-in base role labels to avoid UI confusion
+    const reserved = ['head office admin', 'branch staff', 'lead agent', 'headoffice', 'branch', 'lead_agent', 'root'];
+    if (reserved.includes(trimmedName.toLowerCase())) {
+      return res.status(400).json({ error: 'That name is reserved for a built-in role. Pick a different name.' });
+    }
+
+    // Uniqueness (case-insensitive)
+    const existing = db.prepare('SELECT id FROM custom_roles WHERE LOWER(name) = ?').get(trimmedName.toLowerCase());
+    if (existing) return res.status(409).json({ error: 'A custom role with that name already exists' });
+
+    const cleaned = permissions.filter(k => PERMISSION_CATALOG[k]);
+    const id = genId();
+    db.prepare(`
+      INSERT INTO custom_roles (id, name, base_role, permissions, created_by_id, created_by_name)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, trimmedName, base_role, JSON.stringify(cleaned), req.user.id || '', req.user.name || req.user.username || '');
+    logInfo('Custom role created', { id, name: trimmedName, base_role, perms: cleaned.length, by: req.user.username });
+    res.json({ id, name: trimmedName, base_role, permissions: cleaned });
+  } catch (err) {
+    logError('Custom role create failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to create custom role: ' + err.message });
+  }
+});
+
+// Update a custom role — changes apply immediately to all users on this role,
+// unless they have their own explicit per-user permissions override.
+app.put('/api/custom-roles/:id', requireAuth, requireRole('headoffice'), (req, res) => {
+  try {
+    const role = db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(req.params.id);
+    if (!role) return res.status(404).json({ error: 'Custom role not found' });
+
+    const { name, base_role, permissions } = req.body || {};
+    const trimmedName = name !== undefined ? String(name).trim() : role.name;
+    if (!trimmedName) return res.status(400).json({ error: 'Role name is required' });
+
+    const validBase = ['headoffice', 'branch', 'lead_agent'];
+    const finalBase = base_role || role.base_role;
+    if (!validBase.includes(finalBase)) return res.status(400).json({ error: 'Invalid base role' });
+
+    // Name uniqueness
+    if (trimmedName.toLowerCase() !== role.name.toLowerCase()) {
+      const existing = db.prepare('SELECT id FROM custom_roles WHERE LOWER(name) = ? AND id != ?').get(trimmedName.toLowerCase(), req.params.id);
+      if (existing) return res.status(409).json({ error: 'A custom role with that name already exists' });
+    }
+
+    let cleanedJson = role.permissions;
+    if (Array.isArray(permissions)) {
+      const cleaned = permissions.filter(k => PERMISSION_CATALOG[k]);
+      cleanedJson = JSON.stringify(cleaned);
+    }
+
+    db.prepare(`
+      UPDATE custom_roles SET name = ?, base_role = ?, permissions = ?, updated_at = datetime('now') WHERE id = ?
+    `).run(trimmedName, finalBase, cleanedJson, req.params.id);
+
+    // If base_role changed, also update the underlying users.role for anyone on this custom role
+    // so scoping (branch vs HO vs lead_agent) matches the new template.
+    if (finalBase !== role.base_role) {
+      const updated = db.prepare('UPDATE users SET role = ? WHERE custom_role_id = ?').run(finalBase, req.params.id);
+      logInfo('Custom role base changed — updated users', { role_id: req.params.id, old: role.base_role, new: finalBase, users_updated: updated.changes });
+    }
+
+    logInfo('Custom role updated', { id: req.params.id, name: trimmedName, by: req.user.username });
+    res.json({ ok: true });
+  } catch (err) {
+    logError('Custom role update failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to update custom role: ' + err.message });
+  }
+});
+
+// Delete a custom role. If any users are still assigned, we refuse unless ?force=1,
+// in which case we detach them (leaving them on the base role's default permissions).
+app.delete('/api/custom-roles/:id', requireAuth, requireRole('headoffice'), (req, res) => {
+  try {
+    const role = db.prepare('SELECT * FROM custom_roles WHERE id = ?').get(req.params.id);
+    if (!role) return res.status(404).json({ error: 'Custom role not found' });
+    const userCount = db.prepare('SELECT COUNT(*) as c FROM users WHERE custom_role_id = ?').get(req.params.id).c;
+    if (userCount > 0 && String(req.query.force) !== '1') {
+      return res.status(409).json({ error: `${userCount} user(s) are assigned to this role. Reassign them first or retry with ?force=1 to detach.`, user_count: userCount });
+    }
+    if (userCount > 0) {
+      db.prepare("UPDATE users SET custom_role_id = '' WHERE custom_role_id = ?").run(req.params.id);
+    }
+    db.prepare('DELETE FROM custom_roles WHERE id = ?').run(req.params.id);
+    logWarn('Custom role deleted', { id: req.params.id, name: role.name, users_detached: userCount, by: req.user.username });
+    res.json({ ok: true, users_detached: userCount });
+  } catch (err) {
+    logError('Custom role delete failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to delete custom role: ' + err.message });
+  }
 });
 
 // Get permissions for the current logged-in user (used by frontend to gate UI)
