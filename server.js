@@ -288,6 +288,15 @@ function requireAuth(req, res, next) {
   }
   try {
     const decoded = verifyToken(token);
+    // Enrich with fresh DB fields so hasPermission() resolves per-user overrides
+    // and custom roles correctly (the JWT only stores id/username/name/role/branch_id).
+    try {
+      const fresh = db.prepare('SELECT permissions, custom_role_id FROM users WHERE id = ?').get(decoded.id);
+      if (fresh) {
+        decoded.permissions = fresh.permissions || '';
+        decoded.custom_role_id = fresh.custom_role_id || '';
+      }
+    } catch (_) { /* graceful — worst case falls back to role defaults */ }
     req.user = decoded;
     next();
   } catch (err) {
@@ -6668,7 +6677,7 @@ app.delete('/api/custom-roles/:id', requireAuth, requireRole('headoffice'), (req
 // Get permissions for the current logged-in user (used by frontend to gate UI)
 app.get('/api/me/permissions', requireAuth, (req, res) => {
   try {
-    const fresh = db.prepare('SELECT id, role, permissions FROM users WHERE id = ?').get(req.user.id);
+    const fresh = db.prepare('SELECT id, role, permissions, custom_role_id FROM users WHERE id = ?').get(req.user.id);
     if (!fresh) return res.status(404).json({ error: 'User not found' });
     res.json({
       role: fresh.role,
