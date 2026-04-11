@@ -808,6 +808,9 @@ db.exec(`
 addColumnIfMissing('users', 'custom_role_id', "TEXT DEFAULT ''");
 
 // Nominee details
+// Visit time slot (HH:MM, 30-minute increments — mirrors appointment time slots)
+addColumnIfMissing('visits', 'visit_time', "TEXT DEFAULT ''");
+
 addColumnIfMissing('tenants', 'nominee_name', "TEXT DEFAULT ''");
 addColumnIfMissing('tenants', 'nominee_phone', "TEXT DEFAULT ''");
 addColumnIfMissing('tenants', 'nominee_aadhaar', "TEXT DEFAULT ''");
@@ -3251,8 +3254,8 @@ app.get('/api/visits', requireAuth, enforceBranchScope, (req, res) => {
 app.post('/api/visits', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
   const id = genId();
-  db.prepare('INSERT INTO visits (id, branch_id, tenant_id, locker_id, datetime, purpose, duration, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
-    id, d.branch_id, d.tenant_id, d.locker_id || '', d.datetime || '', d.purpose || '', d.duration || '', d.notes || ''
+  db.prepare('INSERT INTO visits (id, branch_id, tenant_id, locker_id, datetime, purpose, duration, notes, visit_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    id, d.branch_id, d.tenant_id, d.locker_id || '', d.datetime || '', d.purpose || '', d.duration || '', d.notes || '', d.visit_time || ''
   );
 
   // Notify customer about recorded visit
@@ -3268,7 +3271,7 @@ app.post('/api/visits', requireAuth, requireRole('headoffice', 'branch'), (req, 
 
 app.put('/api/visits/:id', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
   const d = req.body;
-  const allowedFields = ['branch_id', 'tenant_id', 'locker_id', 'datetime', 'purpose', 'duration', 'notes'];
+  const allowedFields = ['branch_id', 'tenant_id', 'locker_id', 'datetime', 'purpose', 'duration', 'notes', 'visit_time'];
   const fields = []; const vals = [];
   for (const [k, v] of Object.entries(d)) {
     if (!allowedFields.includes(k)) continue;

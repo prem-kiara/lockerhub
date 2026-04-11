@@ -2397,13 +2397,14 @@
                                     <th class="sortable" onclick="sortTable(this, 'visitsTable', 0)">Tenant</th>
                                     <th class="sortable" onclick="sortTable(this, 'visitsTable', 1)">Locker</th>
                                     <th class="sortable" onclick="sortTable(this, 'visitsTable', 2)">Visit Date</th>
-                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 3)">Purpose</th>
-                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 4)">Notes</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 3)">Time</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 4)">Purpose</th>
+                                    <th class="sortable" onclick="sortTable(this, 'visitsTable', 5)">Notes</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="visitsTable">
-                                <tr><td colspan="6" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="7" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3616,6 +3617,12 @@
                         <div class="form-group">
                             <label for="visitDate">Visit Date</label>
                             <input type="date" id="visitDate" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="visitTime">Time</label>
+                            <select id="visitTime" required>
+                                <option value="">Select time</option>
+                            </select>
                         </div>
                         <div class="form-group">
                             <label for="visitPurpose">Purpose</label>
@@ -6981,9 +6988,18 @@
             }
         }
 
+        function formatVisitTime(t) {
+            if (!t) return '-';
+            const [h, m] = t.split(':').map(Number);
+            if (isNaN(h)) return t;
+            const ampm = h >= 12 ? 'PM' : 'AM';
+            const hh = h > 12 ? h - 12 : (h === 0 ? 12 : h);
+            return `${hh}:${String(m).padStart(2, '0')} ${ampm}`;
+        }
+
         function renderVisits(visits) {
             if (visits.length === 0) {
-                document.getElementById('visitsTable').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:#7a6b5e;">No visits logged</td></tr>';
+                document.getElementById('visitsTable').innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#7a6b5e;">No visits logged</td></tr>';
                 return;
             }
 
@@ -6991,7 +7007,8 @@
                 <tr>
                     <td><strong>${v.tenant_name}</strong></td>
                     <td>${v.locker_number}</td>
-                    <td>${new Date(v.datetime).toLocaleDateString('en-IN')}</td>
+                    <td>${v.datetime ? new Date(v.datetime).toLocaleDateString('en-IN') : '-'}</td>
+                    <td>${formatVisitTime(v.visit_time)}</td>
                     <td>${capitalize(v.purpose)}</td>
                     <td>${v.notes || '-'}</td>
                     <td>
@@ -7013,12 +7030,39 @@
             });
         }
 
+        function populateVisitTimeSlots(preselect) {
+            const sel = document.getElementById('visitTime');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">Select time</option>';
+            for (let h = 9; h <= 18; h++) {
+                for (let m = 0; m < 60; m += 30) {
+                    if (h === 18 && m > 0) break; // stop at 18:00
+                    const hh = String(h).padStart(2, '0');
+                    const mm = String(m).padStart(2, '0');
+                    const val = `${hh}:${mm}`;
+                    const label = h > 12 ? `${h - 12}:${mm} PM` : (h === 12 ? `12:${mm} PM` : `${h}:${mm} AM`);
+                    sel.innerHTML += `<option value="${val}">${label}</option>`;
+                }
+            }
+            if (preselect) sel.value = preselect;
+            else {
+                // Auto-select nearest upcoming slot
+                const now = new Date();
+                const curMin = now.getHours() * 60 + now.getMinutes();
+                const rounded = Math.ceil(curMin / 30) * 30;
+                const rh = String(Math.floor(rounded / 60)).padStart(2, '0');
+                const rm = String(rounded % 60).padStart(2, '0');
+                sel.value = `${rh}:${rm}`;
+            }
+        }
+
         function openAddVisitModal() {
             currentEditingId = null;
             document.getElementById('visitModalTitle').textContent = 'Log Visit';
             document.getElementById('visitForm').reset();
             document.getElementById('visitId').value = '';
             document.getElementById('visitDate').valueAsDate = new Date();
+            populateVisitTimeSlots();
 
             loadTenantSelect('visitTenant');
             document.getElementById('visitModal').classList.add('active');
@@ -7026,10 +7070,13 @@
 
         async function saveVisit() {
             const visitId = document.getElementById('visitId').value;
+            const visitDate = document.getElementById('visitDate').value;
+            const visitTime = document.getElementById('visitTime').value;
             const data = {
                 branch_id: currentBranchId,
                 tenant_id: document.getElementById('visitTenant').value,
-                datetime: document.getElementById('visitDate').value,
+                datetime: visitTime ? `${visitDate} ${visitTime}` : visitDate,
+                visit_time: visitTime || '',
                 purpose: document.getElementById('visitPurpose').value,
                 notes: document.getElementById('visitNotes').value
             };
@@ -7171,6 +7218,11 @@
                 { name: 'Tenant Ledger', id: 'ledger' },
                 { name: 'Staff Performance', id: 'staff_performance' },
                 { name: 'Lead Conversion', id: 'lead_conversion' },
+                { name: 'Appointments', id: 'appointments' },
+                { name: 'Customer Feedback', id: 'feedback' },
+                { name: 'E-Sign Status', id: 'esign' },
+                { name: 'Renewal / Expiry', id: 'renewal' },
+                { name: 'Waivers', id: 'waivers' },
                 { name: 'Branch Comparison', id: 'branch_comparison' },
                 { name: 'Transfer History', id: 'transfer_history' },
                 { name: 'Revenue Summary', id: 'revenue_summary' },
@@ -7230,9 +7282,29 @@
                     fileName = 'Staff_Performance.xlsx';
                     downloadExcel(formatStaffPerformanceReport(data, isHeadOffice), fileName);
                 } else if (reportId === 'lead_conversion') {
-                    data = await api('GET', '/api/leads');
+                    data = await api('GET', '/api/leads?lead_type=all');
                     fileName = 'Lead_Conversion.xlsx';
                     downloadExcel(formatLeadConversionReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'appointments') {
+                    data = await api('GET', currentBranchId ? `/api/appointments?branch_id=${currentBranchId}` : '/api/appointments?branch_id=all');
+                    fileName = 'Appointments.xlsx';
+                    downloadExcel(formatAppointmentReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'feedback') {
+                    data = await api('GET', '/api/feedback');
+                    fileName = 'Customer_Feedback.xlsx';
+                    downloadExcel(formatFeedbackReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'esign') {
+                    data = await api('GET', '/api/esign');
+                    fileName = 'ESign_Status.xlsx';
+                    downloadExcel(formatEsignReport(data), fileName);
+                } else if (reportId === 'renewal') {
+                    data = await api('GET', currentBranchId ? `/api/tenants?branch_id=${currentBranchId}` : '/api/tenants?branch_id=all');
+                    fileName = 'Renewal_Expiry.xlsx';
+                    downloadExcel(formatRenewalReport(data, isHeadOffice), fileName);
+                } else if (reportId === 'waivers') {
+                    data = await api('GET', '/api/waivers').catch(() => []);
+                    fileName = 'Waivers.xlsx';
+                    downloadExcel(formatWaiverReport(data), fileName);
                 } else if (reportId === 'branch_comparison') {
                     const [lockers, tenants, payments] = await Promise.all([
                         api('GET', '/api/lockers?branch_id=all'),
@@ -7288,17 +7360,27 @@
 
         async function downloadFullBackup() {
             try {
-                const [tenants, lockers, payments, visits] = await Promise.all([
+                const [tenants, lockers, payments, visits, appointments, leads, feedback, esign, transfers] = await Promise.all([
                     api('GET', '/api/tenants?branch_id=all'),
                     api('GET', '/api/lockers?branch_id=all'),
                     api('GET', '/api/payments?branch_id=all'),
                     api('GET', '/api/visits?branch_id=all'),
+                    api('GET', '/api/appointments?branch_id=all').catch(() => []),
+                    api('GET', '/api/leads?lead_type=all').catch(() => []),
+                    api('GET', '/api/feedback').catch(() => []),
+                    api('GET', '/api/esign').catch(() => []),
+                    api('GET', '/api/locker-transfers').catch(() => [])
                 ]);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tenants || []), 'Tenants');
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lockers || []), 'Lockers');
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(payments || []), 'Payments');
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(visits || []), 'Visits');
+                if (appointments.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appointments), 'Appointments');
+                if (leads.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(leads), 'Leads');
+                if (feedback.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(feedback), 'Feedback');
+                if (esign.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(esign), 'E-Sign');
+                if (transfers.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(transfers), 'Transfers');
                 XLSX.writeFile(wb, 'LockerHub_Export.xlsx');
             } catch (error) {
                 console.error('Failed to export:', error);
@@ -9280,11 +9362,14 @@
             return lockers.map(l => ({
                 ...(isHeadOffice && { Branch: l.branch_name }),
                 'Locker #': l.number,
+                'Locker Type': l.locker_type_name || '-',
                 Size: capitalize(l.size),
                 Status: capitalize(l.status),
                 Tenant: l.tenant_name || '-',
                 Location: l.location || '-',
-                'Monthly Rent (₹)': l.rent,
+                'Annual Rent (₹)': l.annual_rent || l.rent || '-',
+                'Deposit (₹)': l.deposit || '-',
+                'Created At': l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : '-',
                 Notes: l.notes || ''
             }));
         }
@@ -9349,10 +9434,12 @@
                 ...(isHeadOffice && { Branch: v.branch_name }),
                 Tenant: v.tenant_name,
                 Locker: v.locker_number,
-                'Visit Date': v.datetime || '',
+                'Visit Date': v.datetime ? v.datetime.split(' ')[0] : '',
+                'Time': v.visit_time || (v.datetime && v.datetime.includes(' ') ? v.datetime.split(' ')[1] : '') || '-',
                 Purpose: capitalize(v.purpose),
                 Duration: v.duration || '',
-                Notes: v.notes || ''
+                Notes: v.notes || '',
+                'Logged At': v.created_at ? new Date(v.created_at).toLocaleDateString('en-IN') : '-'
             }));
         }
 
@@ -9361,10 +9448,14 @@
                 ...(isHeadOffice && { Branch: t.branch_name }),
                 Name: t.name,
                 Phone: t.phone || '-',
+                'Locker #': t.locker_number || '-',
+                Address: t.address || '-',
                 'Aadhaar': maskAadhaar(t.bg_aadhaar) || '-',
                 'PAN': maskPAN(t.bg_pan) || '-',
                 'Photos Collected': t.bg_photos_collected ? 'Yes' : 'No',
                 Status: capitalize(t.bg_status || 'pending'),
+                'Nominee Name': t.nominee_name || '-',
+                'Nominee Phone': t.nominee_phone || '-',
                 Notes: t.bg_notes || ''
             }));
         }
@@ -9446,19 +9537,28 @@
 
         // ===== Lead Conversion Report =====
         function formatLeadConversionReport(leads, isHeadOffice) {
-            return leads.map(l => ({
-                ...(isHeadOffice && { Branch: l.branch_name }),
-                Name: l.name,
-                Phone: l.phone,
-                Email: l.email || '-',
-                'Locker Size': l.locker_size || '-',
-                Source: l.source || '-',
-                Status: capitalize(l.status),
-                'Created By': l.created_by_name || '-',
-                'Created At': l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : '-',
-                'Converted': l.converted_tenant_id ? 'Yes' : 'No',
-                Notes: l.notes || '-'
-            }));
+            return leads.map(l => {
+                const isNcd = (l.lead_type === 'ncd');
+                return {
+                    'Lead Type': isNcd ? 'NCD' : 'Locker',
+                    ...(isHeadOffice && { Branch: l.branch_name || (isNcd ? 'HO' : '-') }),
+                    Name: l.name,
+                    Phone: l.phone || '-',
+                    Email: l.email || '-',
+                    ...(!isNcd && { 'Locker Size': l.locker_size || '-' }),
+                    ...(isNcd && { Place: l.place || '-' }),
+                    ...(isNcd && { Occupation: l.occupation || '-' }),
+                    ...(isNcd && { 'Amount (₹)': l.amount || '-' }),
+                    Source: l.source || '-',
+                    Reference: l.reference || '-',
+                    Status: capitalize(l.status),
+                    'Follow-up Date': l.follow_up_date || '-',
+                    'Created By': l.created_by_name || '-',
+                    'Created At': l.created_at ? new Date(l.created_at).toLocaleDateString('en-IN') : '-',
+                    'Converted': l.converted_tenant_id ? 'Yes' : 'No',
+                    Notes: l.notes || '-'
+                };
+            });
         }
 
         // ===== Branch Comparison Report =====
@@ -9545,6 +9645,103 @@
                     'Total (₹)': m.total.toLocaleString('en-IN'),
                     'Transactions': m.count
                 }));
+        }
+
+        // ===== Appointment Report =====
+        function formatAppointmentReport(appointments, isHeadOffice) {
+            return appointments.map(a => ({
+                ...(isHeadOffice && { Branch: a.branch_name || '-' }),
+                Tenant: a.tenant_name || '-',
+                Phone: a.tenant_phone || '-',
+                'Locker #': a.locker_number || '-',
+                Date: a.requested_date || '-',
+                Time: a.requested_time || '-',
+                Purpose: capitalize(a.purpose || ''),
+                Status: capitalize(a.status || ''),
+                'Booked By': capitalize(a.booked_by || ''),
+                'Approved By': a.approved_by_name || '-',
+                Notes: a.notes || '-',
+                'Admin Notes': a.admin_notes || '-',
+                'Created At': a.created_at ? new Date(a.created_at).toLocaleDateString('en-IN') : '-'
+            }));
+        }
+
+        // ===== Feedback Report =====
+        function formatFeedbackReport(feedbackList, isHeadOffice) {
+            return feedbackList.map(f => ({
+                ...(isHeadOffice && { Branch: f.branch_name || '-' }),
+                Tenant: f.tenant_name || '-',
+                Phone: f.tenant_phone || '-',
+                'Satisfaction': f.satisfaction || '-',
+                'NPS Score': f.nps_score != null ? f.nps_score : '-',
+                'Category': f.category || '-',
+                'Comments': f.comments || '-',
+                'Staff Response': f.staff_response || '-',
+                'Status': capitalize(f.status || ''),
+                'Created At': f.created_at ? new Date(f.created_at).toLocaleDateString('en-IN') : '-'
+            }));
+        }
+
+        // ===== E-Sign Report =====
+        function formatEsignReport(esignList) {
+            return esignList.map(e => ({
+                'Document Type': capitalize(e.document_type || e.type || ''),
+                Tenant: e.tenant_name || '-',
+                'Signer Name': e.signer_name || '-',
+                'Signer Email': e.signer_email || '-',
+                'Digio ID': e.digio_id || '-',
+                Status: capitalize(e.status || ''),
+                'Created At': e.created_at ? new Date(e.created_at).toLocaleDateString('en-IN') : '-',
+                'Signed At': e.signed_at ? new Date(e.signed_at).toLocaleDateString('en-IN') : '-',
+                'Expired At': e.expired_at || '-'
+            }));
+        }
+
+        // ===== Renewal/Expiry Report =====
+        function formatRenewalReport(tenants, isHeadOffice) {
+            const today = new Date().toISOString().split('T')[0];
+            return tenants
+                .filter(t => t.lease_end && t.account_status !== 'Closed')
+                .map(t => {
+                    const daysLeft = Math.ceil((new Date(t.lease_end) - new Date()) / (1000*60*60*24));
+                    let urgency = 'OK';
+                    if (daysLeft < 0) urgency = 'EXPIRED';
+                    else if (daysLeft <= 30) urgency = 'CRITICAL';
+                    else if (daysLeft <= 60) urgency = 'WARNING';
+                    else if (daysLeft <= 90) urgency = 'UPCOMING';
+                    return {
+                        ...(isHeadOffice && { Branch: t.branch_name }),
+                        Tenant: t.name,
+                        Phone: t.phone || '-',
+                        'Locker #': t.locker_number || '-',
+                        'Lease Start': t.lease_start || '-',
+                        'Lease End': t.lease_end || '-',
+                        'Days Remaining': daysLeft,
+                        'Urgency': urgency,
+                        'Annual Rent (₹)': t.annual_rent || '-',
+                        'Deposit (₹)': t.deposit || '-',
+                        'Created By': t.created_by_name || '-'
+                    };
+                })
+                .sort((a, b) => a['Days Remaining'] - b['Days Remaining']);
+        }
+
+        // ===== Waiver Report =====
+        function formatWaiverReport(waivers) {
+            return waivers.map(w => ({
+                'Tenant': w.tenant_name || '-',
+                'Locker #': w.locker_number || '-',
+                'Payment Period': w.payment_period || '-',
+                'Original Amount (₹)': w.original_amount || '-',
+                'Waived Amount (₹)': w.waived_amount || '-',
+                'Final Amount (₹)': w.final_amount || '-',
+                'Reason': w.reason || '-',
+                'Status': capitalize(w.status || ''),
+                'Requested By': w.requested_by_name || '-',
+                'Approved By': w.approved_by_name || '-',
+                'Requested At': w.created_at ? new Date(w.created_at).toLocaleDateString('en-IN') : '-',
+                'Reviewed At': w.reviewed_at ? new Date(w.reviewed_at).toLocaleDateString('en-IN') : '-'
+            }));
         }
 
         // Universal download helper — works in both browser and Android WebView
