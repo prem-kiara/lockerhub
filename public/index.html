@@ -6649,6 +6649,7 @@
                         <div class="action-buttons">
                             ${p.status === 'Pending' || p.status === 'Overdue' ? `<button class="btn btn-primary" onclick="markAsPaid('${p.id}')" style="font-size:12px;padding:5px 10px;">Mark Paid</button>` : ''}
                             ${p.status === 'Paid' ? `<button class="btn btn-secondary" onclick="downloadReceipt('${p.id}')" style="font-size:12px;padding:5px 10px;">🧾 Receipt</button>` : ''}
+                            ${p.tenant_phone ? `<button class="btn btn-secondary" onclick="sendPaymentWhatsApp('${(p.tenant_phone||'').replace(/'/g,"\\'")}','${(p.tenant_name||'').replace(/'/g,"\\'")}','${(p.locker_number||'').replace(/'/g,"\\'")}','${(p.locker_size||'').replace(/'/g,"\\'")}','${(p.period||'').replace(/'/g,"\\'")}',${p.amount||0},'${(p.due_date||'').replace(/'/g,"\\'")}','${p.status}','${(p.receipt_no||'').replace(/'/g,"\\'")}','${(p.paid_on||'').replace(/'/g,"\\'")}' )" style="font-size:12px;padding:5px 10px;background:#25d366;color:#fff;border-color:#25d366;">💬 WA</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')" style="font-size:12px;padding:5px 10px;">Edit</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deletePayment('${p.id}')" style="font-size:12px;padding:5px 10px;">Del</button>` : ''}
                         </div>
@@ -6824,6 +6825,53 @@
             }
         }
 
+        function sendPaymentWhatsApp(phone, name, lockerNum, lockerSize, period, amount, dueDate, status, receiptNo, paidOn) {
+            // Normalise phone → E.164 for wa.me (strip spaces/+, add 91 if needed)
+            let raw = (phone || '').replace(/[\s\-().+]/g, '');
+            if (raw.length === 10) raw = '91' + raw;
+            else if (raw.startsWith('0')) raw = '91' + raw.slice(1);
+
+            const lockerLabel = lockerNum ? `Locker #${lockerNum}${lockerSize ? ' (' + lockerSize + ')' : ''}` : 'your locker';
+            const fmt = n => Number(n).toLocaleString('en-IN');
+            const fmtDate = s => s ? new Date(s).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '';
+
+            let msg = '';
+            if (status === 'Paid') {
+                msg = [
+                    `Dear ${name},`,
+                    ``,
+                    `Thank you for your payment! Here are your receipt details:`,
+                    ``,
+                    `🔐 ${lockerLabel}`,
+                    period ? `📅 Period: ${period}` : '',
+                    `💰 Amount Paid: ₹${fmt(amount)}`,
+                    paidOn ? `📆 Paid On: ${fmtDate(paidOn)}` : '',
+                    receiptNo ? `🧾 Receipt No: ${receiptNo}` : '',
+                    ``,
+                    `Thank you for choosing Dhanam Finance! 🙏`
+                ].filter(l => l !== null && l !== undefined).join('\n');
+            } else {
+                msg = [
+                    `Dear ${name},`,
+                    ``,
+                    `This is a gentle reminder that your locker rent payment is due.`,
+                    ``,
+                    `🔐 ${lockerLabel}`,
+                    period ? `📅 Period: ${period}` : '',
+                    `💰 Amount Due: ₹${fmt(amount)}`,
+                    dueDate ? `📆 Due Date: ${fmtDate(dueDate)}` : '',
+                    ``,
+                    `Please arrange the payment at your earliest convenience.`,
+                    ``,
+                    `Thank you,`,
+                    `Dhanam Finance`
+                ].filter(l => l !== null && l !== undefined).join('\n');
+            }
+
+            const url = `https://wa.me/${raw}?text=${encodeURIComponent(msg)}`;
+            window.open(url, '_blank');
+        }
+
         async function savePayment() {
             const paymentId = document.getElementById('paymentId').value;
             const tenantSelect = document.getElementById('paymentTenant');
@@ -6857,6 +6905,31 @@
                 hideLoading();
                 closeModal('paymentModal');
                 await loadPayments();
+                // WhatsApp prompt after recording a Paid payment
+                if (data.status === 'Paid') {
+                    try {
+                        // Fetch the saved payment to get locker details + receipt no
+                        const allPmts = await api('GET', `/api/payments?branch_id=${currentBranchId || 'all'}`);
+                        // Match by tenant + period + amount (most recent first)
+                        const saved = allPmts.find(p => p.tenant_id === data.tenant_id && p.period === data.period && p.amount == data.amount && p.status === 'Paid') || {};
+                        const tenantOpt = document.getElementById('paymentTenant');
+                        const selOpt = tenantOpt ? tenantOpt.options[tenantOpt.selectedIndex] : null;
+                        const tenantName = selOpt ? selOpt.textContent.split('—')[0].trim() : (saved.tenant_name || '');
+                        const phone = saved.tenant_phone || '';
+                        if (phone) {
+                            const doSend = confirm(`Payment saved! Send WhatsApp receipt to ${tenantName} (${phone})?`);
+                            if (doSend) {
+                                sendPaymentWhatsApp(
+                                    phone, tenantName,
+                                    saved.locker_number || '', saved.locker_size || '',
+                                    data.period, data.amount,
+                                    data.due_date, 'Paid',
+                                    saved.receipt_no || '', data.paid_on
+                                );
+                            }
+                        }
+                    } catch (_) { /* non-critical — ignore */ }
+                }
             } catch (error) {
                 hideLoading();
                 // Friendly handling of waiver_pending 409
@@ -7388,7 +7461,7 @@
 
         async function downloadFullBackup() {
             try {
-                const [tenants, lockers, payments, visits, appointments, leads, feedback, esign, transfers] = await Promise.all([
+                const [tenants, lockers, payments, visits, appointments, leads, feedback, esign, transfers, waivers, payouts, branches] = await Promise.all([
                     api('GET', '/api/tenants?branch_id=all'),
                     api('GET', '/api/lockers?branch_id=all'),
                     api('GET', '/api/payments?branch_id=all'),
@@ -7397,19 +7470,26 @@
                     api('GET', '/api/leads?lead_type=all').catch(() => []),
                     api('GET', '/api/feedback').catch(() => []),
                     api('GET', '/api/esign').catch(() => []),
-                    api('GET', '/api/locker-transfers').catch(() => [])
+                    api('GET', '/api/locker-transfers').catch(() => []),
+                    api('GET', '/api/waivers').catch(() => []),
+                    api('GET', '/api/payouts?branch_id=all').catch(() => []),
+                    api('GET', '/api/branches').catch(() => [])
                 ]);
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(tenants || []), 'Tenants');
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(lockers || []), 'Lockers');
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(payments || []), 'Payments');
                 XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(visits || []), 'Visits');
-                if (appointments.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appointments), 'Appointments');
-                if (leads.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(leads), 'Leads');
-                if (feedback.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(feedback), 'Feedback');
-                if (esign.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(esign), 'E-Sign');
-                if (transfers.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(transfers), 'Transfers');
-                XLSX.writeFile(wb, 'LockerHub_Export.xlsx');
+                if (appointments && appointments.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(appointments), 'Appointments');
+                if (leads && leads.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(leads), 'Leads');
+                if (feedback && feedback.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(feedback), 'Feedback');
+                if (esign && esign.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(esign), 'E-Sign');
+                if (transfers && transfers.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(transfers), 'Transfers');
+                if (waivers && waivers.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(waivers), 'Waivers');
+                if (payouts && payouts.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(payouts), 'Payouts');
+                if (branches && branches.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(branches), 'Branches');
+                const timestamp = new Date().toISOString().slice(0, 10);
+                XLSX.writeFile(wb, `LockerHub_Export_${timestamp}.xlsx`);
             } catch (error) {
                 console.error('Failed to export:', error);
                 alert('Failed to export data');

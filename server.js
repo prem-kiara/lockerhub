@@ -2611,11 +2611,11 @@ app.get('/api/payments', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
   let payments;
   if (branch_id && branch_id !== 'all') {
-    payments = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number
+    payments = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number, l.size as locker_size
       FROM payments p LEFT JOIN tenants t ON p.tenant_id = t.id LEFT JOIN lockers l ON p.locker_id = l.id
       WHERE p.branch_id = ? ORDER BY p.created_at DESC`).all(branch_id);
   } else {
-    payments = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number, b.name as branch_name
+    payments = db.prepare(`SELECT p.*, t.name as tenant_name, t.phone as tenant_phone, l.number as locker_number, l.size as locker_size, b.name as branch_name
       FROM payments p LEFT JOIN tenants t ON p.tenant_id = t.id LEFT JOIN lockers l ON p.locker_id = l.id
       JOIN branches b ON p.branch_id = b.id ORDER BY p.created_at DESC`).all();
   }
