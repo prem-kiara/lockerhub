@@ -3017,6 +3017,14 @@
                     <div style="max-width:500px; margin:0 auto;">
                         <div id="leadCaptureStats" style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;"></div>
                         <div style="background:#fff; border-radius:12px; padding:24px; box-shadow:0 2px 8px rgba(0,0,0,0.08); border:1px solid #eee;">
+                            <!-- Product Type Toggle -->
+                            <div style="margin-bottom:20px;">
+                                <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:8px;">Product Type *</label>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px;">
+                                    <button id="lcTypeLocker" type="button" onclick="switchLcProductType('locker')" style="padding:12px; border:2px solid #b8860b; border-radius:8px; background:#b8860b; color:#fff; font-weight:700; font-size:14px; cursor:pointer;">🔒 Locker</button>
+                                    <button id="lcTypeNcd" type="button" onclick="switchLcProductType('ncd')" style="padding:12px; border:2px solid #ddd; border-radius:8px; background:#fff; color:#666; font-weight:600; font-size:14px; cursor:pointer;">📈 NCD</button>
+                                </div>
+                            </div>
                             <div style="margin-bottom:16px;">
                                 <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Customer Name *</label>
                                 <input type="text" id="lcName" placeholder="Full name" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
@@ -3029,21 +3037,41 @@
                                 <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Email</label>
                                 <input type="email" id="lcEmail" placeholder="Email (optional)" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
                             </div>
-                            <div style="margin-bottom:16px;">
-                                <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Preferred Locker Size *</label>
-                                <select id="lcLockerSize" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
-                                    <option value="">Select size...</option>
-                                    <option value="Large (L6)">Large (L6)</option>
-                                    <option value="Medium (L10)">Medium (L10)</option>
-                                    <option value="Small">Small</option>
-                                    <option value="Any">Any / Undecided</option>
-                                </select>
+                            <!-- Locker-specific fields -->
+                            <div id="lcLockerFields">
+                                <div style="margin-bottom:16px;">
+                                    <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Preferred Locker Size *</label>
+                                    <select id="lcLockerSize" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+                                        <option value="">Select size...</option>
+                                        <option value="Large (L6)">Large (L6)</option>
+                                        <option value="Medium (L10)">Medium (L10)</option>
+                                        <option value="Small">Small</option>
+                                        <option value="Any">Any / Undecided</option>
+                                    </select>
+                                </div>
+                                <div style="margin-bottom:16px;">
+                                    <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Branch</label>
+                                    <select id="lcBranch" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+                                        <option value="">Select branch...</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div style="margin-bottom:16px;">
-                                <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Branch</label>
-                                <select id="lcBranch" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
-                                    <option value="">Select branch...</option>
-                                </select>
+                            <!-- NCD-specific fields -->
+                            <div id="lcNcdFields" style="display:none;">
+                                <div style="margin-bottom:16px;">
+                                    <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Scheme *</label>
+                                    <select id="lcNcdScheme" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+                                        <option value="">Select scheme...</option>
+                                        <option value="Doubling">Doubling</option>
+                                        <option value="Cumulative">Cumulative</option>
+                                        <option value="Annual">Annual</option>
+                                        <option value="Monthly">Monthly</option>
+                                    </select>
+                                </div>
+                                <div style="margin-bottom:16px;">
+                                    <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Investment Amount (₹) *</label>
+                                    <input type="number" id="lcNcdAmount" min="0" step="any" placeholder="Enter investment amount" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+                                </div>
                             </div>
                             <div style="margin-bottom:20px;">
                                 <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Notes</label>
@@ -12036,6 +12064,30 @@
         }
 
         // ===== LEAD CAPTURE (Lead Agent UI) =====
+        function switchLcProductType(type) {
+            const isNcd = type === 'ncd';
+            // Toggle button styles
+            const lockerBtn = document.getElementById('lcTypeLocker');
+            const ncdBtn = document.getElementById('lcTypeNcd');
+            if (lockerBtn) {
+                lockerBtn.style.background = isNcd ? '#fff' : '#b8860b';
+                lockerBtn.style.color = isNcd ? '#666' : '#fff';
+                lockerBtn.style.borderColor = isNcd ? '#ddd' : '#b8860b';
+                lockerBtn.style.fontWeight = isNcd ? '600' : '700';
+            }
+            if (ncdBtn) {
+                ncdBtn.style.background = isNcd ? '#b8860b' : '#fff';
+                ncdBtn.style.color = isNcd ? '#fff' : '#666';
+                ncdBtn.style.borderColor = isNcd ? '#b8860b' : '#ddd';
+                ncdBtn.style.fontWeight = isNcd ? '700' : '600';
+            }
+            // Show/hide field sections
+            const lockerFields = document.getElementById('lcLockerFields');
+            const ncdFields = document.getElementById('lcNcdFields');
+            if (lockerFields) lockerFields.style.display = isNcd ? 'none' : 'block';
+            if (ncdFields) ncdFields.style.display = isNcd ? 'block' : 'none';
+        }
+
         async function loadLeadCapture() {
             try {
                 // Load branches for dropdown
@@ -12048,8 +12100,8 @@
                         sel.appendChild(opt);
                     });
                 }
-                // Load my stats
-                const myLeads = await api('GET', `/api/leads?created_by=${currentUser.id}`);
+                // Load my leads (all types)
+                const myLeads = await api('GET', `/api/leads?lead_type=all&created_by=${currentUser.id}`);
                 const today = new Date().toISOString().split('T')[0];
                 const todayCount = myLeads.filter(l => (l.created_at || '').startsWith(today)).length;
                 document.getElementById('leadCaptureStats').innerHTML = `
@@ -12062,15 +12114,22 @@
                         <div class="stat-value">${todayCount}</div>
                     </div>
                 `;
-                // Show recent leads
+                // Show recent leads (both types)
                 const recent = myLeads.slice(0, 10);
                 if (recent.length === 0) {
                     document.getElementById('myRecentLeads').innerHTML = '<div style="text-align:center;padding:20px;color:#888;">No leads captured yet. Start adding!</div>';
                 } else {
-                    document.getElementById('myRecentLeads').innerHTML = '<div class="table-container"><table><thead><tr><th>Name</th><th>Phone</th><th>Size</th><th>Time</th></tr></thead><tbody>' +
+                    document.getElementById('myRecentLeads').innerHTML = '<div class="table-container"><table><thead><tr><th>Name</th><th>Phone</th><th>Type</th><th>Details</th><th>Time</th></tr></thead><tbody>' +
                         recent.map(l => {
                             const timeStr = l.created_at ? l.created_at.replace('T',' ').slice(11,16) : '-';
-                            return `<tr><td>${l.name}</td><td>${l.phone || '-'}</td><td>${l.locker_size || '-'}</td><td>${timeStr}</td></tr>`;
+                            const isNcd = l.lead_type === 'ncd';
+                            const typeBadge = isNcd
+                                ? `<span style="background:#e8f4fd;color:#1a6fa5;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:700;">NCD</span>`
+                                : `<span style="background:#fdf3e8;color:#b8860b;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:700;">Locker</span>`;
+                            const details = isNcd
+                                ? (l.narration ? `${l.narration}${l.amount ? ' · ₹' + Number(l.amount).toLocaleString('en-IN') : ''}` : (l.amount ? '₹' + Number(l.amount).toLocaleString('en-IN') : '-'))
+                                : (l.locker_size || '-');
+                            return `<tr><td>${l.name}</td><td>${l.phone || '-'}</td><td>${typeBadge}</td><td>${details}</td><td>${timeStr}</td></tr>`;
                         }).join('') +
                         '</tbody></table></div>';
                 }
@@ -12082,37 +12141,73 @@
         async function submitLeadCapture() {
             const name = document.getElementById('lcName').value.trim();
             const phone = document.getElementById('lcPhone').value.trim().replace(/[^0-9]/g, '').slice(0, 10);
-            const locker_size = document.getElementById('lcLockerSize').value;
+            const isNcd = document.getElementById('lcNcdFields').style.display !== 'none';
+
             if (!name) return alert('Please enter the customer name');
             if (!phone || phone.length !== 10) return alert('Please enter a valid 10-digit phone number');
-            if (!locker_size) return alert('Please select a locker size');
-            // Enforce cleaned value back into the field
             document.getElementById('lcPhone').value = phone;
-            try {
-                showLoading('Saving lead...');
-                await api('POST', '/api/leads', {
-                    name, phone,
-                    email: document.getElementById('lcEmail').value.trim(),
-                    locker_size,
-                    branch_id: document.getElementById('lcBranch').value,
-                    notes: document.getElementById('lcNotes').value.trim(),
-                    created_by: currentUser.id,
-                    created_by_name: currentUser.name
-                });
-                hideLoading();
-                // Clear form (keep locker size and branch selected for faster repeat entry)
-                document.getElementById('lcName').value = '';
-                document.getElementById('lcPhone').value = '';
-                document.getElementById('lcEmail').value = '';
-                document.getElementById('lcNotes').value = '';
-                // Refresh stats
-                await loadLeadCapture();
-                // Brief success feedback
-                const btn = document.querySelector('#leadCaptureScreen .btn-primary');
-                if (btn) { btn.textContent = 'Saved!'; btn.style.background = '#27ae60'; setTimeout(() => { btn.textContent = 'Submit Lead'; btn.style.background = '#b8860b'; }, 1500); }
-            } catch (err) {
-                hideLoading();
-                alert('Failed to save lead: ' + err.message);
+
+            if (isNcd) {
+                // NCD validation
+                const scheme = document.getElementById('lcNcdScheme').value;
+                const amount = parseFloat(document.getElementById('lcNcdAmount').value) || 0;
+                if (!scheme) return alert('Please select a scheme');
+                if (!amount || amount <= 0) return alert('Please enter a valid investment amount');
+                try {
+                    showLoading('Saving NCD lead...');
+                    await api('POST', '/api/leads', {
+                        lead_type: 'ncd',
+                        name, phone,
+                        email: document.getElementById('lcEmail').value.trim(),
+                        narration: scheme,
+                        amount,
+                        notes: document.getElementById('lcNotes').value.trim(),
+                        created_by: currentUser.id,
+                        created_by_name: currentUser.name
+                    });
+                    hideLoading();
+                    // Clear NCD fields
+                    document.getElementById('lcName').value = '';
+                    document.getElementById('lcPhone').value = '';
+                    document.getElementById('lcEmail').value = '';
+                    document.getElementById('lcNcdScheme').value = '';
+                    document.getElementById('lcNcdAmount').value = '';
+                    document.getElementById('lcNotes').value = '';
+                    await loadLeadCapture();
+                    const btn = document.querySelector('#leadCaptureScreen .btn-primary');
+                    if (btn) { btn.textContent = 'Saved!'; btn.style.background = '#27ae60'; setTimeout(() => { btn.textContent = 'Submit Lead'; btn.style.background = '#b8860b'; }, 1500); }
+                } catch (err) {
+                    hideLoading();
+                    alert('Failed to save NCD lead: ' + err.message);
+                }
+            } else {
+                // Locker validation
+                const locker_size = document.getElementById('lcLockerSize').value;
+                if (!locker_size) return alert('Please select a locker size');
+                try {
+                    showLoading('Saving lead...');
+                    await api('POST', '/api/leads', {
+                        name, phone,
+                        email: document.getElementById('lcEmail').value.trim(),
+                        locker_size,
+                        branch_id: document.getElementById('lcBranch').value,
+                        notes: document.getElementById('lcNotes').value.trim(),
+                        created_by: currentUser.id,
+                        created_by_name: currentUser.name
+                    });
+                    hideLoading();
+                    // Clear form (keep locker size and branch for faster repeat entry)
+                    document.getElementById('lcName').value = '';
+                    document.getElementById('lcPhone').value = '';
+                    document.getElementById('lcEmail').value = '';
+                    document.getElementById('lcNotes').value = '';
+                    await loadLeadCapture();
+                    const btn = document.querySelector('#leadCaptureScreen .btn-primary');
+                    if (btn) { btn.textContent = 'Saved!'; btn.style.background = '#27ae60'; setTimeout(() => { btn.textContent = 'Submit Lead'; btn.style.background = '#b8860b'; }, 1500); }
+                } catch (err) {
+                    hideLoading();
+                    alert('Failed to save lead: ' + err.message);
+                }
             }
         }
 

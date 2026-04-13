@@ -396,7 +396,7 @@ const ROLE_DEFAULT_PERMISSIONS = {
     'leads_locker', 'feedback'
   ],
   lead_agent: [
-    'leads_locker'
+    'leads_locker', 'leads_ncd'
   ]
 };
 
