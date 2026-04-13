@@ -6649,7 +6649,7 @@
                         <div class="action-buttons">
                             ${p.status === 'Pending' || p.status === 'Overdue' ? `<button class="btn btn-primary" onclick="markAsPaid('${p.id}')" style="font-size:12px;padding:5px 10px;">Mark Paid</button>` : ''}
                             ${p.status === 'Paid' ? `<button class="btn btn-secondary" onclick="downloadReceipt('${p.id}')" style="font-size:12px;padding:5px 10px;">🧾 Receipt</button>` : ''}
-                            ${p.tenant_phone ? `<button class="btn btn-secondary" onclick="sendPaymentWhatsApp('${(p.tenant_phone||'').replace(/'/g,"\\'")}','${(p.tenant_name||'').replace(/'/g,"\\'")}','${(p.locker_number||'').replace(/'/g,"\\'")}','${(p.locker_size||'').replace(/'/g,"\\'")}','${(p.period||'').replace(/'/g,"\\'")}',${p.amount||0},'${(p.due_date||'').replace(/'/g,"\\'")}','${p.status}','${(p.receipt_no||'').replace(/'/g,"\\'")}','${(p.paid_on||'').replace(/'/g,"\\'")}' )" style="font-size:12px;padding:5px 10px;background:#25d366;color:#fff;border-color:#25d366;">💬 WA</button>` : ''}
+                            ${p.tenant_phone ? `<button class="btn btn-secondary" onclick="sendPaymentWhatsApp('${(p.tenant_phone||'').replace(/'/g,"\\'")}','${(p.tenant_name||'').replace(/'/g,"\\'")}','${(p.locker_number||'').replace(/'/g,"\\'")}','${(p.locker_size||'').replace(/'/g,"\\'")}','${(p.period||'').replace(/'/g,"\\'")}',${p.amount||0},'${(p.due_date||'').replace(/'/g,"\\'")}','${p.status}','${(p.receipt_no||'').replace(/'/g,"\\'")}','${(p.paid_on||'').replace(/'/g,"\\'")}','${p.type||'rent'}')" style="font-size:12px;padding:5px 10px;background:#25d366;color:#fff;border-color:#25d366;">💬 WA</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditPaymentModal('${p.id}')" style="font-size:12px;padding:5px 10px;">Edit</button>` : ''}
                             ${currentUser.role === 'headoffice' ? `<button class="btn btn-danger" onclick="deletePayment('${p.id}')" style="font-size:12px;padding:5px 10px;">Del</button>` : ''}
                         </div>
@@ -6825,7 +6825,7 @@
             }
         }
 
-        function sendPaymentWhatsApp(phone, name, lockerNum, lockerSize, period, amount, dueDate, status, receiptNo, paidOn) {
+        function sendPaymentWhatsApp(phone, name, lockerNum, lockerSize, period, amount, dueDate, status, receiptNo, paidOn, type) {
             // Normalise phone → E.164 for wa.me (strip spaces/+, add 91 if needed)
             let raw = (phone || '').replace(/[\s\-().+]/g, '');
             if (raw.length === 10) raw = '91' + raw;
@@ -6834,38 +6834,45 @@
             const lockerLabel = lockerNum ? `Locker #${lockerNum}${lockerSize ? ' (' + lockerSize + ')' : ''}` : 'your locker';
             const fmt = n => Number(n).toLocaleString('en-IN');
             const fmtDate = s => s ? new Date(s).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '';
+            const isDeposit = (type === 'deposit');
+            const paymentLabel = isDeposit ? 'Deposit' : 'Rent';
 
             let msg = '';
             if (status === 'Paid') {
                 msg = [
                     `Dear ${name},`,
                     ``,
-                    `Thank you for your payment! Here are your receipt details:`,
+                    `We acknowledge receipt of your locker ${paymentLabel.toLowerCase()} payment. Please find the details below.`,
                     ``,
-                    `🔐 ${lockerLabel}`,
-                    period ? `📅 Period: ${period}` : '',
-                    `💰 Amount Paid: ₹${fmt(amount)}`,
-                    paidOn ? `📆 Paid On: ${fmtDate(paidOn)}` : '',
-                    receiptNo ? `🧾 Receipt No: ${receiptNo}` : '',
+                    `Locker       : ${lockerLabel}`,
+                    period    ? `Period       : ${period}` : '',
+                    `Payment Type : ${paymentLabel}`,
+                    `Amount Paid  : Rs. ${fmt(amount)}`,
+                    paidOn    ? `Date         : ${fmtDate(paidOn)}` : '',
+                    receiptNo ? `Receipt No   : ${receiptNo}` : '',
                     ``,
-                    `Thank you for choosing Dhanam Finance! 🙏`
-                ].filter(l => l !== null && l !== undefined).join('\n');
+                    `Thank you for your continued association with us.`,
+                    ``,
+                    `Regards,`,
+                    `Dhanam Investment and Finance Private Limited`
+                ].filter(l => l !== null && l !== undefined && l !== '').join('\n');
             } else {
                 msg = [
                     `Dear ${name},`,
                     ``,
-                    `This is a gentle reminder that your locker rent payment is due.`,
+                    `This is a reminder that your locker ${paymentLabel.toLowerCase()} payment is due. Kindly arrange the payment at the earliest.`,
                     ``,
-                    `🔐 ${lockerLabel}`,
-                    period ? `📅 Period: ${period}` : '',
-                    `💰 Amount Due: ₹${fmt(amount)}`,
-                    dueDate ? `📆 Due Date: ${fmtDate(dueDate)}` : '',
+                    `Locker       : ${lockerLabel}`,
+                    period   ? `Period       : ${period}` : '',
+                    `Payment Type : ${paymentLabel}`,
+                    `Amount Due   : Rs. ${fmt(amount)}`,
+                    dueDate  ? `Due Date     : ${fmtDate(dueDate)}` : '',
                     ``,
-                    `Please arrange the payment at your earliest convenience.`,
+                    `For any queries, please contact your nearest Dhanam branch.`,
                     ``,
-                    `Thank you,`,
-                    `Dhanam Finance`
-                ].filter(l => l !== null && l !== undefined).join('\n');
+                    `Regards,`,
+                    `Dhanam Investment and Finance Private Limited`
+                ].filter(l => l !== null && l !== undefined && l !== '').join('\n');
             }
 
             const url = `https://wa.me/${raw}?text=${encodeURIComponent(msg)}`;
@@ -6924,7 +6931,8 @@
                                     saved.locker_number || '', saved.locker_size || '',
                                     data.period, data.amount,
                                     data.due_date, 'Paid',
-                                    saved.receipt_no || '', data.paid_on
+                                    saved.receipt_no || '', data.paid_on,
+                                    data.type || 'rent'
                                 );
                             }
                         }
