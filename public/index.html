@@ -5381,55 +5381,70 @@
 
         function renderBranchDashboard(stats) {
             const html = `
-                <div class="stat-card primary">
+                <div class="stat-card primary" onclick="switchSection('lockers')" style="cursor:pointer;" title="View all lockers">
                     <div class="stat-card-label">Total Lockers</div>
                     <div class="stat-card-value">${stats.total_lockers || 0}</div>
                     <div class="stat-card-subtext">${stats.occupancy_pct || 0}% occupancy</div>
                 </div>
-                <div class="stat-card success">
+                <div class="stat-card success" onclick="switchSection('lockers')" style="cursor:pointer;" title="View vacant lockers">
                     <div class="stat-card-label">Available</div>
                     <div class="stat-card-value">${stats.vacant || 0}</div>
                     <div class="stat-card-subtext">Ready for allotment</div>
                 </div>
-                <div class="stat-card ${(stats.occupied || 0) > 0 ? 'danger' : 'primary'}">
+                <div class="stat-card ${(stats.occupied || 0) > 0 ? 'danger' : 'primary'}" onclick="switchSection('tenants')" style="cursor:pointer;" title="View tenants">
                     <div class="stat-card-label">Occupied</div>
                     <div class="stat-card-value">${stats.occupied || 0}</div>
                     <div class="stat-card-subtext">${stats.tenants || 0} tenants</div>
                 </div>
-                <div class="stat-card warning">
+                <div class="stat-card warning" title="Total annual rent from active tenants">
                     <div class="stat-card-label">Annual Rent</div>
                     <div class="stat-card-value">₹${formatIndianNumber(stats.annual_revenue || 0)}</div>
-                    <div class="stat-card-subtext">₹${formatIndianNumber(Math.round((stats.annual_revenue || 0) / 12))}/month</div>
+                    <div class="stat-card-subtext">${stats.tenants || 0} active tenants</div>
                 </div>
-                <div class="stat-card success">
-                    <div class="stat-card-label">Total Collected</div>
-                    <div class="stat-card-value">₹${formatIndianNumber(stats.collected || 0)}</div>
-                    <div class="stat-card-subtext">Rent: ₹${formatIndianNumber(stats.rent_collected || 0)} | Deposit: ₹${formatIndianNumber(stats.deposit_collected || 0)}</div>
+                <div class="stat-card success" onclick="switchSection('payments')" style="cursor:pointer;" title="View rent payments">
+                    <div class="stat-card-label">Rent Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.rent_collected || 0)}</div>
+                    <div class="stat-card-subtext">All-time paid rent</div>
                 </div>
-                <div class="stat-card ${(stats.pending_count || 0) > 0 ? 'warning' : 'success'}">
+                <div class="stat-card primary" onclick="switchSection('payments')" style="cursor:pointer;" title="View deposit payments">
+                    <div class="stat-card-label">Deposit Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.deposit_collected || 0)}</div>
+                    <div class="stat-card-subtext">All-time deposits</div>
+                </div>
+                <div class="stat-card primary" title="GST collected on paid rent">
+                    <div class="stat-card-label">GST Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.gst_collected || 0)}</div>
+                    <div class="stat-card-subtext">CGST + SGST (all-time)</div>
+                </div>
+                <div class="stat-card ${(stats.waiver_total || 0) > 0 ? 'warning' : 'success'}" onclick="showWaiverDetailsModal()" style="cursor:pointer;" title="View waiver details">
+                    <div class="stat-card-label">Waivers Given</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(stats.waiver_total || 0)}</div>
+                    <div class="stat-card-subtext">${stats.waiver_count || 0} approved waivers</div>
+                </div>
+                <div class="stat-card ${(stats.pending_count || 0) > 0 ? 'warning' : 'success'}" onclick="switchSection('payments')" style="cursor:pointer;" title="View pending payments">
                     <div class="stat-card-label">Pending</div>
                     <div class="stat-card-value">₹${formatIndianNumber(stats.pending_amount || 0)}</div>
                     <div class="stat-card-subtext">${stats.pending_count || 0} payments pending</div>
                 </div>
-                <div class="stat-card ${(stats.overdue_amount || 0) > 0 ? 'danger' : 'success'}">
+                <div class="stat-card ${(stats.overdue_amount || 0) > 0 ? 'danger' : 'success'}" onclick="switchSection('payments')" style="cursor:pointer;" title="View overdue payments">
                     <div class="stat-card-label">Overdue</div>
                     <div class="stat-card-value">₹${formatIndianNumber(stats.overdue_amount || 0)}</div>
                     <div class="stat-card-subtext">${stats.overdue_count || 0} tenants</div>
                 </div>
-                <div class="stat-card primary">
+                <div class="stat-card primary" onclick="switchSection('visits')" style="cursor:pointer;" title="View today's visits">
                     <div class="stat-card-label">Today's Visits</div>
                     <div class="stat-card-value">${stats.today_visits || 0}</div>
                     <div class="stat-card-subtext">Locker room activity</div>
                 </div>
-                <div class="stat-card ${(stats.unverified_tenants || 0) > 0 ? 'warning' : 'success'}">
+                <div class="stat-card ${(stats.unverified_tenants || 0) > 0 ? 'warning' : 'success'}" onclick="switchSection('tenants')" style="cursor:pointer;" title="View tenants for BG verification">
                     <div class="stat-card-label">BG Verification</div>
                     <div class="stat-card-value">${stats.unverified_tenants || 0} unverified</div>
                     <div class="stat-card-subtext">${(stats.unverified_tenants || 0) > 0 ? 'Pending verification' : 'All verified'}</div>
                 </div>
-                <div class="stat-card ${(stats.month_paid || 0) > 0 ? 'success' : 'primary'}">
+                <div class="stat-card ${(stats.month_customers || 0) > 0 ? 'success' : 'primary'}" onclick="switchSection('payments')" style="cursor:pointer;" title="View this month's payments">
                     <div class="stat-card-label">${stats.current_month || 'This Month'}</div>
-                    <div class="stat-card-value">${stats.month_paid || 0} received</div>
-                    <div class="stat-card-subtext">₹${formatIndianNumber(stats.month_paid_amount || 0)} collected</div>
+                    <div class="stat-card-value">${stats.month_customers || 0} customers</div>
+                    <div class="stat-card-subtext">paid this month</div>
                 </div>
                 <div class="stat-card primary" onclick="switchSection('leads')" style="cursor:pointer;">
                     <div class="stat-card-label">Locker Leads</div>
@@ -5446,12 +5461,12 @@
             document.getElementById('dashboardContent').innerHTML = '';
         }
 
+
         function renderHeadOfficeDashboard(branches, leadAgg) {
             const totalLockers = branches.reduce((sum, b) => sum + (b.total_lockers || 0), 0);
             const totalOccupied = branches.reduce((sum, b) => sum + (b.occupied || 0), 0);
             const totalVacant = branches.reduce((sum, b) => sum + (b.vacant || 0), 0);
             const totalRevenue = branches.reduce((sum, b) => sum + (b.annual_revenue || 0), 0);
-            const totalCollected = branches.reduce((sum, b) => sum + (b.collected || 0), 0);
             const totalRentCollected = branches.reduce((sum, b) => sum + (b.rent_collected || 0), 0);
             const totalDepositCollected = branches.reduce((sum, b) => sum + (b.deposit_collected || 0), 0);
             const totalPending = branches.reduce((sum, b) => sum + (b.pending_amount || 0), 0);
@@ -5461,59 +5476,76 @@
             const occupancyPct = totalLockers > 0 ? Math.round(totalOccupied / totalLockers * 100) : 0;
             const totalTodayVisits = branches.reduce((sum, b) => sum + (b.today_visits || 0), 0);
             const totalUnverified = branches.reduce((sum, b) => sum + (b.unverified_tenants || 0), 0);
-            const totalMonthPaid = branches.reduce((sum, b) => sum + (b.month_paid || 0), 0);
-            const totalMonthPaidAmount = branches.reduce((sum, b) => sum + (b.month_paid_amount || 0), 0);
+            const totalMonthCustomers = branches.reduce((sum, b) => sum + (b.month_customers || 0), 0);
+            const totalGst = branches.reduce((sum, b) => sum + (b.gst_collected || 0), 0);
+            const totalWaiverAmount = branches.reduce((sum, b) => sum + (b.waiver_total || 0), 0);
+            const totalWaiverCount = branches.reduce((sum, b) => sum + (b.waiver_count || 0), 0);
 
             const summaryHtml = `
-                <div class="stat-card primary">
+                <div class="stat-card primary" onclick="switchSection('lockers')" style="cursor:pointer;" title="View all lockers">
                     <div class="stat-card-label">Total Lockers</div>
                     <div class="stat-card-value">${totalLockers}</div>
                     <div class="stat-card-subtext">${branches.length} branches</div>
                 </div>
-                <div class="stat-card success">
+                <div class="stat-card success" onclick="switchSection('lockers')" style="cursor:pointer;" title="View vacant lockers">
                     <div class="stat-card-label">Available</div>
                     <div class="stat-card-value">${totalVacant}</div>
                     <div class="stat-card-subtext">Ready for allotment</div>
                 </div>
-                <div class="stat-card ${totalOccupied > 0 ? 'danger' : 'primary'}">
+                <div class="stat-card ${totalOccupied > 0 ? 'danger' : 'primary'}" onclick="switchSection('tenants')" style="cursor:pointer;" title="View tenants">
                     <div class="stat-card-label">Occupied</div>
                     <div class="stat-card-value">${totalOccupied}</div>
                     <div class="stat-card-subtext">${occupancyPct}% occupancy</div>
                 </div>
-                <div class="stat-card primary">
+                <div class="stat-card primary" onclick="switchSection('tenants')" style="cursor:pointer;" title="View tenants">
                     <div class="stat-card-label">Total Tenants</div>
                     <div class="stat-card-value">${totalTenants}</div>
                     <div class="stat-card-subtext">${totalUnverified > 0 ? totalUnverified + ' BG unverified' : 'All verified'}</div>
                 </div>
-                <div class="stat-card warning">
+                <div class="stat-card warning" title="Total annual rent from active tenants">
                     <div class="stat-card-label">Annual Rent</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalRevenue)}</div>
-                    <div class="stat-card-subtext">₹${formatIndianNumber(Math.round(totalRevenue / 12))}/month</div>
+                    <div class="stat-card-subtext">${totalTenants} active tenants</div>
                 </div>
-                <div class="stat-card success">
-                    <div class="stat-card-label">Total Collected</div>
-                    <div class="stat-card-value">₹${formatIndianNumber(totalCollected)}</div>
-                    <div class="stat-card-subtext">Rent: ₹${formatIndianNumber(totalRentCollected)} | Deposit: ₹${formatIndianNumber(totalDepositCollected)}</div>
+                <div class="stat-card success" onclick="switchSection('payments')" style="cursor:pointer;" title="View rent payments">
+                    <div class="stat-card-label">Rent Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalRentCollected)}</div>
+                    <div class="stat-card-subtext">All-time paid rent</div>
                 </div>
-                <div class="stat-card ${totalPendingCount > 0 ? 'warning' : 'success'}">
+                <div class="stat-card primary" onclick="switchSection('payments')" style="cursor:pointer;" title="View deposit payments">
+                    <div class="stat-card-label">Deposit Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalDepositCollected)}</div>
+                    <div class="stat-card-subtext">All-time deposits</div>
+                </div>
+                <div class="stat-card primary" title="GST collected on paid rent">
+                    <div class="stat-card-label">GST Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalGst)}</div>
+                    <div class="stat-card-subtext">CGST + SGST (all-time)</div>
+                </div>
+                <div class="stat-card ${totalWaiverAmount > 0 ? 'warning' : 'success'}" onclick="showWaiverDetailsModal()" style="cursor:pointer;" title="View waiver details">
+                    <div class="stat-card-label">Waivers Given</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(totalWaiverAmount)}</div>
+                    <div class="stat-card-subtext">${totalWaiverCount} approved waivers</div>
+                </div>
+                <div class="stat-card ${totalPendingCount > 0 ? 'warning' : 'success'}" onclick="switchSection('payments')" style="cursor:pointer;" title="View pending payments">
                     <div class="stat-card-label">Pending</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalPending)}</div>
                     <div class="stat-card-subtext">${totalPendingCount} payments pending</div>
                 </div>
-                <div class="stat-card ${totalOverdue > 0 ? 'danger' : 'success'}">
+                <div class="stat-card ${totalOverdue > 0 ? 'danger' : 'success'}" onclick="switchSection('payments')" style="cursor:pointer;" title="View overdue payments">
                     <div class="stat-card-label">Overdue</div>
                     <div class="stat-card-value">₹${formatIndianNumber(totalOverdue)}</div>
                     <div class="stat-card-subtext">${totalOverdue > 0 ? 'Needs attention' : 'All clear'}</div>
                 </div>
-                <div class="stat-card primary">
+                <div class="stat-card primary" onclick="switchSection('visits')" style="cursor:pointer;" title="View today's visits">
                     <div class="stat-card-label">Today's Visits</div>
                     <div class="stat-card-value">${totalTodayVisits}</div>
                     <div class="stat-card-subtext">Across all branches</div>
                 </div>
-                <div class="stat-card ${totalMonthPaid > 0 ? 'success' : 'primary'}">
+                <div class="stat-card ${totalMonthCustomers > 0 ? 'success' : 'primary'}" onclick="switchSection('payments')" style="cursor:pointer;" title="View this month's payments">
                     <div class="stat-card-label">This Month</div>
-                    <div class="stat-card-value">${totalMonthPaid} received</div>
-                    <div class="stat-card-subtext">₹${formatIndianNumber(totalMonthPaidAmount)} collected</div>
+                    <div class="stat-card-value">${totalMonthCustomers} customers</div>
+                    <div class="stat-card-subtext">paid this month</div>
                 </div>
                 <div class="stat-card primary" onclick="switchSection('leads')" style="cursor:pointer;">
                     <div class="stat-card-label">Locker Leads</div>
@@ -6598,15 +6630,22 @@
 
         function renderRentSummary(payments) {
             const paid = payments.filter(p => p.status === 'Paid');
+            const paidRent = paid.filter(p => (p.type || 'rent') === 'rent');
+            const paidDeposit = paid.filter(p => p.type === 'deposit');
             const pending = payments.filter(p => p.status === 'Pending');
             const overdue = payments.filter(p => p.status === 'Overdue');
             const sum = arr => arr.reduce((s, p) => s + (p.amount || 0), 0);
 
             document.getElementById('rentSummaryCards').innerHTML = `
                 <div class="stat-card success">
-                    <div class="stat-card-label">Collected</div>
-                    <div class="stat-card-value">₹${formatIndianNumber(sum(paid))}</div>
-                    <div class="stat-card-subtext">${paid.length} payments</div>
+                    <div class="stat-card-label">Rent Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(sum(paidRent))}</div>
+                    <div class="stat-card-subtext">${paidRent.length} rent payments</div>
+                </div>
+                <div class="stat-card primary">
+                    <div class="stat-card-label">Deposit Collected</div>
+                    <div class="stat-card-value">₹${formatIndianNumber(sum(paidDeposit))}</div>
+                    <div class="stat-card-subtext">${paidDeposit.length} deposit payments</div>
                 </div>
                 <div class="stat-card warning">
                     <div class="stat-card-label">Pending</div>
@@ -6625,7 +6664,6 @@
                 </div>
             `;
         }
-
         function renderPayments(payments) {
             if (payments.length === 0) {
                 document.getElementById('paymentsTable').innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:#7a6b5e;">No payments found. Click "+ Record Payment" to add a rent payment.</td></tr>';
@@ -9421,6 +9459,71 @@
             document.getElementById(modalId).classList.remove('active');
             // If closing tenant modal without saving, clear pending lead conversion
             if (modalId === 'tenantModal') window._pendingLeadConversion = null;
+
+        // Show waiver details modal — loads approved waivers for current branch
+        async function showWaiverDetailsModal() {
+            openModal('waiverDetailsModal');
+            const container = document.getElementById('waiverDetailsContent');
+            container.innerHTML = '<div style="text-align:center;padding:32px;color:#888;">Loading waivers...</div>';
+            try {
+                const url = currentBranchId
+                    ? `/api/stats/waivers?branch_id=${currentBranchId}`
+                    : '/api/stats/waivers';
+                const waivers = await api('GET', url);
+                if (!waivers || waivers.length === 0) {
+                    container.innerHTML = '<div style="text-align:center;padding:32px;color:#888;">No approved waivers found.</div>';
+                    return;
+                }
+                const totalAmount = waivers.reduce((s, w) => s + (w.amount || 0), 0);
+                const rows = waivers.map(w => `
+                    <tr>
+                        <td style="padding:10px 12px;">${w.tenant_name || '-'}</td>
+                        <td style="padding:10px 12px;text-align:center;">${w.locker_number || '-'}</td>
+                        <td style="padding:10px 12px;">${w.branch_name || '-'}</td>
+                        <td style="padding:10px 12px;text-align:right;font-weight:600;color:#27ae60;">₹${formatIndianNumber(w.amount || 0)}</td>
+                        <td style="padding:10px 12px;">${w.reason || '-'}</td>
+                        <td style="padding:10px 12px;">${w.requested_by_name || '-'}</td>
+                        <td style="padding:10px 12px;">${w.approved_by_name || '-'}</td>
+                        <td style="padding:10px 12px;white-space:nowrap;">${w.approved_at ? new Date(w.approved_at).toLocaleDateString('en-IN') : '-'}</td>
+                    </tr>
+                `).join('');
+                container.innerHTML = `
+                    <div style="margin-bottom:14px;display:flex;gap:20px;align-items:center;flex-wrap:wrap;">
+                        <span style="font-size:13px;color:#666;">${waivers.length} approved waiver${waivers.length !== 1 ? 's' : ''}</span>
+                        <span style="font-size:15px;font-weight:700;color:#b8860b;">Total: ₹${formatIndianNumber(totalAmount)}</span>
+                    </div>
+                    <div style="overflow-x:auto;">
+                        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                            <thead>
+                                <tr style="background:var(--bg-warm);border-bottom:2px solid var(--border);">
+                                    <th style="padding:10px 12px;text-align:left;font-weight:600;color:#5c4a37;">Tenant</th>
+                                    <th style="padding:10px 12px;text-align:center;font-weight:600;color:#5c4a37;">Locker</th>
+                                    <th style="padding:10px 12px;text-align:left;font-weight:600;color:#5c4a37;">Branch</th>
+                                    <th style="padding:10px 12px;text-align:right;font-weight:600;color:#5c4a37;">Waiver (₹)</th>
+                                    <th style="padding:10px 12px;text-align:left;font-weight:600;color:#5c4a37;">Reason</th>
+                                    <th style="padding:10px 12px;text-align:left;font-weight:600;color:#5c4a37;">Requested By</th>
+                                    <th style="padding:10px 12px;text-align:left;font-weight:600;color:#5c4a37;">Approved By</th>
+                                    <th style="padding:10px 12px;text-align:left;font-weight:600;color:#5c4a37;">Approved On</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${rows}
+                            </tbody>
+                            <tfoot>
+                                <tr style="background:var(--bg-warm);border-top:2px solid var(--border);">
+                                    <td colspan="3" style="padding:10px 12px;font-weight:700;color:#5c4a37;">Total</td>
+                                    <td style="padding:10px 12px;text-align:right;font-weight:700;color:#27ae60;">₹${formatIndianNumber(totalAmount)}</td>
+                                    <td colspan="4"></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                `;
+            } catch (err) {
+                container.innerHTML = `<div style="text-align:center;padding:32px;color:#c00;">Failed to load waivers: ${err.message}</div>`;
+            }
+        }
+
         }
 
         document.addEventListener('click', (e) => {
@@ -9511,20 +9614,31 @@
         }
 
         function formatRentCollectionReport(payments, isHeadOffice) {
-            return payments.map(p => ({
-                ...(isHeadOffice && { Branch: p.branch_name }),
-                Tenant: p.tenant_name,
-                Locker: p.locker_number,
-                Type: capitalize(p.type || 'rent'),
-                Period: p.period || '-',
-                'Amount (₹)': p.amount,
-                Method: capitalize(p.method || ''),
-                'Paid On': p.paid_on || '-',
-                'Due Date': p.due_date || '-',
-                Status: capitalize(p.status),
-                'Receipt No': p.receipt_no || '',
-                Notes: p.notes || ''
-            }));
+            return payments.map(p => {
+                // For legacy payments (before GST breakup was introduced), base_amount is 0.
+                // In that case fall back to showing amount in the net column and leave the
+                // breakup columns blank so old data stays clean.
+                const hasBreakup = (p.base_amount || 0) > 0;
+                return {
+                    ...(isHeadOffice && { Branch: p.branch_name }),
+                    Tenant: p.tenant_name,
+                    Locker: p.locker_number,
+                    Type: capitalize(p.type || 'rent'),
+                    Period: p.period || '-',
+                    'Base Rent (₹)': hasBreakup ? (p.base_amount || 0) : '',
+                    'Waiver (₹)': hasBreakup ? (p.waiver_amount || 0) : '',
+                    'Taxable Amount (₹)': hasBreakup ? (p.taxable_amount || 0) : '',
+                    'CGST 9% (₹)': hasBreakup ? (p.cgst_amount || 0) : '',
+                    'SGST 9% (₹)': hasBreakup ? (p.sgst_amount || 0) : '',
+                    'Net Amount (₹)': p.amount,
+                    Method: capitalize(p.method || ''),
+                    'Paid On': p.paid_on || '-',
+                    'Due Date': p.due_date || '-',
+                    Status: capitalize(p.status),
+                    'Receipt No': p.receipt_no || '',
+                    Notes: p.notes || ''
+                };
+            });
         }
 
         function formatOverdueReport(payments, isHeadOffice) {
@@ -12313,6 +12427,25 @@
         </div>
       </div>
     </div>
+
+    <!-- Waiver Details Modal -->
+    <div id="waiverDetailsModal" class="modal-overlay">
+        <div class="modal" style="max-width:860px;width:95%;">
+            <div class="modal-header">
+                <h3 class="modal-title">Approved Waivers</h3>
+                <button class="modal-close" onclick="closeModal('waiverDetailsModal')">×</button>
+            </div>
+            <div class="modal-body" style="padding:0;max-height:70vh;overflow-y:auto;">
+                <div id="waiverDetailsContent" style="padding:16px;">
+                    <div style="text-align:center;padding:32px;color:#888;">Loading...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('waiverDetailsModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
 
 </body>
 </html>

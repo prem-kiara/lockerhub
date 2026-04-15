@@ -3415,6 +3415,15 @@ app.get('/api/stats', requireAuth, enforceBranchScope, (req, res) => {
   const monthPending = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Pending'`).get(branch_id);
   const monthOverdue = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Overdue'`).get(branch_id);
 
+  // Distinct customers who paid this month
+  const monthCustomers = db.prepare(`SELECT COUNT(DISTINCT tenant_id) as count FROM payments WHERE branch_id = ? AND status = 'Paid' AND paid_on LIKE ?`).get(branch_id, yearMonth + '%');
+
+  // All-time GST collected (CGST + SGST on paid rent payments)
+  const gstCollected = db.prepare(`SELECT COALESCE(SUM(cgst_amount + sgst_amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(branch_id);
+
+  // Approved waivers total
+  const waiverStats = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM waivers WHERE branch_id = ? AND status = 'Approved'`).get(branch_id);
+
   res.json({
     total_lockers: lockers.total || 0, occupied: lockers.occupied || 0, vacant: lockers.vacant || 0,
     occupancy_pct: lockers.total ? Math.round((lockers.occupied || 0) / lockers.total * 100) : 0,
@@ -3429,13 +3438,17 @@ app.get('/api/stats', requireAuth, enforceBranchScope, (req, res) => {
     pending_interest: pendingInterest.total,
     current_month: currentMonth,
     month_paid: monthPaid.count, month_paid_amount: monthPaid.total,
+    month_customers: monthCustomers.count,
     month_pending: monthPending.count, month_pending_amount: monthPending.total,
     month_overdue: monthOverdue.count, month_overdue_amount: monthOverdue.total,
     locker_leads_total: lockerLeads.c || 0,
     locker_leads_open: lockerLeadsOpen.c || 0,
     ncd_leads_total: ncdLeads.c || 0,
     ncd_leads_open: ncdLeadsOpen.c || 0,
-    ncd_leads_amount: ncdLeads.amt || 0
+    ncd_leads_amount: ncdLeads.amt || 0,
+    gst_collected: gstCollected.total,
+    waiver_count: waiverStats.count,
+    waiver_total: waiverStats.total
   });
 });
 
@@ -3461,6 +3474,9 @@ app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => 
     const monthPaid = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid' AND paid_on LIKE ?`).get(b.id, yearMonth + '%');
     const branchLockerLeads = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND branch_id = ?`).get(b.id);
     const branchLockerLeadsOpen = db.prepare(`SELECT COUNT(*) as c FROM leads WHERE (lead_type = 'locker' OR lead_type IS NULL OR lead_type = '') AND branch_id = ? AND status NOT IN ('Converted','Lost')`).get(b.id);
+    const branchMonthCustomers = db.prepare(`SELECT COUNT(DISTINCT tenant_id) as count FROM payments WHERE branch_id = ? AND status = 'Paid' AND paid_on LIKE ?`).get(b.id, yearMonth + '%');
+    const branchGst = db.prepare(`SELECT COALESCE(SUM(cgst_amount + sgst_amount), 0) as total FROM payments WHERE branch_id = ? AND status = 'Paid'`).get(b.id);
+    const branchWaivers = db.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total FROM waivers WHERE branch_id = ? AND status = 'Approved'`).get(b.id);
 
     return {
       branch_id: b.id, branch_name: b.name,
@@ -3475,8 +3491,12 @@ app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => 
       today_visits: todayVisits.count,
       unverified_tenants: unverified.count,
       month_paid: monthPaid.count, month_paid_amount: monthPaid.total,
+      month_customers: branchMonthCustomers.count,
       locker_leads_total: branchLockerLeads.c || 0,
-      locker_leads_open: branchLockerLeadsOpen.c || 0
+      locker_leads_open: branchLockerLeadsOpen.c || 0,
+      gst_collected: branchGst.total,
+      waiver_count: branchWaivers.count,
+      waiver_total: branchWaivers.total
     };
   });
   // Backward-compatible: response is still the branch array. Attach org-level
@@ -3485,6 +3505,35 @@ app.get('/api/stats/all', requireAuth, requireRole('headoffice'), (req, res) => 
   // call /api/leads/summary?lead_type=ncd for the org NCD totals. The org rollup is also
   // available via the new /api/stats/leads endpoint below.
   res.json(stats);
+});
+
+// Waiver details for dashboard modal — approved waivers joined with tenant/locker/branch.
+app.get('/api/stats/waivers', requireAuth, (req, res) => {
+  try {
+    const { branch_id } = req.query;
+    let sql = `
+      SELECT w.id, w.amount, w.reason, w.status, w.approved_at, w.created_at,
+             w.requested_by_name, w.approved_by_name, w.approval_note,
+             t.name as tenant_name, t.phone as tenant_phone,
+             b.name as branch_name,
+             l.number as locker_number
+      FROM waivers w
+      LEFT JOIN tenants t ON w.tenant_id = t.id
+      LEFT JOIN branches b ON w.branch_id = b.id
+      LEFT JOIN lockers l ON t.locker_id = l.id
+      WHERE w.status = 'Approved'
+    `;
+    const params = [];
+    if (branch_id && branch_id !== 'all') {
+      sql += ' AND w.branch_id = ?';
+      params.push(branch_id);
+    }
+    sql += ' ORDER BY w.approved_at DESC';
+    res.json(db.prepare(sql).all(...params));
+  } catch (err) {
+    logError('Stats waivers failed', { error: err.message });
+    res.status(500).json({ error: 'Failed to load waiver details' });
+  }
 });
 
 // Lightweight org-wide lead rollup for HO dashboard widgets.
