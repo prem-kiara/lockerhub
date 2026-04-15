@@ -1764,15 +1764,14 @@ app.put('/api/branches/:id/room-layout', requireAuth, requireRole('headoffice'),
     const d = req.body;
     const existing = db.prepare('SELECT * FROM room_layouts WHERE branch_id = ?').get(req.params.id);
 
-    // If layout already exists and is active, only superuser (root) can edit
+    // If layout already exists and is active, only the root admin (username='root') can edit
     if (existing && existing.status === 'active') {
-      const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.user.id);
+      const user = db.prepare("SELECT role, username FROM users WHERE id = ?").get(req.user.id);
       if (!user || user.role !== 'headoffice') {
-        return res.status(403).json({ error: 'Only root user can modify an active room layout' });
+        return res.status(403).json({ error: 'Only the root admin can modify an active room layout' });
       }
-      // Additional check: is this the superuser (first HO user)?
-      const superUser = db.prepare("SELECT id FROM users WHERE role = 'headoffice' ORDER BY created_at ASC LIMIT 1").get();
-      if (superUser && superUser.id !== req.user.id) {
+      // Root admin is identified by username 'root' (id 'admin001') — not by creation order
+      if (user.username.toLowerCase() !== 'root') {
         return res.status(403).json({ error: 'Only the root admin can modify an active room layout' });
       }
     }
