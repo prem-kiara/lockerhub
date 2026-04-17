@@ -9526,13 +9526,7 @@
 
         }
 
-        document.addEventListener('click', (e) => {
-            if (e.target.classList.contains('modal-overlay')) {
-                e.target.classList.remove('active');
-                // If closing tenant modal by clicking overlay, clear pending lead conversion
-                if (e.target.id === 'tenantModal') window._pendingLeadConversion = null;
-            }
-        });
+        // Clicking outside the modal box does NOT close it — use the × button to close.
 
         // ===== Utility Functions =====
         function capitalize(str) {
