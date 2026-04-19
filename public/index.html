@@ -2210,6 +2210,7 @@
                 <li id="navFeedback" style="display:none;"><a onclick="switchSection('feedback')" class="nav-link" data-section="feedback">Feedback</a></li>
                 <li id="navLeads" style="display:none;"><a onclick="switchSection('leads')" class="nav-link" data-section="leads">Leads</a></li>
                 <li id="navLeadCapture" style="display:none;"><a onclick="switchSection('leadCapture')" class="nav-link" data-section="leadCapture">Capture Lead</a></li>
+                <li id="navStaffManual" style="display:none; margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;"><a href="/LockerHub_Staff_Manual.pdf" target="_blank" rel="noopener" class="nav-link" style="color:#d4a84b;">📘 Staff Manual</a></li>
             </ul>
             <div style="flex-shrink:0; padding:12px 16px; border-top:1px solid rgba(255,255,255,0.1); font-size:11px; text-align:center;">
               <a href="#" onclick="showLegalPage('privacy')" style="color:#999; text-decoration:none;">Privacy</a>
@@ -4457,6 +4458,7 @@
                 }
             } else if (result.role === 'lead_agent') {
                 document.getElementById('navLeadCapture').style.display = 'block';
+                document.getElementById('navStaffManual').style.display = 'block';
                 document.getElementById('lockerAddBtns').style.display = 'none';
                 document.getElementById('branchSelectorContainer').style.display = 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (Lead Agent)`;
