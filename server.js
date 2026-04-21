@@ -3923,6 +3923,465 @@ app.get('/api/backup/list', requireAuth, requireRole('headoffice'), (req, res) =
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+//  EXCEL DUMP & RESTORE  (Disaster-recovery flow)
+// ══════════════════════════════════════════════════════════════════════════════
+// One HO-only workflow in two halves:
+//   1. GET  /api/backup/excel               — download a single .xlsx containing
+//                                             every table as its own sheet + a
+//                                             _meta sheet. Lossless (NULL → sentinel).
+//   2. POST /api/backup/restore/preview     — dry-run parse, returns row counts
+//                                             and schema warnings. DB untouched.
+//   3. POST /api/backup/restore             — wipe every table, re-insert from the
+//                                             uploaded dump. Requires body.confirm
+//                                             === 'RESTORE'. Snapshots the current
+//                                             DB to data/backups/pre_restore_<ts>.db
+//                                             FIRST so a bad restore is recoverable.
+//
+// Non-breaking: all existing endpoints above stay exactly as they were.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Sentinel string used in the Excel to represent a genuine SQL NULL
+// (as opposed to an empty string ''). Lossless round-trip.
+const NULL_SENTINEL = '__NULL__';
+
+// Sheet names we reserve for metadata — everything else maps 1:1 to a table.
+const RESERVED_SHEET_NAMES = new Set(['_meta']);
+
+// ─── Schema discovery ───────────────────────────────────────────────────────
+// Single source of truth for "what does this DB look like RIGHT NOW?".
+// Called at the start of every dump/restore request. If a migration added a
+// new table or column since the server started, this picks it up. Nothing
+// about the backup feature is hardcoded against a specific schema version —
+// add a CREATE TABLE anywhere in the app and it will be dumped & restored
+// automatically on the very next download.
+//
+// Returns:
+//   {
+//     tables: [ { name, columns: [colName, ...], autoincrement: bool,
+//                 parents: [tableName, ...] }, ... ],
+//     insertOrder: [tableName, ...],   // parents before children (topo sort)
+//     deleteOrder: [tableName, ...],   // reverse of insertOrder
+//     byName:      { tableName: <tableDesc> }
+//   }
+function discoverSchema() {
+  // 1. All user tables. Skip SQLite internals and the autoincrement counter.
+  const tableRows = db.prepare(`
+    SELECT name, sql FROM sqlite_master
+    WHERE type = 'table'
+      AND name NOT LIKE 'sqlite_%'
+      AND name NOT LIKE '_litestream_%'
+  `).all();
+
+  const tables = tableRows.map(r => {
+    // Columns (in their declared order — stable across runs).
+    const columns = db.prepare(`PRAGMA table_info(${r.name})`).all().map(c => c.name);
+
+    // Foreign keys — each row here means "this table's column X references tableY.colZ".
+    // We only care about the parent table names for the topological sort.
+    const fks = db.prepare(`PRAGMA foreign_key_list(${r.name})`).all();
+    const parents = Array.from(new Set(fks.map(f => f.table).filter(t => t && t !== r.name)));
+
+    // AUTOINCREMENT detection: the keyword appears in the table's CREATE SQL.
+    // PRAGMA doesn't surface this directly, so we read sqlite_master.sql.
+    const autoincrement = !!(r.sql && /\bAUTOINCREMENT\b/i.test(r.sql));
+
+    return { name: r.name, columns, parents, autoincrement };
+  });
+
+  const byName = Object.fromEntries(tables.map(t => [t.name, t]));
+
+  // 2. Topological sort so parents insert before children.
+  //    Kahn's algorithm. Any table whose parents don't exist in this DB
+  //    (e.g., FK to a dropped table) is treated as having no parent, so
+  //    cycles and stale FKs never block a restore.
+  const insertOrder = [];
+  const remaining = new Set(tables.map(t => t.name));
+  while (remaining.size) {
+    // Pick every table whose unresolved parents are all already inserted
+    // (or are absent from this DB). Sort alphabetically within a batch for
+    // deterministic ordering across runs.
+    const ready = [...remaining].filter(n => {
+      const t = byName[n];
+      return t.parents.every(p => !remaining.has(p) || !byName[p]);
+    }).sort();
+
+    if (ready.length === 0) {
+      // Genuine cycle (shouldn't happen with current schema). Fall back to
+      // alphabetical so restore still completes — with FK enforcement OFF
+      // (SQLite's default) this is safe.
+      [...remaining].sort().forEach(n => insertOrder.push(n));
+      break;
+    }
+    ready.forEach(n => { insertOrder.push(n); remaining.delete(n); });
+  }
+
+  const deleteOrder = [...insertOrder].reverse();
+  return { tables, byName, insertOrder, deleteOrder };
+}
+
+// Multer config for the restore upload — memory storage because we parse inline.
+// 100 MB cap is generous; a dump of the whole DB is typically a few MB.
+const backupUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 100 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok = file.mimetype === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+               file.mimetype === 'application/octet-stream' ||
+               (file.originalname || '').toLowerCase().endsWith('.xlsx');
+    ok ? cb(null, true) : cb(new Error('Only .xlsx files are allowed'), false);
+  }
+});
+
+// Helper: convert a JS value from SQLite → Excel cell value, preserving NULL.
+function valueToCell(v) {
+  if (v === null || v === undefined) return NULL_SENTINEL;
+  if (typeof v === 'number' || typeof v === 'string') return v;
+  if (typeof v === 'boolean') return v ? 1 : 0;
+  if (Buffer.isBuffer(v)) return v.toString('base64'); // extremely unlikely in this schema
+  return String(v);
+}
+
+// Helper: convert an Excel cell value → JS value we'll hand to a bound INSERT.
+// exceljs may hand us a Date for date-like strings and a {text, hyperlink} for
+// richtext cells. We normalise all of that back to plain strings/numbers/null.
+function cellToValue(v) {
+  if (v === null || v === undefined) return null;
+  if (v === NULL_SENTINEL) return null;
+  if (v instanceof Date) {
+    // SQLite stores timestamps as TEXT in 'YYYY-MM-DD HH:MM:SS' or ISO; preserve ISO.
+    return v.toISOString();
+  }
+  if (typeof v === 'object') {
+    if (v.text !== undefined) return String(v.text);
+    if (v.result !== undefined) return cellToValue(v.result); // formula cell
+    if (v.richText) return v.richText.map(r => r.text).join('');
+    return JSON.stringify(v);
+  }
+  return v;
+}
+
+// ─── GET /api/backup/excel ──────────────────────────────────────────────────
+// Streams a single .xlsx with one sheet per table + a _meta sheet.
+// Schema is discovered at request time — no hardcoded table or column list.
+app.get('/api/backup/excel', requireAuth, requireRole('headoffice'), async (req, res) => {
+  let ExcelJS;
+  try { ExcelJS = require('exceljs'); }
+  catch (e) { return res.status(500).json({ error: 'exceljs not installed. Run: npm install exceljs' }); }
+
+  try {
+    const schema = discoverSchema();
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'LockerHub';
+    wb.created = new Date();
+
+    // Build metadata first so it's always sheet #1.
+    const meta = wb.addWorksheet('_meta');
+    meta.columns = [
+      { header: 'key',   key: 'k', width: 32 },
+      { header: 'value', key: 'v', width: 80 }
+    ];
+    meta.getRow(1).font = { bold: true };
+
+    const exportDate = new Date().toISOString();
+    const rowCounts = {};
+    const schemaMap = {};
+
+    // Dump every discovered table — parents first. A future `CREATE TABLE
+    // IF NOT EXISTS foo` anywhere in the codebase shows up here automatically.
+    for (const tbl of schema.insertOrder) {
+      const desc = schema.byName[tbl];
+      const cols = desc.columns;
+      schemaMap[tbl] = cols;
+
+      const ws = wb.addWorksheet(tbl);
+      ws.columns = cols.map(c => ({ header: c, key: c, width: 20 }));
+      ws.getRow(1).font = { bold: true };
+
+      const rows = db.prepare(`SELECT * FROM ${tbl}`).all();
+      rowCounts[tbl] = rows.length;
+      for (const r of rows) {
+        const rowObj = {};
+        for (const c of cols) rowObj[c] = valueToCell(r[c]);
+        ws.addRow(rowObj);
+      }
+    }
+
+    // Fill meta
+    meta.addRow({ k: 'version',        v: 2 });
+    meta.addRow({ k: 'export_date',    v: exportDate });
+    meta.addRow({ k: 'exporter_user',  v: req.user.username || '' });
+    meta.addRow({ k: 'app_version',    v: '1.1.0' });
+    meta.addRow({ k: 'null_sentinel',  v: NULL_SENTINEL });
+    meta.addRow({ k: 'insert_order',   v: JSON.stringify(schema.insertOrder) });
+    meta.addRow({ k: 'autoincrement',  v: JSON.stringify(schema.tables.filter(t => t.autoincrement).map(t => t.name)) });
+    meta.addRow({ k: 'schema',         v: JSON.stringify(schemaMap) });
+    meta.addRow({ k: 'row_counts',     v: JSON.stringify(rowCounts) });
+    meta.addRow({ k: 'notes',          v: 'DO NOT edit this file by hand. Use only via LockerHub restore UI.' });
+
+    const timestamp = exportDate.replace(/[:.]/g, '-').slice(0, 19);
+    const filename  = `LockerHub_Dump_${timestamp}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    await wb.xlsx.write(res);
+    res.end();
+    logInfo('Excel dump downloaded', { user: req.user.username, tables: Object.keys(rowCounts).length, totalRows: Object.values(rowCounts).reduce((s, n) => s + n, 0) });
+  } catch (err) {
+    logError('Excel dump failed', { error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: 'Dump failed: ' + err.message });
+  }
+});
+
+// Shared helper: parse an uploaded .xlsx buffer into { meta, tables, warnings, schema }.
+// Schema is discovered at request time and the restore walks EVERY sheet in the
+// uploaded file (minus _meta) rather than a hardcoded list — so a dump from a
+// future schema version restores cleanly against today's schema, and vice versa.
+//
+// Compatibility rules:
+//   • Sheet in file ∧ table in DB          → insert rows (intersection of columns)
+//   • Sheet in file ∧ table NOT in DB      → warn, skip. Data is preserved in the
+//                                             .xlsx so it can be restored later.
+//   • Sheet NOT in file ∧ table in DB      → warn, that table is wiped to empty
+//                                             (matches "wipe then re-insert" mode)
+//   • Column in file ∧ NOT in current DB   → drop that column (warn)
+//   • Column in current DB ∧ NOT in file   → leave NULL / use DEFAULT (warn)
+async function parseDumpBuffer(buffer) {
+  const ExcelJS = require('exceljs');
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+
+  const warnings = [];
+  const meta = {};
+  const tables = {};
+
+  const schema = discoverSchema();
+
+  const metaSheet = wb.getWorksheet('_meta');
+  if (metaSheet) {
+    metaSheet.eachRow({ includeEmpty: false }, (row, rowNum) => {
+      if (rowNum === 1) return; // header
+      const k = cellToValue(row.getCell(1).value);
+      const v = cellToValue(row.getCell(2).value);
+      if (k) meta[String(k)] = v;
+    });
+  } else {
+    warnings.push('No _meta sheet found — proceeding as a raw dump, cannot verify schema version');
+  }
+
+  // Collect sheets from the workbook (minus reserved ones).
+  const fileSheets = [];
+  wb.eachSheet((ws) => {
+    if (!RESERVED_SHEET_NAMES.has(ws.name)) fileSheets.push(ws.name);
+  });
+
+  // Tables present in current DB but not in the file — forward-compat warning.
+  const tablesInDb = new Set(schema.insertOrder);
+  for (const t of tablesInDb) {
+    if (!fileSheets.includes(t)) {
+      warnings.push(`No sheet for "${t}" in the dump — that table will be empty after restore (new table added since this dump was taken)`);
+    }
+  }
+
+  // Walk every sheet in the file.
+  for (const tbl of fileSheets) {
+    const ws = wb.getWorksheet(tbl);
+    if (!ws) continue;
+    tables[tbl] = [];
+
+    const desc = schema.byName[tbl];
+    if (!desc) {
+      warnings.push(`Sheet "${tbl}" has no matching table in the current DB — skipped (table was dropped since this dump was taken; its data is still in the .xlsx if you need it)`);
+      continue;
+    }
+    const currentCols = desc.columns;
+
+    // Header row
+    const headerRow = ws.getRow(1);
+    const fileCols = [];
+    headerRow.eachCell({ includeEmpty: false }, (cell) => {
+      fileCols.push(String(cellToValue(cell.value) || ''));
+    });
+    const extraInFile = fileCols.filter(c => !currentCols.includes(c));
+    const missingInFile = currentCols.filter(c => !fileCols.includes(c));
+    if (extraInFile.length) warnings.push(`${tbl}: ignoring columns not in current schema: ${extraInFile.join(', ')}`);
+    if (missingInFile.length) warnings.push(`${tbl}: columns missing from dump (will use defaults): ${missingInFile.join(', ')}`);
+
+    // Data rows
+    const lastRow = ws.actualRowCount || ws.rowCount;
+    for (let r = 2; r <= lastRow; r++) {
+      const row = ws.getRow(r);
+      if (!row || !row.hasValues) continue;
+      const obj = {};
+      let allEmpty = true;
+      for (let c = 0; c < fileCols.length; c++) {
+        const colName = fileCols[c];
+        if (!currentCols.includes(colName)) continue; // drop unknown cols
+        const raw = row.getCell(c + 1).value;
+        const v = cellToValue(raw);
+        if (v !== null && v !== '') allEmpty = false;
+        obj[colName] = v;
+      }
+      if (!allEmpty) tables[tbl].push(obj);
+    }
+  }
+  return { meta, tables, warnings, schema };
+}
+
+// ─── POST /api/backup/restore/preview ────────────────────────────────────────
+// Parses the uploaded file and returns what WOULD be restored. Zero DB writes.
+app.post('/api/backup/restore/preview', requireAuth, requireRole('headoffice'), backupUpload.single('dump'), async (req, res) => {
+  try { require('exceljs'); }
+  catch (e) { return res.status(500).json({ error: 'exceljs not installed. Run: npm install exceljs' }); }
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded (field name: dump)' });
+
+  try {
+    const { meta, tables, warnings, schema } = await parseDumpBuffer(req.file.buffer);
+    // Row counts: union of (tables in current DB) and (sheets in the file) so the
+    // preview shows forward-compat rows (skipped sheets) AND backward-compat
+    // warnings (DB tables the dump doesn't have).
+    const counts = {};
+    for (const t of schema.insertOrder) counts[t] = (tables[t] || []).length;
+    for (const t of Object.keys(tables)) if (!(t in counts)) counts[t] = tables[t].length;
+    res.json({
+      success: true,
+      meta,
+      row_counts: counts,
+      total_rows: Object.values(counts).reduce((s, n) => s + n, 0),
+      warnings,
+      filename: req.file.originalname,
+      file_size: req.file.size
+    });
+  } catch (err) {
+    logError('Restore preview failed', { error: err.message });
+    res.status(400).json({ error: 'Could not read the file: ' + err.message });
+  }
+});
+
+// ─── POST /api/backup/restore ────────────────────────────────────────────────
+// The real thing. Wipes every table, then re-inserts everything from the dump.
+// Snapshots the live DB first so a bad restore can be rolled back manually by
+// copying the snapshot over data/lockerhub.db.
+app.post('/api/backup/restore', requireAuth, requireRole('headoffice'), backupUpload.single('dump'), async (req, res) => {
+  try { require('exceljs'); }
+  catch (e) { return res.status(500).json({ error: 'exceljs not installed. Run: npm install exceljs' }); }
+
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded (field name: dump)' });
+  const confirm = (req.body && req.body.confirm) || req.query.confirm;
+  if (confirm !== 'RESTORE') {
+    return res.status(400).json({ error: 'Missing confirmation. Send confirm="RESTORE" to proceed.' });
+  }
+
+  let snapshotName = null;
+  try {
+    // 1. Parse the uploaded dump FIRST. If it's malformed we bail out before touching anything.
+    const { meta, tables, warnings, schema } = await parseDumpBuffer(req.file.buffer);
+
+    // 2. Safety snapshot of the live DB so a failed restore is recoverable.
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    snapshotName = `pre_restore_${ts}.db`;
+    const snapshotPath = path.join(BACKUP_DIR, snapshotName);
+    await db.backup(snapshotPath);
+    logInfo('Pre-restore snapshot saved', { file: snapshotName });
+
+    // 3. Pre-compute prepared statements OUTSIDE the transaction so prepare
+    //    failures abort before we wipe anything. Use the schema discovered at
+    //    request time — nothing is hardcoded.
+    const inserters = {};
+    for (const tbl of schema.insertOrder) {
+      const rows = tables[tbl] || [];
+      if (rows.length === 0) continue;
+      const currentCols = schema.byName[tbl].columns;
+      if (currentCols.length === 0) continue;
+      // Intersection of (columns in current DB) ∩ (columns the dump has) so older
+      // dumps missing newly-added columns, and newer dumps carrying dropped columns,
+      // both restore cleanly.
+      const firstRowCols = Object.keys(rows[0]);
+      const useCols = currentCols.filter(c => firstRowCols.includes(c));
+      if (useCols.length === 0) continue;
+      const placeholders = useCols.map(() => '?').join(', ');
+      inserters[tbl] = {
+        cols: useCols,
+        stmt: db.prepare(`INSERT INTO ${tbl} (${useCols.join(', ')}) VALUES (${placeholders})`)
+      };
+    }
+
+    // 4. Prepare the wipe statements (child tables first, via topo-sorted delete order).
+    const wipeStmts = schema.deleteOrder.map(t => ({ t, stmt: db.prepare(`DELETE FROM ${t}`) }));
+    const seqDeleteStmt = db.prepare(`DELETE FROM sqlite_sequence`);
+    const autoincrementTables = schema.tables.filter(t => t.autoincrement).map(t => t.name);
+
+    // 5. Run wipe + insert as a single transaction. better-sqlite3 wraps it in a
+    //    SAVEPOINT so any throw inside rolls everything back, leaving the DB
+    //    exactly as it was before the call.
+    const restored = {};
+    const runRestore = db.transaction(() => {
+      // Wipe every table in the live DB
+      for (const { stmt } of wipeStmts) stmt.run();
+      // Wipe sqlite_sequence so autoincrement IDs start fresh based on the restored rows.
+      try { seqDeleteStmt.run(); } catch (_) { /* table may not exist if no autoincrement yet used */ }
+
+      // Insert parents before children.
+      for (const tbl of schema.insertOrder) {
+        const rows = tables[tbl] || [];
+        restored[tbl] = 0;
+        const ins = inserters[tbl];
+        if (!ins) continue;
+        for (const row of rows) {
+          const values = ins.cols.map(c => {
+            const v = row[c];
+            return v === undefined ? null : v;
+          });
+          ins.stmt.run(...values);
+          restored[tbl]++;
+        }
+      }
+
+      // Resync sqlite_sequence so future INSERTs use id > max for every
+      // autoincrement table discovered at runtime.
+      for (const tbl of autoincrementTables) {
+        try {
+          const maxRow = db.prepare(`SELECT MAX(id) AS m FROM ${tbl}`).get();
+          const m = (maxRow && maxRow.m) ? Number(maxRow.m) : 0;
+          if (m > 0) {
+            const exists = db.prepare(`SELECT seq FROM sqlite_sequence WHERE name = ?`).get(tbl);
+            if (exists) db.prepare(`UPDATE sqlite_sequence SET seq = ? WHERE name = ?`).run(m, tbl);
+            else db.prepare(`INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)`).run(tbl, m);
+          }
+        } catch (_) { /* no autoincrement row yet — SQLite will create it on next insert */ }
+      }
+    });
+
+    runRestore();
+
+    logInfo('Restore complete', {
+      user: req.user.username,
+      source: req.file.originalname,
+      snapshot: snapshotName,
+      restored
+    });
+
+    res.json({
+      success: true,
+      snapshot: snapshotName,
+      restored,
+      total_rows: Object.values(restored).reduce((s, n) => s + n, 0),
+      warnings,
+      meta,
+      message: 'Restore complete. A safety snapshot of your previous DB was saved to data/backups/ in case you need to roll back.'
+    });
+  } catch (err) {
+    logError('Restore failed', { error: err.message, stack: err.stack });
+    res.status(500).json({
+      error: 'Restore failed: ' + err.message,
+      snapshot: snapshotName,
+      hint: snapshotName
+        ? `A snapshot of your previous DB was saved as data/backups/${snapshotName} BEFORE the failed restore. Your data is unchanged.`
+        : 'No snapshot was taken (failure occurred before snapshot). Your data is unchanged.'
+    });
+  }
+});
+
 // ============================
 //  HEALTH CHECK
 // ============================

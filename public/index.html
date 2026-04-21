@@ -2545,11 +2545,33 @@
                             <div class="stat-card-subtext">SQLite WAL mode</div>
                         </div>
                     </div>
-                    <div class="section-toolbar">
-                        <button class="btn btn-primary" onclick="downloadDbBackup()">Download Database Backup</button>
-                        <button class="btn btn-secondary" onclick="createServerBackup()">Create Server Backup</button>
-                        <button class="btn btn-secondary" onclick="downloadFullBackup()">Export as Excel</button>
+
+                    <!-- Daily dump + restore (the main disaster-recovery flow) -->
+                    <div style="margin-top:24px;padding:18px 20px;background:#fff8f0;border:1px solid #e3d5c3;border-radius:10px;">
+                        <div style="font-size:15px;font-weight:600;color:#2c1810;margin-bottom:6px;">Daily Dump &amp; Restore</div>
+                        <div style="font-size:13px;color:#7a6b5e;margin-bottom:14px;line-height:1.5;">
+                            Download a single Excel workbook containing every table in the database — this is the end-of-day backup HO staff should run.
+                            If the platform ever needs to be rebuilt, upload the most recent dump here and all data is repopulated.
+                            Before any restore runs, the current database is auto-snapshotted to <code>data/backups/</code> so it can always be rolled back.
+                        </div>
+                        <div class="section-toolbar" style="margin:0;">
+                            <button class="btn btn-primary" onclick="downloadDailyDump()">Download Dump (Excel)</button>
+                            <button class="btn btn-danger" onclick="openRestoreDumpModal()">Restore from Dump</button>
+                        </div>
                     </div>
+
+                    <!-- Legacy / advanced tools (kept for backward compatibility) -->
+                    <div style="margin-top:18px;">
+                        <details style="background:#faf3e8;border:1px solid #e3d5c3;border-radius:10px;padding:12px 16px;">
+                            <summary style="cursor:pointer;font-size:13px;font-weight:600;color:#2c1810;">Advanced / legacy backup tools</summary>
+                            <div class="section-toolbar" style="margin-top:14px;">
+                                <button class="btn btn-secondary" onclick="downloadDbBackup()">Download Raw .db File</button>
+                                <button class="btn btn-secondary" onclick="createServerBackup()">Create Server Backup</button>
+                                <button class="btn btn-secondary" onclick="downloadFullBackup()">Export as Excel (client-side, partial)</button>
+                            </div>
+                        </details>
+                    </div>
+
                     <div id="backupStatus" style="margin-top:12px;padding:10px 14px;background:#f5ede0;border-radius:8px;font-size:13px;color:#7a6b5e;display:none;"></div>
                     <div id="backupList" style="margin-top:16px;"></div>
                 </div>
@@ -7544,6 +7566,171 @@
             }
         }
 
+        // ===== Daily Dump (server-side, full schema) =====
+        // Downloads a single .xlsx with one sheet per DB table + a _meta sheet.
+        // This is the end-of-day backup and the file that Restore From Dump eats.
+        function downloadDailyDump() {
+            const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+            triggerAuthDownload('/api/backup/excel', `LockerHub_Dump_${ts}.xlsx`, 'Building full dump...');
+        }
+
+        // ===== Restore From Dump =====
+        // Three-step modal: pick file → preview row counts → type RESTORE → submit.
+        let _restoreDumpFile = null;
+        let _restoreDumpPreviewed = false;
+
+        function openRestoreDumpModal() {
+            _restoreDumpFile = null;
+            _restoreDumpPreviewed = false;
+            document.getElementById('restoreDumpFile').value = '';
+            document.getElementById('restoreDumpPreview').style.display = 'none';
+            document.getElementById('restoreDumpConfirmBlock').style.display = 'none';
+            document.getElementById('restoreDumpConfirmInput').value = '';
+            document.getElementById('restoreDumpSubmitBtn').disabled = true;
+            const status = document.getElementById('restoreDumpStatus');
+            status.style.display = 'none';
+            status.innerHTML = '';
+            openModal('restoreDumpModal');
+        }
+
+        async function onRestoreDumpFilePicked() {
+            const input = document.getElementById('restoreDumpFile');
+            const file = input.files && input.files[0];
+            if (!file) return;
+            if (!file.name.toLowerCase().endsWith('.xlsx')) {
+                alert('Please pick a .xlsx file — the one produced by Download Dump.');
+                input.value = '';
+                return;
+            }
+            _restoreDumpFile = file;
+            _restoreDumpPreviewed = false;
+            document.getElementById('restoreDumpSubmitBtn').disabled = true;
+            document.getElementById('restoreDumpConfirmBlock').style.display = 'none';
+            document.getElementById('restoreDumpConfirmInput').value = '';
+
+            const status = document.getElementById('restoreDumpStatus');
+            status.style.display = 'block';
+            status.style.background = '#f5ede0';
+            status.style.color = '#7a6b5e';
+            status.innerHTML = 'Reading dump file and previewing contents...';
+
+            try {
+                const fd = new FormData();
+                fd.append('dump', file);
+                const token = localStorage.getItem('lockerhub_token');
+                const resp = await fetch('/api/backup/restore/preview', {
+                    method: 'POST',
+                    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+                    body: fd
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || 'Could not read the file');
+                }
+
+                // Render meta
+                const metaEl = document.getElementById('restoreDumpMeta');
+                const m = data.meta || {};
+                metaEl.innerHTML =
+                    '<strong>Export date:</strong> ' + (m.export_date || 'unknown') +
+                    ' &nbsp;·&nbsp; <strong>Exported by:</strong> ' + (m.exporter_user || 'unknown') +
+                    ' &nbsp;·&nbsp; <strong>Version:</strong> ' + (m.version || '—') +
+                    '<br><strong>File:</strong> ' + (data.filename || '') + ' (' + Math.round((data.file_size || 0) / 1024) + ' KB)' +
+                    ' &nbsp;·&nbsp; <strong>Total rows in dump:</strong> ' + (data.total_rows || 0);
+
+                // Render row counts
+                const tbody = document.getElementById('restoreDumpCounts');
+                const counts = data.row_counts || {};
+                tbody.innerHTML = Object.keys(counts).map(t => {
+                    const n = counts[t] || 0;
+                    const dim = n === 0 ? 'color:#aaa;' : '';
+                    return `<tr style="${dim}">
+                        <td style="padding:6px 12px;border-top:1px solid #f0e5d4;">${t}</td>
+                        <td style="padding:6px 12px;border-top:1px solid #f0e5d4;text-align:right;font-family:monospace;">${n}</td>
+                    </tr>`;
+                }).join('');
+
+                // Render warnings
+                const warnEl = document.getElementById('restoreDumpWarnings');
+                if (data.warnings && data.warnings.length) {
+                    warnEl.innerHTML =
+                        '<div style="background:#fff4e0;border:1px solid #f0d28c;border-radius:6px;padding:8px 12px;font-size:12px;color:#8b5a00;">' +
+                        '<strong>Notices:</strong><ul style="margin:6px 0 0 18px;padding:0;">' +
+                        data.warnings.map(w => '<li>' + w.replace(/</g, '&lt;') + '</li>').join('') +
+                        '</ul></div>';
+                } else {
+                    warnEl.innerHTML = '';
+                }
+
+                document.getElementById('restoreDumpPreview').style.display = 'block';
+                document.getElementById('restoreDumpConfirmBlock').style.display = 'block';
+                _restoreDumpPreviewed = true;
+                status.style.display = 'none';
+            } catch (err) {
+                status.style.background = '#fdecea';
+                status.style.color = '#8b1a1a';
+                status.innerHTML = 'Preview failed: ' + (err.message || err);
+                _restoreDumpFile = null;
+            }
+        }
+
+        function onRestoreDumpConfirmTyped() {
+            const val = document.getElementById('restoreDumpConfirmInput').value;
+            document.getElementById('restoreDumpSubmitBtn').disabled =
+                !(_restoreDumpPreviewed && _restoreDumpFile && val === 'RESTORE');
+        }
+
+        async function submitRestoreDump() {
+            if (!_restoreDumpFile || !_restoreDumpPreviewed) return;
+            const confirmVal = document.getElementById('restoreDumpConfirmInput').value;
+            if (confirmVal !== 'RESTORE') return;
+
+            const btn = document.getElementById('restoreDumpSubmitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Restoring...';
+
+            const status = document.getElementById('restoreDumpStatus');
+            status.style.display = 'block';
+            status.style.background = '#f5ede0';
+            status.style.color = '#7a6b5e';
+            status.innerHTML = 'Taking safety snapshot of current DB and running restore... do not close this tab.';
+
+            try {
+                const fd = new FormData();
+                fd.append('dump', _restoreDumpFile);
+                fd.append('confirm', 'RESTORE');
+                const token = localStorage.getItem('lockerhub_token');
+                const resp = await fetch('/api/backup/restore', {
+                    method: 'POST',
+                    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+                    body: fd
+                });
+                const data = await resp.json();
+                if (!resp.ok || !data.success) {
+                    throw new Error(data.error || 'Restore failed');
+                }
+
+                const total = data.total_rows || 0;
+                status.style.background = '#e6f4ea';
+                status.style.color = '#1e6b3a';
+                status.innerHTML =
+                    '<strong>Restore complete.</strong> ' + total + ' rows inserted across ' +
+                    Object.keys(data.restored || {}).length + ' tables.<br>' +
+                    'Safety snapshot of previous DB: <code>data/backups/' + (data.snapshot || '—') + '</code>';
+                btn.textContent = 'Done';
+
+                // Reload the app shortly so cached data doesn't conflict with the restored DB
+                setTimeout(() => { location.reload(); }, 2500);
+            } catch (err) {
+                status.style.background = '#fdecea';
+                status.style.color = '#8b1a1a';
+                status.innerHTML = '<strong>Restore failed:</strong> ' + (err.message || err) +
+                    '<br><span style="font-size:12px;">Your data is unchanged — a pre-restore snapshot was taken if one was reached.</span>';
+                btn.disabled = false;
+                btn.textContent = 'Restore Now';
+            }
+        }
+
         // ===== Branches (Head Office Only) =====
         async function loadBranches() {
             try {
@@ -12442,6 +12629,56 @@
         </div>
     </div>
 
+    <!-- Restore from Dump modal (HO disaster-recovery flow) -->
+    <div id="restoreDumpModal" class="modal-overlay">
+        <div class="modal" style="max-width:680px;width:95%;">
+            <div class="modal-header">
+                <h3 class="modal-title">Restore from Dump</h3>
+                <button class="modal-close" onclick="closeModal('restoreDumpModal')">×</button>
+            </div>
+            <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
+                <div style="background:#fdecea;border:1px solid #f3a4a4;color:#8b1a1a;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.5;margin-bottom:16px;">
+                    <strong>This wipes every table in the live database</strong> and replaces the contents with whatever is in the uploaded Excel dump.
+                    A safety snapshot of the current DB is taken first (saved to <code>data/backups/pre_restore_&lt;timestamp&gt;.db</code>) so this can be rolled back manually if needed.
+                    Only do this if you genuinely want to restore from a backup.
+                </div>
+
+                <div class="form-group">
+                    <label for="restoreDumpFile" style="font-weight:600;">1. Choose the dump file (.xlsx)</label>
+                    <input type="file" id="restoreDumpFile" accept=".xlsx" onchange="onRestoreDumpFilePicked()" style="margin-top:6px;">
+                </div>
+
+                <div id="restoreDumpPreview" style="display:none;margin-top:16px;">
+                    <div style="font-weight:600;font-size:14px;color:#2c1810;margin-bottom:8px;">2. Preview — what will be restored</div>
+                    <div id="restoreDumpMeta" style="font-size:12px;color:#7a6b5e;background:#faf3e8;padding:8px 12px;border-radius:6px;margin-bottom:10px;"></div>
+                    <div style="max-height:240px;overflow-y:auto;border:1px solid #e3d5c3;border-radius:6px;">
+                        <table style="width:100%;font-size:13px;">
+                            <thead style="background:#faf3e8;position:sticky;top:0;">
+                                <tr>
+                                    <th style="text-align:left;padding:8px 12px;">Table</th>
+                                    <th style="text-align:right;padding:8px 12px;">Rows in dump</th>
+                                </tr>
+                            </thead>
+                            <tbody id="restoreDumpCounts"></tbody>
+                        </table>
+                    </div>
+                    <div id="restoreDumpWarnings" style="margin-top:10px;"></div>
+                </div>
+
+                <div id="restoreDumpConfirmBlock" style="display:none;margin-top:18px;padding-top:16px;border-top:1px solid #e3d5c3;">
+                    <div style="font-weight:600;font-size:14px;color:#2c1810;margin-bottom:8px;">3. Type <code style="background:#fff3cd;padding:2px 6px;border-radius:4px;">RESTORE</code> below to confirm</div>
+                    <input type="text" id="restoreDumpConfirmInput" placeholder="Type RESTORE exactly" autocomplete="off"
+                           oninput="onRestoreDumpConfirmTyped()" style="width:100%;padding:10px 12px;border:1px solid #e3d5c3;border-radius:6px;font-family:monospace;">
+                </div>
+
+                <div id="restoreDumpStatus" style="margin-top:14px;display:none;padding:10px 14px;border-radius:8px;font-size:13px;"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('restoreDumpModal')">Cancel</button>
+                <button class="btn btn-danger" id="restoreDumpSubmitBtn" onclick="submitRestoreDump()" disabled>Restore Now</button>
+            </div>
+        </div>
+    </div>
 
 </body>
 </html>
