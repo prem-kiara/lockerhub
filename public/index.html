@@ -12002,28 +12002,32 @@
                     const noteTip = escapeHtml(r.follow_up_note || '');
                     followCell = `<span title="${noteTip}" style="display:inline-block;padding:3px 8px;border-radius:10px;background:${bg};color:${fg};font-size:11px;font-weight:600;white-space:nowrap;">${label}</span>`;
                 }
-                // Inline narration — truncated to 80 chars with full text on hover.
+                // Inline narration — single-line truncation (ellipsis + tooltip).
+                // We wrap the preview in a fixed-width div rather than setting max-width
+                // on the <td>, because max-width on <td> in an auto-layout table is
+                // routinely ignored by browsers — which is what caused the column
+                // above to word-wrap line-by-line in the previous render.
                 const narrFull = r.narration || '';
-                const narrShort = narrFull.length > 80 ? narrFull.slice(0, 80) + '…' : narrFull;
                 const narrCell = narrFull
-                    ? `<span title="${escapeHtml(narrFull)}" style="font-size:12px;color:#444;">${escapeHtml(narrShort)}</span>`
+                    ? `<div title="${escapeHtml(narrFull)}" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#444;">${escapeHtml(narrFull)}</div>`
                     : '<span style="color:#bbb;font-size:12px;">—</span>';
+                const safeName = escapeHtml(r.name || '');
                 return `<tr>
                     <td style="white-space:nowrap;font-size:12px;">${dateRaw}</td>
-                    <td><strong>${escapeHtml(r.name || '')}</strong></td>
-                    <td>${r.phone ? escapeHtml(r.phone) : '-'}</td>
-                    <td>${r.series ? `<span style="display:inline-block;padding:2px 8px;background:#f5edd8;color:#8a6d18;border-radius:10px;font-size:11px;font-weight:700;">${escapeHtml(r.series)}</span>` : '-'}</td>
-                    <td>${escapeHtml(r.place || '-')}</td>
-                    <td style="text-align:right;">${r.amount ? '₹' + fmtINR(r.amount) : '-'}</td>
-                    <td style="max-width:240px;">${narrCell}</td>
-                    <td>${followCell}</td>
-                    <td><span style="font-size:12px;">${escapeHtml(r.created_by_name || '-')}</span></td>
-                    <td>
+                    <td style="white-space:nowrap;"><strong>${safeName}</strong></td>
+                    <td style="white-space:nowrap;">${r.phone ? escapeHtml(r.phone) : '-'}</td>
+                    <td style="white-space:nowrap;">${r.series ? `<span style="display:inline-block;padding:2px 8px;background:#f5edd8;color:#8a6d18;border-radius:10px;font-size:11px;font-weight:700;">${escapeHtml(r.series)}</span>` : '-'}</td>
+                    <td style="white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(r.place || '')}">${escapeHtml(r.place || '-')}</td>
+                    <td style="text-align:right;white-space:nowrap;">${r.amount ? '₹' + fmtINR(r.amount) : '-'}</td>
+                    <td>${narrCell}</td>
+                    <td style="white-space:nowrap;">${followCell}</td>
+                    <td style="white-space:nowrap;"><span style="font-size:12px;">${escapeHtml(r.created_by_name || '-')}</span></td>
+                    <td style="white-space:nowrap;">
                         <select onchange="updateLeadStatus('${r.id}', this.value)" style="padding:4px 8px;border:2px solid ${sColor};border-radius:6px;font-size:12px;font-weight:700;color:${sColor};background:#fff;cursor:pointer;">
                             ${NCD_STATUSES.map(s => `<option value="${s}" ${status === s ? 'selected' : ''}>${s}</option>`).join('')}
                         </select>
                     </td>
-                    <td>
+                    <td style="white-space:nowrap;">
                         <button class="btn btn-secondary" onclick="viewNcdLeadDetail('${r.id}')" style="font-size:11px;padding:3px 8px;">View</button>
                         ${canDelete ? `<button class="btn btn-danger" onclick="deleteLead('${r.id}','${(r.name||'').replace(/'/g,'')}')" style="font-size:11px;padding:3px 8px;">Del</button>` : ''}
                     </td>
