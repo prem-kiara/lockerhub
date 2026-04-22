@@ -767,6 +767,87 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   );
+
+  -- Allotment Form structured capture (1:1 with tenants). Covers every field on the
+  -- printed allotment form that isn't already on tenants/branches/lockers — Personal
+  -- details, broken-down addresses, KYC profile + document proofs, nominee extras,
+  -- and locker issuance fields (key/cabinet/mode). Locked once the agreement is
+  -- e-signed (see isAllotmentLocked()).
+  CREATE TABLE IF NOT EXISTS tenant_allotment_details (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    tenant_id TEXT NOT NULL UNIQUE,
+    -- Personal
+    title TEXT DEFAULT '',
+    guardian_name TEXT DEFAULT '',
+    dob TEXT DEFAULT '',
+    gender TEXT DEFAULT '',
+    nationality TEXT DEFAULT 'Indian',
+    marital_status TEXT DEFAULT '',
+    mothers_maiden_name TEXT DEFAULT '',
+    -- Contact extras (primary phone/email live on tenants)
+    tel_res TEXT DEFAULT '',
+    tel_office TEXT DEFAULT '',
+    tel_office_ext TEXT DEFAULT '',
+    email_secondary TEXT DEFAULT '',
+    mobile_secondary TEXT DEFAULT '',
+    -- Permanent address
+    perm_flat_building TEXT DEFAULT '',
+    perm_road_name TEXT DEFAULT '',
+    perm_landmark TEXT DEFAULT '',
+    perm_city TEXT DEFAULT '',
+    perm_pincode TEXT DEFAULT '',
+    perm_state TEXT DEFAULT '',
+    perm_country TEXT DEFAULT 'India',
+    -- Residence address (if same_as_perm=1 the res_* fields are ignored/copied)
+    res_same_as_perm INTEGER DEFAULT 1,
+    res_flat_building TEXT DEFAULT '',
+    res_road_name TEXT DEFAULT '',
+    res_landmark TEXT DEFAULT '',
+    res_city TEXT DEFAULT '',
+    res_pincode TEXT DEFAULT '',
+    res_state TEXT DEFAULT '',
+    res_country TEXT DEFAULT 'India',
+    -- KYC profile
+    education TEXT DEFAULT '',
+    occupation TEXT DEFAULT '',
+    profession TEXT DEFAULT '',
+    line_of_business TEXT DEFAULT '',
+    residence_type TEXT DEFAULT '',
+    annual_income_bracket TEXT DEFAULT '',
+    -- KYC documents (PAN/Aadhaar are mandatory and already on tenants.bg_pan / bg_aadhaar)
+    passport_no TEXT DEFAULT '',
+    passport_issued_at TEXT DEFAULT '',
+    passport_issued_date TEXT DEFAULT '',
+    poi_type TEXT DEFAULT '',
+    poi_doc_no TEXT DEFAULT '',
+    poi_issued_at TEXT DEFAULT '',
+    poi_expiry_date TEXT DEFAULT '',
+    poa_type TEXT DEFAULT '',
+    poa_doc_no TEXT DEFAULT '',
+    poa_issued_at TEXT DEFAULT '',
+    poa_expiry_date TEXT DEFAULT '',
+    -- Nominee extras (name/phone/aadhaar/pan live on tenants)
+    nominee_relation TEXT DEFAULT '',
+    nominee_flat_building TEXT DEFAULT '',
+    nominee_road_name TEXT DEFAULT '',
+    nominee_landmark TEXT DEFAULT '',
+    nominee_city TEXT DEFAULT '',
+    nominee_pincode TEXT DEFAULT '',
+    nominee_state TEXT DEFAULT '',
+    nominee_country TEXT DEFAULT 'India',
+    nominee_dob TEXT DEFAULT '',
+    nominee_minor_guardian_title TEXT DEFAULT '',
+    nominee_minor_guardian_name TEXT DEFAULT '',
+    -- Locker issuance
+    mode_of_operation TEXT DEFAULT '',
+    key_no TEXT DEFAULT '',
+    cabinet_no TEXT DEFAULT '',
+    -- Meta
+    completed_at TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id)
+  );
 `);
 
 // ============================
@@ -801,6 +882,21 @@ addColumnIfMissing('tenants', 'account_status', "TEXT DEFAULT 'Active'");
 addColumnIfMissing('tenants', 'closed_at', "TEXT DEFAULT ''");
 addColumnIfMissing('tenants', 'closed_reason', "TEXT DEFAULT ''");
 
+// Allotment Form grandfathering (one-shot, idempotent).
+// Every tenant that existed before this column was added is stamped as
+// grandfathered=1 so the "Allotment pending" chip is suppressed for legacy
+// records — branch staff can still open the form and fill it manually if
+// they choose. New tenants created after this column exists default to 0
+// and show the pending chip until the form is completed.
+{
+  const hadColumn = db.prepare("PRAGMA table_info(tenants)").all().some(c => c.name === 'allotment_grandfathered');
+  addColumnIfMissing('tenants', 'allotment_grandfathered', 'INTEGER DEFAULT 0');
+  if (!hadColumn) {
+    const r = db.prepare('UPDATE tenants SET allotment_grandfathered = 1').run();
+    logInfo('Migration: grandfathered existing tenants for Allotment Form', { rows: r.changes });
+  }
+}
+
 // Branches table migrations
 addColumnIfMissing('branches', 'location', "TEXT DEFAULT ''");
 addColumnIfMissing('branches', 'manager_name', "TEXT DEFAULT ''");
@@ -827,9 +923,15 @@ addColumnIfMissing('leads', 'narration', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'reference', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'follow_up_date', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'follow_up_note', "TEXT DEFAULT ''");
-// NCD Series (mandatory for new NCD leads; locker leads leave this blank).
-// Also used as the source-of-truth for the Series dropdown list on the creation form.
+// NCD Series (e.g. NCD26, NCD27) — the issuance bucket, time-bounded by validity dates.
+// Mandatory for new NCD leads; locker leads leave this blank. Managed via the
+// ncd_series admin table, not a free-text dropdown.
 addColumnIfMissing('leads', 'series', "TEXT DEFAULT ''");
+// NCD Scheme (Doubling / Cumulative / Annual / Monthly) — the payout structure.
+// Each Series is bound to exactly one Scheme (set on the series master); on lead
+// creation the scheme is copied from the series master so leads carry their
+// historical scheme even if the admin later edits the series.
+addColumnIfMissing('leads', 'scheme', "TEXT DEFAULT ''");
 // Backfill any NULL lead_type rows to 'locker' so filters never miss them
 try { db.prepare("UPDATE leads SET lead_type = 'locker' WHERE lead_type IS NULL OR lead_type = ''").run(); } catch (e) {}
 
@@ -845,21 +947,70 @@ try {
   db.prepare("UPDATE leads SET status = 'New' WHERE lead_type = 'ncd' AND (status IS NULL OR status = '')").run();
 } catch (e) { logError('NCD status migration failed', { error: e.message }); }
 
-// ── NCD series backfill (one-time, idempotent) ─────────────────────────────
-// Prior to this change, the NCD "Scheme" on the lead-capture form was stored in the
-// narration field (values: Doubling/Cumulative/Annual/Monthly). Now that Series is a
-// first-class field, copy those known scheme values into `series` for existing rows.
-// Free-text narrations from the HO modal are left alone (series stays '').
+// ── NCD scheme backfill (one-time, idempotent) ─────────────────────────────
+// Scheme (Doubling/Cumulative/Annual/Monthly) used to live in the narration field
+// on leads created via the lead-capture UI. We first copy those values into the
+// new `scheme` column. A prior revision mistakenly put these values into the
+// `series` column — we also migrate those, then clear the series column so series
+// stays reserved for true issuance names like NCD26/NCD27.
+const KNOWN_SCHEMES = ['Doubling', 'Cumulative', 'Annual', 'Monthly'];
 try {
-  const knownSchemes = ['Doubling','Cumulative','Annual','Monthly'];
-  const placeholders = knownSchemes.map(() => '?').join(',');
+  const ph = KNOWN_SCHEMES.map(() => '?').join(',');
+  // 1) Narration → scheme (original intent)
   db.prepare(
-    `UPDATE leads SET series = narration
+    `UPDATE leads SET scheme = narration
        WHERE lead_type = 'ncd'
-         AND (series IS NULL OR series = '')
-         AND narration IN (${placeholders})`
-  ).run(...knownSchemes);
-} catch (e) { logError('NCD series backfill failed', { error: e.message }); }
+         AND (scheme IS NULL OR scheme = '')
+         AND narration IN (${ph})`
+  ).run(...KNOWN_SCHEMES);
+  // 2) Series → scheme (fix earlier mis-migration), only where series holds a
+  //    scheme-like value. Real series names like NCD26 are preserved.
+  db.prepare(
+    `UPDATE leads SET scheme = series
+       WHERE lead_type = 'ncd'
+         AND (scheme IS NULL OR scheme = '')
+         AND series IN (${ph})`
+  ).run(...KNOWN_SCHEMES);
+  // 3) Clear series where it was incorrectly populated with a scheme value.
+  db.prepare(
+    `UPDATE leads SET series = ''
+       WHERE lead_type = 'ncd'
+         AND series IN (${ph})`
+  ).run(...KNOWN_SCHEMES);
+} catch (e) { logError('NCD scheme backfill failed', { error: e.message }); }
+
+// ── NCD Series master table ────────────────────────────────────────────────
+// Each series is a time-bounded issuance (e.g. NCD26 active 2025-05-26 → 2026-05-25)
+// bound to exactly ONE scheme. "Active today" = today between start_date and
+// end_date AND active=1. HO admins can override via the active flag if they need
+// to close a series early or force one on.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ncd_series (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    scheme TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    notes TEXT DEFAULT '',
+    created_by TEXT DEFAULT '',
+    created_by_name TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS idx_ncd_series_active ON ncd_series(active, start_date, end_date);
+`);
+
+// Seed a default NCD26 series so a fresh install has a valid active series today
+// (covers 2025-05-26 → 2026-05-25, Monthly scheme). INSERT OR IGNORE keeps this
+// idempotent — if the admin has already created their own NCD26 we leave it alone.
+try {
+  db.prepare(
+    `INSERT OR IGNORE INTO ncd_series (id, name, scheme, start_date, end_date, active, notes, created_by_name)
+     VALUES (?, ?, ?, ?, ?, 1, ?, ?)`
+  ).run('seed-ncd26', 'NCD26', 'Monthly', '2025-05-26', '2026-05-25',
+        'Seeded default series — edit in Manage NCD Series', 'System');
+} catch (e) { logError('NCD26 seed failed', { error: e.message }); }
 
 // Per-user permission overrides (JSON object). NULL/empty = role defaults only.
 addColumnIfMissing('users', 'permissions', "TEXT DEFAULT ''");
@@ -1293,6 +1444,32 @@ function validatePAN(pan) {
   // 4th character = entity type: A,B,C,F,G,H,J,L,P,T
   const validTypes = 'ABCFGHJLPT';
   return validTypes.includes(pan[3]);
+}
+
+// Allotment Form lock: once the agreement is e-signed (Digio), no edits are
+// allowed — not even for HO. Returns true if there is an esign_requests row
+// for this tenant with document_type='agreement' and status='signed'.
+function isAllotmentLocked(tenantId) {
+  if (!tenantId) return false;
+  try {
+    const row = db.prepare(
+      "SELECT 1 FROM esign_requests WHERE tenant_id = ? AND document_type = 'agreement' AND status = 'signed' LIMIT 1"
+    ).get(tenantId);
+    return !!row;
+  } catch (_) { return false; }
+}
+
+// Age in years from a DOB string (YYYY-MM-DD) on a given reference date (ISO string or today).
+function ageOnDate(dobStr, refStr) {
+  if (!dobStr) return NaN;
+  const dob = new Date(dobStr);
+  if (isNaN(dob)) return NaN;
+  const ref = refStr ? new Date(refStr) : new Date();
+  if (isNaN(ref)) return NaN;
+  let age = ref.getFullYear() - dob.getFullYear();
+  const m = ref.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && ref.getDate() < dob.getDate())) age--;
+  return age;
 }
 
 // Audit logging for compliance
@@ -1872,11 +2049,21 @@ app.get('/api/branches/:id/room-units', requireAuth, (req, res) => {
 // ============================
 app.get('/api/tenants', requireAuth, enforceBranchScope, (req, res) => {
   const { branch_id } = req.query;
+  // Allotment status flags — completed_at IS NOT '' → finalized; esign agreement signed → locked.
+  // allotment_grandfathered is read straight off tenants (t.allotment_grandfathered) and
+  // included via SELECT t.* above — no extra CASE needed.
+  const allotSelect = `
+    CASE WHEN tad.completed_at IS NOT NULL AND tad.completed_at != '' THEN 1 ELSE 0 END AS allotment_completed,
+    CASE WHEN EXISTS (
+      SELECT 1 FROM esign_requests er
+      WHERE er.tenant_id = t.id AND er.document_type = 'agreement' AND er.status = 'signed'
+    ) THEN 1 ELSE 0 END AS allotment_locked
+  `;
   let tenants;
   if (branch_id && branch_id !== 'all') {
-    tenants = db.prepare(`SELECT t.*, l.number as locker_number FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id WHERE t.branch_id = ? ORDER BY t.name`).all(branch_id);
+    tenants = db.prepare(`SELECT t.*, l.number as locker_number, ${allotSelect} FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id LEFT JOIN tenant_allotment_details tad ON tad.tenant_id = t.id WHERE t.branch_id = ? ORDER BY t.name`).all(branch_id);
   } else {
-    tenants = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id JOIN branches b ON t.branch_id = b.id ORDER BY b.name, t.name`).all();
+    tenants = db.prepare(`SELECT t.*, l.number as locker_number, b.name as branch_name, ${allotSelect} FROM tenants t LEFT JOIN lockers l ON t.locker_id = l.id JOIN branches b ON t.branch_id = b.id LEFT JOIN tenant_allotment_details tad ON tad.tenant_id = t.id ORDER BY b.name, t.name`).all();
   }
   res.json(tenants);
 });
@@ -2135,8 +2322,10 @@ app.post('/api/tenants/:id/kyc-upload', requireAuth, requireRole('headoffice', '
     // Determine subfolder: KYC/{BranchName}/{TenantName}/{Customer or Nominee}
     const isNominee = docType.startsWith('nominee_');
     const personFolder = isNominee ? 'Nominee' : 'Customer';
-    const safeBranch = tenant.branch_name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
-    const safeTenant = tenant.name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim();
+    // Same sanitization rule as before (alphanumeric/underscore/hyphen/space, then trim)
+    // — now via shared helper so KYC + eSign can't drift.
+    const safeBranch = sanitizeSpFolderSegment(tenant.branch_name).trim();
+    const safeTenant = sanitizeSpFolderSegment(tenant.name).trim();
     const subfolder = `KYC/${safeBranch}/${safeTenant}/${personFolder}`;
 
     // Build filename: DocType_TenantName.ext
@@ -2144,7 +2333,22 @@ app.post('/api/tenants/:id/kyc-upload', requireAuth, requireRole('headoffice', '
     const docLabel = docType.replace('customer_', '').replace('nominee_', '');
     const fileName = `${docLabel}${ext}`;
 
-    // Upload to SharePoint
+    // Orphan cleanup: if a previous upload exists for this docType with a
+    // DIFFERENT extension, the old file would be left behind in SharePoint
+    // with no DB pointer (the JSON below replaces the entry). Best-effort
+    // delete the old one BEFORE uploading the new file. Never fatal.
+    let prevKyc = {};
+    try { prevKyc = JSON.parse(tenant.kyc_documents || '{}'); } catch(e) {}
+    const prevDoc = prevKyc[docType];
+    if (prevDoc && prevDoc.filename) {
+      const prevExt = path.extname(prevDoc.filename) || '.jpg';
+      if (prevExt.toLowerCase() !== ext.toLowerCase()) {
+        const prevSpName = `${docLabel}${prevExt}`;
+        await deleteFromSharePointByPath(subfolder, prevSpName);
+      }
+    }
+
+    // Upload to SharePoint (auto-uses chunked path for files >4 MiB)
     const sharePointUrl = await uploadToSharePoint(
       req.file.buffer,
       fileName,
@@ -2152,9 +2356,8 @@ app.post('/api/tenants/:id/kyc-upload', requireAuth, requireRole('headoffice', '
       req.file.mimetype
     );
 
-    // Update kyc_documents JSON in DB
-    let kycDocs = {};
-    try { kycDocs = JSON.parse(tenant.kyc_documents || '{}'); } catch(e) {}
+    // Update kyc_documents JSON in DB (preserve any prior doc-type entries)
+    let kycDocs = prevKyc;
     kycDocs[docType] = {
       uploaded: true,
       filename: req.file.originalname,
@@ -2196,6 +2399,233 @@ app.get('/api/tenants/:id/kyc-status', requireAuth, (req, res) => {
       nominee_pan: tenant.nominee_pan
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Allotment Form (structured capture of all printable PDF fields) ─────────
+// GET  /api/tenants/:id/allotment-details → { details, locked, completed }
+// PUT  /api/tenants/:id/allotment-details → upsert with RBI-KYC validation
+//
+// Lock rule: once a Digio agreement e-sign is marked status='signed', PUT
+// returns 403 {locked:true}. Applies to every role including HO — matches the
+// NCD "locked after creation" pattern. Editable until signed.
+const ALLOTMENT_FIELDS = [
+  // Personal
+  'title', 'guardian_name', 'dob', 'gender', 'nationality', 'marital_status', 'mothers_maiden_name',
+  // Contact extras
+  'tel_res', 'tel_office', 'tel_office_ext', 'email_secondary', 'mobile_secondary',
+  // Permanent address
+  'perm_flat_building', 'perm_road_name', 'perm_landmark', 'perm_city', 'perm_pincode', 'perm_state', 'perm_country',
+  // Residence address
+  'res_same_as_perm', 'res_flat_building', 'res_road_name', 'res_landmark', 'res_city', 'res_pincode', 'res_state', 'res_country',
+  // KYC profile
+  'education', 'occupation', 'profession', 'line_of_business', 'residence_type', 'annual_income_bracket',
+  // KYC documents
+  'passport_no', 'passport_issued_at', 'passport_issued_date',
+  'poi_type', 'poi_doc_no', 'poi_issued_at', 'poi_expiry_date',
+  'poa_type', 'poa_doc_no', 'poa_issued_at', 'poa_expiry_date',
+  // Nominee extras
+  'nominee_relation',
+  'nominee_flat_building', 'nominee_road_name', 'nominee_landmark',
+  'nominee_city', 'nominee_pincode', 'nominee_state', 'nominee_country',
+  'nominee_dob', 'nominee_minor_guardian_title', 'nominee_minor_guardian_name',
+  // Locker issuance
+  'mode_of_operation', 'key_no', 'cabinet_no'
+];
+
+// Reference enum lists — kept liberal (only values that would break the PDF
+// drawing are strictly enforced). Clients should use these for dropdowns.
+const ALLOTMENT_ENUMS = {
+  title: ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Other'],
+  gender: ['Male', 'Female', 'Other'],
+  marital_status: ['Married', 'Single', 'Others'],
+  mode_of_operation: ['Single', 'Anyone', 'Joint'],
+  education: ['Professional', 'Post Graduate', 'Graduate', 'Non Graduate', 'Others'],
+  occupation: ['Salaried', 'Self-employed Professional', 'Self-employed Business', 'Farmer', 'Retired', 'Student', 'Home Maker', 'Others'],
+  profession: ['Doctor', 'Lawyer', 'Architect', 'CA-CS', 'IT Consultant', 'Others'],
+  line_of_business: ['Manufacturing', 'Trading', 'Agricultural', 'CA-CS'],
+  residence_type: ['Owned', 'Rented', 'Ancestral', 'Company Provided'],
+  annual_income_bracket: ['Upto 1', '1 to 3', '3 to 6', '6 to 12', '12 to 25', '25 to 50', '50 to 100', 'Above 100'],
+  poi_type: ['Passport', 'Voter ID card', 'Driving License', 'Aadhaar Card', 'Ration card with photo'],
+  poa_type: ['Voter ID card', 'Driving License', 'Aadhaar Card', 'Ration card with photo', 'Electricity Bill', 'Telephone Bill (landline)', 'Bank account statement (3 months)', 'Bank Pass Book', 'Registered Lease Agreement', 'Property tax receipt']
+};
+
+// Expose enum catalogue so the frontend can build dropdowns without re-declaring.
+app.get('/api/allotment/enums', requireAuth, (req, res) => {
+  res.json(ALLOTMENT_ENUMS);
+});
+
+app.get('/api/tenants/:id/allotment-details', requireAuth, (req, res) => {
+  try {
+    const tenant = db.prepare('SELECT id, name, lease_start, bg_pan, bg_aadhaar, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan, branch_id FROM tenants WHERE id = ?').get(req.params.id);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+    const row = db.prepare('SELECT * FROM tenant_allotment_details WHERE tenant_id = ?').get(req.params.id);
+    const locked = isAllotmentLocked(req.params.id);
+    res.json({
+      tenant: {
+        id: tenant.id, name: tenant.name, lease_start: tenant.lease_start,
+        bg_pan: tenant.bg_pan, bg_aadhaar: tenant.bg_aadhaar,
+        nominee_name: tenant.nominee_name, nominee_phone: tenant.nominee_phone,
+        nominee_aadhaar: tenant.nominee_aadhaar, nominee_pan: tenant.nominee_pan
+      },
+      details: row || null,
+      locked,
+      completed: !!(row && row.completed_at)
+    });
+  } catch (err) {
+    logError('Error reading allotment details', { id: req.params.id, error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.put('/api/tenants/:id/allotment-details', requireAuth, requireRole('headoffice', 'branch'), (req, res) => {
+  try {
+    const tenantId = req.params.id;
+    const tenant = db.prepare('SELECT id, name, lease_start, bg_pan, bg_aadhaar, nominee_name, nominee_phone, nominee_aadhaar, nominee_pan FROM tenants WHERE id = ?').get(tenantId);
+    if (!tenant) return res.status(404).json({ error: 'Tenant not found' });
+
+    // Lock enforcement — after Digio e-sign, no edits allowed (not even HO)
+    if (isAllotmentLocked(tenantId)) {
+      return res.status(403).json({ error: 'Allotment is locked — agreement is already e-signed. Contact HO to revise.', locked: true });
+    }
+
+    const d = req.body || {};
+    const complete = !!d.complete; // true = user clicked "Save & Complete" (run full validation)
+
+    // Pull only known fields; trim strings; default undefined to ''
+    const clean = {};
+    for (const k of ALLOTMENT_FIELDS) {
+      let v = d[k];
+      if (v === undefined || v === null) v = '';
+      if (typeof v === 'string') v = v.trim();
+      clean[k] = v;
+    }
+
+    // Normalise phone-like fields (digits only)
+    if (clean.tel_res) clean.tel_res = String(clean.tel_res).replace(/[^0-9]/g, '').slice(0, 15);
+    if (clean.tel_office) clean.tel_office = String(clean.tel_office).replace(/[^0-9]/g, '').slice(0, 15);
+    if (clean.mobile_secondary) clean.mobile_secondary = String(clean.mobile_secondary).replace(/[^0-9]/g, '').slice(0, 10);
+    if (clean.perm_pincode) clean.perm_pincode = String(clean.perm_pincode).replace(/[^0-9]/g, '').slice(0, 6);
+    if (clean.res_pincode) clean.res_pincode = String(clean.res_pincode).replace(/[^0-9]/g, '').slice(0, 6);
+    if (clean.nominee_pincode) clean.nominee_pincode = String(clean.nominee_pincode).replace(/[^0-9]/g, '').slice(0, 6);
+
+    // Cast res_same_as_perm to 0/1 (SQLite)
+    clean.res_same_as_perm = (clean.res_same_as_perm === 1 || clean.res_same_as_perm === '1' || clean.res_same_as_perm === true || clean.res_same_as_perm === 'true') ? 1 : 0;
+
+    // Copy permanent → residence if same_as_perm
+    if (clean.res_same_as_perm === 1) {
+      clean.res_flat_building = clean.perm_flat_building;
+      clean.res_road_name = clean.perm_road_name;
+      clean.res_landmark = clean.perm_landmark;
+      clean.res_city = clean.perm_city;
+      clean.res_pincode = clean.perm_pincode;
+      clean.res_state = clean.perm_state;
+      clean.res_country = clean.perm_country;
+    }
+
+    // Enum hardening (only for values actually set — blanks are fine for partial saves)
+    const enumFail = (k) => clean[k] && !ALLOTMENT_ENUMS[k].includes(clean[k]);
+    for (const k of Object.keys(ALLOTMENT_ENUMS)) {
+      if (enumFail(k)) return res.status(400).json({ error: `Invalid value for ${k}: "${clean[k]}". Must be one of: ${ALLOTMENT_ENUMS[k].join(', ')}` });
+    }
+
+    // Email format (secondary — primary lives on tenants)
+    if (clean.email_secondary && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean.email_secondary)) {
+      return res.status(400).json({ error: 'Invalid secondary email format.' });
+    }
+
+    // Pincode: 6 digits if present
+    for (const k of ['perm_pincode', 'res_pincode', 'nominee_pincode']) {
+      if (clean[k] && !/^\d{6}$/.test(clean[k])) return res.status(400).json({ error: `Invalid PIN code for ${k} — must be 6 digits.` });
+    }
+
+    // Mobile: 10 digits if present
+    if (clean.mobile_secondary && !/^\d{10}$/.test(clean.mobile_secondary)) {
+      return res.status(400).json({ error: 'Secondary mobile must be 10 digits.' });
+    }
+
+    // DOB: required when completing, must yield age >= 18 at lease_start
+    if (clean.dob) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(clean.dob)) return res.status(400).json({ error: 'DOB must be in YYYY-MM-DD format.' });
+      const ref = tenant.lease_start || new Date().toISOString().slice(0, 10);
+      const age = ageOnDate(clean.dob, ref);
+      if (isNaN(age)) return res.status(400).json({ error: 'Invalid DOB.' });
+      if (age < 18) return res.status(400).json({ error: `Hirer is under 18 on the allotment date (age ${age}). Minor hirers are not permitted.` });
+    }
+    if (clean.nominee_dob && !/^\d{4}-\d{2}-\d{2}$/.test(clean.nominee_dob)) {
+      return res.status(400).json({ error: 'Nominee DOB must be in YYYY-MM-DD format.' });
+    }
+
+    // Full RBI-flavoured KYC validation — only enforced when completing.
+    // Draft saves allow partial data so branch can fill in stages.
+    if (complete) {
+      const mustHave = {
+        'Title': clean.title,
+        'Guardian name (Father/Husband)': clean.guardian_name,
+        'DOB': clean.dob,
+        'Gender': clean.gender,
+        'Nationality': clean.nationality,
+        'Marital status': clean.marital_status,
+        'Permanent address (flat/building)': clean.perm_flat_building,
+        'Permanent city': clean.perm_city,
+        'Permanent PIN code': clean.perm_pincode,
+        'Permanent state': clean.perm_state,
+        'Education': clean.education,
+        'Occupation': clean.occupation,
+        'Residence type': clean.residence_type,
+        'Annual income bracket': clean.annual_income_bracket,
+        'Proof of Identity type': clean.poi_type,
+        'Proof of Identity doc no.': clean.poi_doc_no,
+        'Proof of Address type': clean.poa_type,
+        'Proof of Address doc no.': clean.poa_doc_no,
+        'Nominee relationship': clean.nominee_relation,
+        'Nominee PIN code': clean.nominee_pincode,
+        'Nominee state': clean.nominee_state,
+        'Mode of operation': clean.mode_of_operation,
+        'Key No.': clean.key_no,
+        'Cabinet No.': clean.cabinet_no
+      };
+      // Residence address required if different from permanent
+      if (clean.res_same_as_perm !== 1) {
+        mustHave['Residence address (flat/building)'] = clean.res_flat_building;
+        mustHave['Residence city'] = clean.res_city;
+        mustHave['Residence PIN code'] = clean.res_pincode;
+        mustHave['Residence state'] = clean.res_state;
+      }
+      const missing = Object.entries(mustHave).filter(([, v]) => !v).map(([k]) => k);
+      if (missing.length) {
+        return res.status(400).json({ error: 'Missing required fields: ' + missing.join(', '), missing });
+      }
+      // Hirer KYC (PAN + Aadhaar) must already be on tenants.bg_pan / bg_aadhaar
+      if (!tenant.bg_pan || !validatePAN(tenant.bg_pan)) return res.status(400).json({ error: "Hirer PAN is missing or invalid on the tenant record. Fix it in the Tenant modal first." });
+      if (!tenant.bg_aadhaar || !validateAadhaar(tenant.bg_aadhaar)) return res.status(400).json({ error: "Hirer Aadhaar is missing or invalid on the tenant record. Fix it in the Tenant modal first." });
+      if (!tenant.nominee_name) return res.status(400).json({ error: "Nominee name is missing on the tenant record. Fix it in the Tenant modal first." });
+    }
+
+    // Upsert
+    const existing = db.prepare('SELECT id FROM tenant_allotment_details WHERE tenant_id = ?').get(tenantId);
+    const now = new Date().toISOString();
+    const completedAt = complete ? now : (existing ? (db.prepare('SELECT completed_at FROM tenant_allotment_details WHERE tenant_id = ?').get(tenantId).completed_at || '') : '');
+
+    if (existing) {
+      const setParts = ALLOTMENT_FIELDS.map(k => `${k} = ?`).concat(['completed_at = ?', "updated_at = datetime('now')"]);
+      const vals = ALLOTMENT_FIELDS.map(k => clean[k]);
+      vals.push(completedAt);
+      vals.push(tenantId);
+      db.prepare(`UPDATE tenant_allotment_details SET ${setParts.join(', ')} WHERE tenant_id = ?`).run(...vals);
+    } else {
+      const cols = ['tenant_id'].concat(ALLOTMENT_FIELDS).concat(['completed_at']);
+      const placeholders = cols.map(() => '?').join(',');
+      const vals = [tenantId].concat(ALLOTMENT_FIELDS.map(k => clean[k])).concat([completedAt]);
+      db.prepare(`INSERT INTO tenant_allotment_details (${cols.join(',')}) VALUES (${placeholders})`).run(...vals);
+    }
+
+    auditLog(complete ? 'allotment_details_completed' : 'allotment_details_saved', 'tenant', tenantId, req, { complete });
+    logInfo('Allotment details saved', { tenant: tenantId, complete });
+    res.json({ ok: true, completed: !!completedAt });
+  } catch (err) {
+    logError('Error saving allotment details', { id: req.params.id, error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -2349,6 +2779,18 @@ app.get('/api/allotment-form/:id', requireAuth, async (req, res) => {
       tenant.cgst_amount = paidRent.cgst_amount;
       tenant.sgst_amount = paidRent.sgst_amount;
       tenant.gst_amount = paidRent.gst_amount;
+    }
+
+    // Merge structured Allotment Form details (if captured) so the PDF is pre-filled
+    // instead of rendering blank lines. Any allotment field key collides intentionally
+    // with the PDF renderer expectations (see allotment-form.js). Tenant-level columns
+    // (name, bg_pan, bg_aadhaar, nominee_*) are NOT overwritten.
+    const allot = db.prepare('SELECT * FROM tenant_allotment_details WHERE tenant_id = ?').get(req.params.id);
+    if (allot) {
+      for (const [k, v] of Object.entries(allot)) {
+        if (k === 'id' || k === 'tenant_id' || k === 'created_at' || k === 'updated_at') continue;
+        if (tenant[k] === undefined || tenant[k] === '' || tenant[k] === null) tenant[k] = v;
+      }
     }
 
     const pdfBuffer = await generatePdfBuffer(tenant, branch || {}, locker || {});
@@ -6018,29 +6460,162 @@ function msGraphUpload(apiPath, buffer, token, contentType) {
 // Site: kiaramfi.sharepoint.com/sites/repo
 const SP_DRIVE_ID = process.env.SP_DRIVE_ID || 'b!fTFvCiz6zE-llOUnFj-hq13WSlu_wi9DhOZmzoXbbKHqXSKxXxhHSYHoWokQoP03';
 
-// Upload a signed PDF to SharePoint → Dhanam Repository → Locker Applications
+// ── SharePoint name sanitizers (shared by KYC + eSign) ──────────────
+// Strip every char that isn't alphanumeric / underscore / hyphen / space.
+// Spaces are intentionally preserved so existing folders such as
+// "RS Puram" / "Payment Receipt" remain compatible after this refactor.
+// NOTE: callers historically used slightly different regex orderings but
+// the same character set; this consolidates without changing behavior.
+// Trim is left to the caller — the eSign route never trimmed and we
+// must not silently rename existing SharePoint folders.
+function sanitizeSpFolderSegment(name) {
+  return String(name || '').replace(/[^a-zA-Z0-9_\- ]/g, '');
+}
+
+// Filename sanitizer matches what uploadToSharePoint applies internally,
+// exposed so callers can predict the on-disk name (used by orphan delete).
+function sanitizeSpFileName(name) {
+  return String(name || '').replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+}
+
+// Simple-upload size cap. Microsoft Graph rejects PUT to :/content above
+// ~4 MiB; anything larger MUST go through an upload session. Multer caps
+// KYC at 10 MiB (line 18) so the chunked path is reachable in practice.
+const SP_SIMPLE_UPLOAD_MAX = 4 * 1024 * 1024;
+// Chunk size for upload sessions. Must be a multiple of 320 KiB per Graph
+// docs; 5 MiB gives us 1–2 chunks for the typical KYC range and stays well
+// under the 60 MiB session-chunk ceiling.
+const SP_CHUNK_SIZE = 5 * 1024 * 1024;
+
+// Build the encoded `:/path` segment shared by upload, session-create, and
+// delete-by-path calls so all three reference the same SharePoint location.
+function buildSpEncodedPath(subfolder, safeName) {
+  const folderPath = subfolder
+    ? `${SHAREPOINT_CONFIG.baseFolder}/${subfolder}`
+    : SHAREPOINT_CONFIG.baseFolder;
+  // CRITICAL: each path segment must be URL-encoded individually so that
+  // spaces and other special characters (e.g. "RS Puram", customer names
+  // with apostrophes) don't corrupt the HTTPS request line.
+  const encodedFolder = folderPath.split('/').map(encodeURIComponent).join('/');
+  const encodedName = encodeURIComponent(safeName);
+  return { folderPath, encodedFolder, encodedName };
+}
+
+// PUT one chunk to an upload-session URL. The uploadUrl from Graph already
+// embeds short-lived auth, so we do NOT add an Authorization header here.
+function msGraphUploadChunk(uploadUrl, chunk, startByte, endByte, totalBytes) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(uploadUrl);
+    const req = https.request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'PUT',
+      headers: {
+        'Content-Length': chunk.length,
+        'Content-Range': `bytes ${startByte}-${endByte}/${totalBytes}`
+      }
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        // 202 = chunk accepted, more chunks needed
+        // 200/201 = upload complete, body is the driveItem
+        if (res.statusCode === 200 || res.statusCode === 201 || res.statusCode === 202) {
+          if (!data) return resolve({});
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(new Error('SharePoint chunk returned non-JSON: ' + data.slice(0, 200))); }
+        } else {
+          let msg = data;
+          try { const j = JSON.parse(data); msg = j.error?.message || data; } catch (_) {}
+          reject(new Error('SharePoint chunk upload failed (' + res.statusCode + '): ' + msg));
+        }
+      });
+    });
+    req.setTimeout(110000, () => {
+      req.destroy(new Error('SharePoint chunk upload timed out after 110s'));
+    });
+    req.on('error', reject);
+    req.write(chunk);
+    req.end();
+  });
+}
+
+// Chunked upload path for files > SP_SIMPLE_UPLOAD_MAX. Creates an upload
+// session, then PUTs sequential ranges. Same return shape as msGraphUpload.
+async function uploadToSharePointSession(fileBuffer, encodedFolder, encodedName, originalName) {
+  const sessionApi = `/v1.0/drives/${SP_DRIVE_ID}/root:/${encodedFolder}/${encodedName}:/createUploadSession`;
+  const session = await msGraphRequest('POST', sessionApi, {
+    item: {
+      '@microsoft.graph.conflictBehavior': 'replace',
+      name: originalName
+    }
+  });
+  if (!session || !session.uploadUrl) {
+    throw new Error('SharePoint upload session: no uploadUrl returned');
+  }
+  const total = fileBuffer.length;
+  let offset = 0;
+  let lastResp = null;
+  while (offset < total) {
+    const end = Math.min(offset + SP_CHUNK_SIZE, total);
+    const slice = fileBuffer.slice(offset, end);
+    lastResp = await msGraphUploadChunk(session.uploadUrl, slice, offset, end - 1, total);
+    offset = end;
+  }
+  if (!lastResp || (!lastResp.webUrl && !lastResp.id)) {
+    throw new Error('SharePoint upload session completed without a driveItem response');
+  }
+  return lastResp;
+}
+
+// Best-effort delete of a SharePoint file by its folder+name. Used by the
+// KYC route to clean up orphans when a re-upload changes the file extension
+// (e.g. customer first uploads .jpg, then replaces with .pdf — the old .jpg
+// would otherwise live forever in SharePoint with no DB pointer).
+// Never throws: a failed cleanup must not block a successful new upload.
+async function deleteFromSharePointByPath(subfolder, fileName) {
+  try {
+    const safeName = sanitizeSpFileName(fileName);
+    const { folderPath, encodedFolder, encodedName } = buildSpEncodedPath(subfolder, safeName);
+    const apiPath = `/v1.0/drives/${SP_DRIVE_ID}/root:/${encodedFolder}/${encodedName}:`;
+    await msGraphRequest('DELETE', apiPath);
+    logInfo('SharePoint orphan deleted', { path: `${folderPath}/${safeName}` });
+    return true;
+  } catch (err) {
+    // 404 = nothing to delete, which is the success case for this helper.
+    if (err && (err.status === 404 || /404/.test(String(err.message || '')))) return true;
+    logWarn('SharePoint orphan delete skipped (non-fatal)', {
+      subfolder, fileName,
+      error: err && (err.message || err.error?.message || JSON.stringify(err))
+    });
+    return false;
+  }
+}
+
+// Upload a file to SharePoint → Dhanam Repository.
+// Auto-selects simple PUT (≤4 MiB) or upload session (>4 MiB).
 async function uploadToSharePoint(fileBuffer, fileName, subfolder, contentType) {
   try {
     const token = await getMsGraphToken();
+    const safeName = sanitizeSpFileName(fileName);
+    const { folderPath, encodedFolder, encodedName } = buildSpEncodedPath(subfolder, safeName);
 
-    const folderPath = subfolder
-      ? `${SHAREPOINT_CONFIG.baseFolder}/${subfolder}`
-      : SHAREPOINT_CONFIG.baseFolder;
-    const safeName = fileName.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+    logInfo('SharePoint upload starting', {
+      folderPath, safeName, fileSize: fileBuffer.length,
+      mode: fileBuffer.length > SP_SIMPLE_UPLOAD_MAX ? 'session' : 'simple'
+    });
 
-    // CRITICAL: each path segment must be URL-encoded individually so that
-    // spaces and other special characters (e.g. "RS Puram", customer names
-    // with apostrophes) don't corrupt the HTTPS request line. Without this,
-    // Microsoft Graph rejects the malformed PUT in ~1s with no usable body
-    // and the upload appears to "fail randomly".
-    const encodedFolder = folderPath.split('/').map(encodeURIComponent).join('/');
-    const encodedName = encodeURIComponent(safeName);
+    let result;
+    if (fileBuffer.length > SP_SIMPLE_UPLOAD_MAX) {
+      // Files over 4 MiB MUST use an upload session — simple PUT returns 413.
+      result = await uploadToSharePointSession(fileBuffer, encodedFolder, encodedName, safeName);
+    } else {
+      // Simple upload (files ≤ 4 MiB) — driveItem upload via path auto-creates
+      // missing parent folders, so we don't need to pre-create branch/tenant dirs.
+      const uploadPath = `/v1.0/drives/${SP_DRIVE_ID}/root:/${encodedFolder}/${encodedName}:/content`;
+      result = await msGraphUpload(uploadPath, fileBuffer, token, contentType || 'application/pdf');
+    }
 
-    // Simple upload (files < 4MB) — driveItem upload via path auto-creates
-    // missing parent folders, so we don't need to pre-create branch/tenant dirs.
-    const uploadPath = `/v1.0/drives/${SP_DRIVE_ID}/root:/${encodedFolder}/${encodedName}:/content`;
-    logInfo('SharePoint upload starting', { folderPath, safeName, fileSize: fileBuffer.length });
-    const result = await msGraphUpload(uploadPath, fileBuffer, token, contentType || 'application/pdf');
     logInfo('SharePoint upload success', { fileName: safeName, webUrl: result.webUrl });
     return result.webUrl || result.id || 'uploaded';
   } catch (err) {
@@ -6362,10 +6937,13 @@ app.post('/api/esign/:id/save-to-repo', requireAuth, requireRole('headoffice', '
 
     // Build subfolder: DocType/BranchName/TenantName
     // Agreements → Application, Receipts → Payment Receipt
+    // Sanitization via shared helper. NO .trim() here — eSign historically
+    // didn't trim, and trimming now could re-route uploads to a new folder
+    // for any tenant whose existing SharePoint folder included whitespace.
     const branch = db.prepare('SELECT name FROM branches WHERE id = ?').get(esign.branch_id);
     const tenant = db.prepare('SELECT name FROM tenants WHERE id = ?').get(esign.tenant_id);
-    const branchName = (branch?.name || 'Unknown').replace(/[^a-zA-Z0-9_ \-]/g, '');
-    const tenantName = (tenant?.name || 'Unknown').replace(/[^a-zA-Z0-9_ \-]/g, '');
+    const branchName = sanitizeSpFolderSegment(branch?.name || 'Unknown');
+    const tenantName = sanitizeSpFolderSegment(tenant?.name || 'Unknown');
     const docTypeFolder = (esign.document_type === 'receipt') ? 'Payment Receipt' : 'Application';
     const subfolder = `${docTypeFolder}/${branchName}/${tenantName}`;
     const fileName = esign.file_name || 'Signed_document.pdf';
@@ -6624,10 +7202,29 @@ app.post('/api/leads', requireAuth, (req, res) => {
       const amount     = parseFloat(req.body.amount) || 0;
       const narration  = (req.body.narration || '').toString();
       const reference  = (req.body.reference || '').toString().slice(0, 200);
-      // Series is mandatory for NCD leads (per the new workflow). Trimmed and capped
-      // at 120 chars so a rogue client can't blow up the column.
-      const series     = (req.body.series || '').toString().trim().slice(0, 120);
-      if (!series) return res.status(400).json({ error: 'Series is required for NCD leads' });
+      // Series is mandatory and must reference a real configured series.
+      // For non-HO users, it must also be the currently active one (date-in-range
+      // AND active=1). HO users can override (e.g. backdating or special cases).
+      const submittedSeries = (req.body.series || '').toString().trim();
+      if (!submittedSeries) return res.status(400).json({ error: 'Series is required for NCD leads' });
+      const seriesRow = db.prepare('SELECT * FROM ncd_series WHERE name = ?').get(submittedSeries);
+      if (!seriesRow) {
+        return res.status(400).json({ error: `Unknown series "${submittedSeries}". Ask Head Office to configure it.` });
+      }
+      if (req.user.role !== 'headoffice') {
+        const active = getActiveNcdSeries();
+        if (!active) {
+          return res.status(400).json({ error: 'No active NCD series configured for today. Contact Head Office.' });
+        }
+        if (active.name !== submittedSeries) {
+          return res.status(400).json({
+            error: `Only the active series ("${active.name}") can be used today. Head Office may override.`
+          });
+        }
+      }
+      // Scheme is always derived from the series master — we never trust a
+      // client-supplied scheme, so they can't desync series<->scheme.
+      const scheme = seriesRow.scheme;
       // Follow-up reminder fields (optional). Validate YYYY-MM-DD format if provided.
       let follow_up_date = (req.body.follow_up_date || '').toString().trim();
       if (follow_up_date && !/^\d{4}-\d{2}-\d{2}$/.test(follow_up_date)) {
@@ -6635,16 +7232,14 @@ app.post('/api/leads', requireAuth, (req, res) => {
       }
       const follow_up_note = (req.body.follow_up_note || '').toString().slice(0, 500);
       // Stamp the creator's branch on NCD leads so branch-login visibility works.
-      // HO-created leads end up with branch_id='' and remain HO-only by rule (branch
-      // users don't see null-branch NCD leads).
       const ncdBranchId = (req.user && req.user.branch_id) || '';
       db.prepare(`INSERT INTO leads
-        (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, place, occupation, amount, narration, reference, series, follow_up_date, follow_up_note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, place, occupation, amount, narration, reference, series, scheme, follow_up_date, follow_up_note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, name.trim(), phone, email || '', '', ncdBranchId, notes || '', 'New', created_by, created_by_name, 'Staff',
-        'ncd', place, occupation, amount, narration, reference, series, follow_up_date, follow_up_note
+        'ncd', place, occupation, amount, narration, reference, seriesRow.name, scheme, follow_up_date, follow_up_note
       );
-      logInfo('NCD lead created', { id, name: name.trim(), by: created_by_name, series, branch_id: ncdBranchId });
+      logInfo('NCD lead created', { id, name: name.trim(), by: created_by_name, series: seriesRow.name, scheme, branch_id: ncdBranchId });
     } else {
       // Locker lead — original behavior preserved, now with optional follow-up reminder
       let lock_fud = (req.body.follow_up_date || '').toString().trim();
@@ -6899,35 +7494,160 @@ app.get('/api/leads/summary', requireAuth, (req, res) => {
 });
 
 // ============================
-//  NCD — SERIES LIST + DASHBOARD SUMMARY
+//  NCD — SERIES MASTER + DASHBOARD SUMMARY
 // ============================
-// Small helper used by the create form and dashboard. Returns the distinct series
-// values currently in use (seeded with the four historical schemes so a fresh
-// install still has a usable dropdown). Visible to every authenticated user
-// because anyone can create NCD leads now.
-function getNcdSeriesList() {
-  const seeded = ['Doubling', 'Cumulative', 'Annual', 'Monthly'];
+// Series = time-bounded issuance (e.g. NCD26). Scheme = payout structure (Monthly/
+// Annual/Cumulative/Doubling), bound 1:1 to each series in the ncd_series table.
+
+const NCD_SCHEMES = ['Doubling', 'Cumulative', 'Annual', 'Monthly'];
+
+// Return the series that is active today (active=1 AND today in range), or null
+// if none configured. Used by the create form to lock the Series picker for
+// non-HO users. If multiple overlap we pick the one with the latest start_date so
+// a newly-launched series wins over a trailing one.
+function getActiveNcdSeries() {
   try {
-    const rows = db.prepare(
-      `SELECT DISTINCT series FROM leads
-         WHERE lead_type = 'ncd' AND series IS NOT NULL AND series != ''
-         ORDER BY series ASC`
-    ).all();
-    const fromDb = rows.map(r => r.series).filter(Boolean);
-    // Merge + dedupe, preserving seeded ordering first then any extras the DB has.
-    const seen = new Set();
-    const out = [];
-    seeded.concat(fromDb).forEach(s => {
-      if (!seen.has(s)) { seen.add(s); out.push(s); }
-    });
-    return out;
+    const today = new Date().toISOString().slice(0, 10);
+    const row = db.prepare(
+      `SELECT * FROM ncd_series
+         WHERE active = 1 AND start_date <= ? AND end_date >= ?
+         ORDER BY start_date DESC
+         LIMIT 1`
+    ).get(today, today);
+    return row || null;
   } catch (e) {
-    logError('NCD series list failed', { error: e.message });
-    return seeded;
+    logError('getActiveNcdSeries failed', { error: e.message });
+    return null;
   }
 }
+
+// GET /api/ncd/series — list every configured series (HO + normal users both
+// need the list: HO to manage, creators to see the bound scheme for the active
+// one). Adds `is_active_today` boolean for the UI.
+app.get('/api/ncd/series', requireAuth, (req, res) => {
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = db.prepare(
+      `SELECT *,
+              CASE WHEN active = 1 AND start_date <= ? AND end_date >= ? THEN 1 ELSE 0 END AS is_active_today
+         FROM ncd_series
+         ORDER BY start_date DESC`
+    ).all(today, today);
+    res.json({ series: rows });
+  } catch (err) {
+    logError('NCD series list failed', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /api/ncd/active-series — returns the currently active series (or 404 if
+// none). The create form hits this on load to decide what to pre-fill.
+app.get('/api/ncd/active-series', requireAuth, (req, res) => {
+  const active = getActiveNcdSeries();
+  if (!active) return res.status(404).json({ error: 'No active NCD series configured for today' });
+  res.json(active);
+});
+
+// Back-compat: older frontend code calls /api/ncd/series-list expecting a flat
+// string array. We keep the endpoint but return every series name so nothing
+// breaks if a cached page load hits it.
 app.get('/api/ncd/series-list', requireAuth, (req, res) => {
-  res.json({ series: getNcdSeriesList() });
+  try {
+    const rows = db.prepare('SELECT name FROM ncd_series ORDER BY start_date DESC').all();
+    res.json({ series: rows.map(r => r.name) });
+  } catch (e) { res.json({ series: [] }); }
+});
+
+// ── Series master CRUD (HO only) ───────────────────────────────────────────
+function requireHeadOffice(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+  if (req.user.role !== 'headoffice') return res.status(403).json({ error: 'Head Office only' });
+  next();
+}
+
+// Validate + normalize inputs for create/update. Returns {error} on failure or
+// a cleaned-up payload { name, scheme, start_date, end_date, active, notes }.
+function validateSeriesPayload(body) {
+  const name = (body.name || '').toString().trim();
+  const scheme = (body.scheme || '').toString().trim();
+  const start_date = (body.start_date || '').toString().trim();
+  const end_date = (body.end_date || '').toString().trim();
+  const notes = (body.notes || '').toString().slice(0, 1000);
+  const active = (body.active === undefined) ? 1 : (body.active ? 1 : 0);
+
+  if (!name) return { error: 'Series name is required' };
+  if (name.length > 50) return { error: 'Series name too long' };
+  if (!NCD_SCHEMES.includes(scheme)) {
+    return { error: 'Scheme must be one of: ' + NCD_SCHEMES.join(', ') };
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start_date)) return { error: 'Start date must be YYYY-MM-DD' };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(end_date))   return { error: 'End date must be YYYY-MM-DD' };
+  if (end_date < start_date) return { error: 'End date cannot be before start date' };
+  return { name, scheme, start_date, end_date, active, notes };
+}
+
+app.post('/api/ncd/series', requireAuth, requireHeadOffice, (req, res) => {
+  try {
+    const p = validateSeriesPayload(req.body);
+    if (p.error) return res.status(400).json({ error: p.error });
+    // Uniqueness check — friendlier error than the raw SQLITE_CONSTRAINT message.
+    const dup = db.prepare('SELECT id FROM ncd_series WHERE name = ?').get(p.name);
+    if (dup) return res.status(409).json({ error: `Series "${p.name}" already exists` });
+    const id = genId();
+    db.prepare(
+      `INSERT INTO ncd_series (id, name, scheme, start_date, end_date, active, notes, created_by, created_by_name)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, p.name, p.scheme, p.start_date, p.end_date, p.active, p.notes,
+          req.user.id || '', req.user.name || '');
+    logInfo('NCD series created', { id, name: p.name, scheme: p.scheme, by: req.user.username });
+    res.json({ id, ok: true });
+  } catch (err) {
+    logError('NCD series create failed', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.put('/api/ncd/series/:id', requireAuth, requireHeadOffice, (req, res) => {
+  try {
+    const existing = db.prepare('SELECT * FROM ncd_series WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Series not found' });
+    const p = validateSeriesPayload(req.body);
+    if (p.error) return res.status(400).json({ error: p.error });
+    // Block renaming to a name already held by another series.
+    const dup = db.prepare('SELECT id FROM ncd_series WHERE name = ? AND id != ?').get(p.name, req.params.id);
+    if (dup) return res.status(409).json({ error: `Series "${p.name}" already exists` });
+    db.prepare(
+      `UPDATE ncd_series
+         SET name = ?, scheme = ?, start_date = ?, end_date = ?, active = ?, notes = ?, updated_at = datetime('now')
+       WHERE id = ?`
+    ).run(p.name, p.scheme, p.start_date, p.end_date, p.active, p.notes, req.params.id);
+    logInfo('NCD series updated', { id: req.params.id, name: p.name, by: req.user.username });
+    res.json({ ok: true });
+  } catch (err) {
+    logError('NCD series update failed', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.delete('/api/ncd/series/:id', requireAuth, requireHeadOffice, (req, res) => {
+  try {
+    const existing = db.prepare('SELECT * FROM ncd_series WHERE id = ?').get(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Series not found' });
+    // Refuse to delete a series that has leads in it — admins should deactivate
+    // instead. This preserves referential sanity and report accuracy.
+    const inUse = db.prepare("SELECT COUNT(*) AS c FROM leads WHERE lead_type = 'ncd' AND series = ?").get(existing.name).c;
+    if (inUse > 0) {
+      return res.status(409).json({
+        error: `Cannot delete: ${inUse} lead(s) are in series "${existing.name}". Deactivate it instead.`
+      });
+    }
+    db.prepare('DELETE FROM ncd_series WHERE id = ?').run(req.params.id);
+    logInfo('NCD series deleted', { id: req.params.id, name: existing.name, by: req.user.username });
+    res.json({ ok: true });
+  } catch (err) {
+    logError('NCD series delete failed', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 // Apply the same role-based NCD visibility the GET /api/leads route uses.
@@ -6973,18 +7693,20 @@ app.get('/api/ncd/dashboard-summary', requireAuth, (req, res) => {
     const by_status = { 'New': 0, 'Following Up': 0, 'Converted': 0, 'Lost': 0 };
     byStatusRows.forEach(r => { by_status[r.status || 'New'] = r.c; });
 
-    // Series-wise rollup: total leads + converted leads per series.
+    // Series-wise rollup: total leads + converted leads per (series, scheme).
+    // Group by both columns so the UI can label cards like "NCD26 (Monthly)".
     const bySeriesRows = db.prepare(
       `SELECT COALESCE(series, '') AS series,
+              COALESCE(scheme, '') AS scheme,
               COUNT(*) AS total,
               SUM(CASE WHEN status = 'Converted' THEN 1 ELSE 0 END) AS converted
          FROM leads ${baseWhere}
-         GROUP BY COALESCE(series, '')
+         GROUP BY COALESCE(series, ''), COALESCE(scheme, '')
          ORDER BY total DESC`
     ).all(...vis.params);
     const by_series = bySeriesRows
       .filter(r => r.series) // drop legacy rows with no series
-      .map(r => ({ series: r.series, total: r.total, converted: r.converted || 0 }));
+      .map(r => ({ series: r.series, scheme: r.scheme || '', total: r.total, converted: r.converted || 0 }));
 
     res.json({
       total,

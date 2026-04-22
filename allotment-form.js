@@ -349,7 +349,9 @@ function page3(doc, t, branch) {
   }
 
   doc.font('Helvetica').fontSize(8.5).fillColor('black');
-  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ${branchAddr} (hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'} (hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Hi-Tech Locker No. ${t.locker_number || '........'}, Key No. ................., Locker type ${t.locker_size || '........'}, Cabinet No. ................., for a period of 12 months from the ${dayStr} day of ${monthStr} 20${yearStr} at a rental of ${rentStr} ${rentWordsStr}${rentSuffix} for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
+  const keyStr = t.key_no || '.................';
+  const cabinetStr = t.cabinet_no || '.................';
+  const agText = `${COMPANY_FULL}, a company incorporated under the Indian Companies Act, 1956, and having its registered office at ${REGD} and one of its branches at ${branchAddr} (hereinafter called 'the Company') agree to let on hire and Shri/Smt. ${t.name || '..............................'} residing at ${t.address || '......................................................................'} (hereinafter called the Hirer(s)) agree to take on hire, subject to the terms and conditions printed overleaf, the Company's Hi-Tech Locker No. ${t.locker_number || '........'}, Key No. ${keyStr}, Locker type ${t.locker_size || '........'}, Cabinet No. ${cabinetStr}, for a period of 12 months from the ${dayStr} day of ${monthStr} 20${yearStr} at a rental of ${rentStr} ${rentWordsStr}${rentSuffix} for the said period. Unless and until determined in accordance with the terms and conditions noted herein, the hiring will continue to like periods, upon the terms and conditions given hereunder, at periodical rentals in force which shall be payable in advance on the last day of the preceding period for the next ensuing period.`;
   doc.text(agText, M, y, { width: W - 2 * M - 150, align: 'justify', lineGap: 1.5 });
   y = doc.y + 10;
 
@@ -357,7 +359,7 @@ function page3(doc, t, branch) {
   tx(doc, 'Access to the said locker shall be had by the Hirer(s) (Pl tick):', M, y);
   y += 15;
   let cx = M;
-  ['Single', 'Anyone', 'Joint'].forEach(mode => { cx = checkbox(doc, mode, cx, y) + 12; });
+  ['Single', 'Anyone', 'Joint'].forEach(mode => { cx = checkbox(doc, mode, cx, y, t.mode_of_operation === mode) + 12; });
   y += 18;
 
   doc.font('Helvetica').fontSize(8.5).fillColor('black');
@@ -511,7 +513,7 @@ function pageHirerInfo(doc, t) {
   doc.font('Helvetica').fontSize(8);
   tx(doc, 'Title:', M, y);
   let cx = M + 35;
-  ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Other'].forEach(title => { cx = checkbox(doc, title, cx, y) + 6; });
+  ['Mr.', 'Ms.', 'Mrs.', 'Dr.', 'Other'].forEach(title => { cx = checkbox(doc, title, cx, y, t.title === title) + 6; });
   y += 18;
 
   labeledBox(doc, 'Paste Passport Size Colour\nPhoto of Hirer. Photo to\nbe signed across', W - M - 100, y, 100, 95);
@@ -519,59 +521,62 @@ function pageHirerInfo(doc, t) {
   y = field(doc, 'Full Name *:', M, y, (t.name || '').toUpperCase(), 270, 75);
   y = field(doc, 'Father/Husband/Guardian *:', M, y, t.guardian_name || '', 230, 160);
   y += 2;
-  y = field(doc, 'Date of Birth *:', M, y, t.dob || '', 95, 90);
+  y = field(doc, 'Date of Birth *:', M, y, formatDate(t.dob) || '', 95, 90);
   doc.font('Helvetica').fontSize(8);
   tx(doc, 'Gender:', M + 210, y - 14);
   cx = M + 255;
-  ['Male', 'Female', 'Other'].forEach(g => { cx = checkbox(doc, g, cx, y - 16) + 4; });
+  ['Male', 'Female', 'Other'].forEach(g => { cx = checkbox(doc, g, cx, y - 16, t.gender === g) + 4; });
   y = field(doc, 'Nationality:', M, y, t.nationality || 'Indian', 110, 70);
   doc.font('Helvetica').fontSize(8);
   tx(doc, 'Marital Status:', M + 210, y - 14);
   cx = M + 295;
-  ['Married', 'Single', 'Others'].forEach(ms => { cx = checkbox(doc, ms, cx, y - 16) + 4; });
-  y = field(doc, "Mother's Maiden Name:", M, y, '', 240, 130);
+  ['Married', 'Single', 'Others'].forEach(ms => { cx = checkbox(doc, ms, cx, y - 16, t.marital_status === ms) + 4; });
+  y = field(doc, "Mother's Maiden Name:", M, y, t.mothers_maiden_name || '', 240, 130);
 
   y += 3;
 
   // Contact Details
   y = sectionTitle(doc, 'Contact Details', y);
   y += 3;
-  y = field(doc, 'Tel Res:', M, y, t.phone || '', 170, 55);
-  y = field(doc, 'Tel Office:', M, y, '', 170, 60);
-  field(doc, 'Extn:', M + 270, y - 16, '', 90, 35);
+  y = field(doc, 'Tel Res:', M, y, t.tel_res || '', 170, 55);
+  y = field(doc, 'Tel Office:', M, y, t.tel_office || '', 170, 60);
+  field(doc, 'Extn:', M + 270, y - 16, t.tel_office_ext || '', 90, 35);
   y = field(doc, 'Email ID *:', M, y, t.email || '', 240, 60);
-  y = field(doc, '2nd Email ID:', M, y, '', 230, 75);
+  y = field(doc, '2nd Email ID:', M, y, t.email_secondary || '', 230, 75);
   y = field(doc, 'Mobile (+91) *:', M, y, t.phone || '', 140, 85);
-  field(doc, '2nd Mobile:', M + 270, y - 16, '', 110, 75);
+  field(doc, '2nd Mobile:', M + 270, y - 16, t.mobile_secondary || '', 110, 75);
   y += 6;
 
   // Permanent Address
   y = sectionTitle(doc, 'Permanent Address', y);
   y += 3;
-  y = field(doc, 'Flat No. & Building *:', M, y, t.address || '', W - 2 * M - 120, 115);
-  y = field(doc, 'Road No & Name:', M, y, '', W - 2 * M - 110, 105);
-  y = field(doc, 'Landmark:', M, y, '', W - 2 * M - 75, 65);
-  y = field(doc, 'City *:', M, y, t.city || '', 170, 40);
-  field(doc, 'PIN Code *:', M + 270, y - 16, t.pincode || '', 75, 65);
-  y = field(doc, 'State *:', M, y, t.state || '', 170, 42);
-  field(doc, 'Country:', M + 270, y - 16, 'India', 75, 55);
+  // Prefer broken-down fields captured in the Allotment Form; fall back to the
+  // free-text tenant.address line for older records.
+  y = field(doc, 'Flat No. & Building *:', M, y, t.perm_flat_building || t.address || '', W - 2 * M - 120, 115);
+  y = field(doc, 'Road No & Name:', M, y, t.perm_road_name || '', W - 2 * M - 110, 105);
+  y = field(doc, 'Landmark:', M, y, t.perm_landmark || '', W - 2 * M - 75, 65);
+  y = field(doc, 'City *:', M, y, t.perm_city || t.city || '', 170, 40);
+  field(doc, 'PIN Code *:', M + 270, y - 16, t.perm_pincode || t.pincode || '', 75, 65);
+  y = field(doc, 'State *:', M, y, t.perm_state || t.state || '', 170, 42);
+  field(doc, 'Country:', M + 270, y - 16, t.perm_country || 'India', 75, 55);
   y += 6;
 
   // Residence Address
+  const sameAsPerm = (t.res_same_as_perm === 1 || t.res_same_as_perm === true);
   doc.font('Helvetica-Bold').fontSize(8);
   tx(doc, 'Residence Address:', M, y);
   doc.font('Helvetica').fontSize(8);
   tx(doc, 'Same as Permanent Address?', M + 115, y);
-  checkbox(doc, 'Yes', M + 280, y);
-  checkbox(doc, 'No', M + 320, y);
+  checkbox(doc, 'Yes', M + 280, y, sameAsPerm);
+  checkbox(doc, 'No', M + 320, y, t.res_same_as_perm === 0);
   y += 14;
-  y = field(doc, 'Flat No. & Building:', M, y, '', W - 2 * M - 120, 115);
-  y = field(doc, 'Road No & Name:', M, y, '', W - 2 * M - 110, 105);
-  y = field(doc, 'Landmark:', M, y, '', W - 2 * M - 75, 65);
-  y = field(doc, 'City:', M, y, '', 170, 35);
-  field(doc, 'PIN Code:', M + 270, y - 16, '', 75, 60);
-  y = field(doc, 'State:', M, y, '', 170, 38);
-  field(doc, 'Country:', M + 270, y - 16, '', 75, 55);
+  y = field(doc, 'Flat No. & Building:', M, y, t.res_flat_building || '', W - 2 * M - 120, 115);
+  y = field(doc, 'Road No & Name:', M, y, t.res_road_name || '', W - 2 * M - 110, 105);
+  y = field(doc, 'Landmark:', M, y, t.res_landmark || '', W - 2 * M - 75, 65);
+  y = field(doc, 'City:', M, y, t.res_city || '', 170, 35);
+  field(doc, 'PIN Code:', M + 270, y - 16, t.res_pincode || '', 75, 60);
+  y = field(doc, 'State:', M, y, t.res_state || '', 170, 38);
+  field(doc, 'Country:', M + 270, y - 16, t.res_country || '', 75, 55);
 
   bottomRightSign(doc, 'Hirer Signature');
   drawFooter(doc, 'DFIN/ALT/03/Ver 1.0');
@@ -609,9 +614,9 @@ function pageKYC(doc, t) {
   y += 9;
   tx(doc, 'passport is the same as the Correspondence Address mentioned in the form:', M, y);
   y += 12;
-  y = field(doc, 'Passport No.:', M, y, '', 110, 75);
-  field(doc, 'Issued at:', M + 220, y - 16, '', 75, 55);
-  field(doc, 'Issued Date:', M + 380, y - 16, '', 75, 70);
+  y = field(doc, 'Passport No.:', M, y, t.passport_no || '', 110, 75);
+  field(doc, 'Issued at:', M + 220, y - 16, t.passport_issued_at || '', 75, 55);
+  field(doc, 'Issued Date:', M + 380, y - 16, formatDate(t.passport_issued_date) || '', 75, 70);
 
   doc.font('Helvetica-Bold').fontSize(7.5);
   tx(doc, '( OR )', M, y); y += 10;
@@ -621,6 +626,33 @@ function pageKYC(doc, t) {
 
   const idProofs = ['Passport (where address differs)', 'Voter ID card', 'Driving License', 'Aadhaar Card/Letter', 'Ration card with photo'];
   const addrProofs = ['Voter ID card', 'Driving License', 'Aadhaar Card/Letter', 'Ration card with photo', 'Electricity Bill with book copy', 'Telephone Bill (landline)', 'Bank account statement (3 months)', 'Bank Pass Book (authenticated)', 'Registered Lease Agreement', 'Property tax receipt with book copy'];
+
+  // Map stored enum (simpler form used in DB) → index in the verbose display list
+  const poiMatchIdx = (() => {
+    if (!t.poi_type) return -1;
+    const v = String(t.poi_type).toLowerCase();
+    if (v.startsWith('passport')) return 0;
+    if (v.startsWith('voter')) return 1;
+    if (v.startsWith('driving')) return 2;
+    if (v.startsWith('aadhaar')) return 3;
+    if (v.startsWith('ration')) return 4;
+    return -1;
+  })();
+  const poaMatchIdx = (() => {
+    if (!t.poa_type) return -1;
+    const v = String(t.poa_type).toLowerCase();
+    if (v.startsWith('voter')) return 0;
+    if (v.startsWith('driving')) return 1;
+    if (v.startsWith('aadhaar')) return 2;
+    if (v.startsWith('ration')) return 3;
+    if (v.startsWith('electricity')) return 4;
+    if (v.startsWith('telephone')) return 5;
+    if (v.startsWith('bank account') || v.startsWith('bank statement')) return 6;
+    if (v.startsWith('bank pass')) return 7;
+    if (v.startsWith('registered lease')) return 8;
+    if (v.startsWith('property tax')) return 9;
+    return -1;
+  })();
 
   const col1x = M, col2x = W / 2 + 10;
   const tw = W / 2 - M - 15;
@@ -644,19 +676,38 @@ function pageKYC(doc, t) {
       tx(doc, String(i + 1), col1x + 6, y + 2);
       tx(doc, idProofs[i], col1x + 22, y + 2);
       doc.save().strokeColor(GOLD).rect(col1x + tw - 18, y + 1, 7, 7).stroke().restore();
+      if (i === poiMatchIdx) {
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('black');
+        tx(doc, 'X', col1x + tw - 16, y + 1);
+        doc.font('Helvetica').fontSize(6.5);
+      }
     }
     if (i < addrProofs.length) {
       tx(doc, String(i + 1), col2x + 6, y + 2);
       tx(doc, addrProofs[i], col2x + 22, y + 2);
       doc.save().strokeColor(GOLD).rect(col2x + tw - 18, y + 1, 7, 7).stroke().restore();
+      if (i === poaMatchIdx) {
+        doc.font('Helvetica-Bold').fontSize(7).fillColor('black');
+        tx(doc, 'X', col2x + tw - 16, y + 1);
+        doc.font('Helvetica').fontSize(6.5);
+      }
     }
     y += 11;
   }
 
   y += 4;
-  y = field(doc, 'Document No.:', M, y, '', 170, 80);
-  y = field(doc, 'Issued at:', M, y, '', 110, 55);
-  field(doc, 'Expiry Date:', M + 210, y - 16, '', 95, 75);
+  // Render the POI document details (primary proof). If the POA doc no. differs,
+  // append it on the next line so both proofs are traceable.
+  y = field(doc, 'Document No.:', M, y, t.poi_doc_no || '', 170, 80);
+  y = field(doc, 'Issued at:', M, y, t.poi_issued_at || '', 110, 55);
+  field(doc, 'Expiry Date:', M + 210, y - 16, formatDate(t.poi_expiry_date) || '', 95, 75);
+  if (t.poa_doc_no && t.poa_doc_no !== t.poi_doc_no) {
+    doc.font('Helvetica').fontSize(6.5).fillColor('#666666');
+    const poaLine = `POA Doc: ${t.poa_doc_no}${t.poa_issued_at ? ' | Issued at: ' + t.poa_issued_at : ''}${t.poa_expiry_date ? ' | Expiry: ' + formatDate(t.poa_expiry_date) : ''}`;
+    tx(doc, poaLine, M, y);
+    doc.fillColor('black');
+    y += 10;
+  }
   y += 3;
   doc.font('Helvetica-Bold').fontSize(6.5).fillColor(RED);
   tx(doc, 'Note: Pls attach one self-attested photocopy of PAN Card, Proof of Identity and Proof of Address.', M, y);
@@ -673,14 +724,14 @@ function pageKYC(doc, t) {
   y += 15;
 
   const additional = [
-    ['Education', ['Professional', 'Post Graduate', 'Graduate', 'Non Graduate', 'Others']],
-    ['Occupation', ['Salaried', 'Self-employed Professional', 'Self-employed Business', 'Farmer', 'Retired', 'Student', 'Home Maker', 'Others']],
-    ['Profession', ['Doctor', 'Lawyer', 'Architect', 'CA-CS', 'IT Consultant', 'Others']],
-    ['Line of Business', ['Manufacturing', 'Trading', 'Agricultural', 'CA-CS']],
-    ['Residence Type', ['Owned', 'Rented', 'Ancestral', 'Company Provided']],
+    ['Education', ['Professional', 'Post Graduate', 'Graduate', 'Non Graduate', 'Others'], t.education],
+    ['Occupation', ['Salaried', 'Self-employed Professional', 'Self-employed Business', 'Farmer', 'Retired', 'Student', 'Home Maker', 'Others'], t.occupation],
+    ['Profession', ['Doctor', 'Lawyer', 'Architect', 'CA-CS', 'IT Consultant', 'Others'], t.profession],
+    ['Line of Business', ['Manufacturing', 'Trading', 'Agricultural', 'CA-CS'], t.line_of_business],
+    ['Residence Type', ['Owned', 'Rented', 'Ancestral', 'Company Provided'], t.residence_type],
   ];
 
-  additional.forEach(([label, opts]) => {
+  additional.forEach(([label, opts, selected]) => {
     doc.font('Helvetica-Bold').fontSize(7).fillColor(GOLD);
     tx(doc, label, M, y);
     doc.fillColor('black');
@@ -689,7 +740,7 @@ function pageKYC(doc, t) {
       if (cx2 + doc.font('Helvetica').fontSize(6.5).widthOfString(opt) + 22 > W - M) {
         y += 12; cx2 = M + 90;
       }
-      cx2 = checkbox(doc, opt, cx2, y) + 4;
+      cx2 = checkbox(doc, opt, cx2, y, selected === opt) + 4;
     });
     y += 15;
     doc.save().strokeColor('#eeeeee').lineWidth(0.5).moveTo(M, y - 3).lineTo(W - M, y - 3).stroke().restore();
@@ -702,7 +753,7 @@ function pageKYC(doc, t) {
   let cx3 = M + 90;
   ['Upto 1', '1 to 3', '3 to 6', '6 to 12', '12 to 25', '25 to 50', '50 to 100', 'Above 100'].forEach(inc => {
     if (cx3 + doc.widthOfString(inc) + 22 > W - M) { y += 12; cx3 = M + 90; }
-    cx3 = checkbox(doc, inc, cx3, y) + 4;
+    cx3 = checkbox(doc, inc, cx3, y, t.annual_income_bracket === inc) + 4;
   });
 
   bottomRightSign(doc, 'Hirer Signature');
@@ -721,7 +772,7 @@ function pageDeclaration(doc, t) {
   y = sectionTitle(doc, 'MODE OF OPERATION', y);
   y += 4;
   let cx = M + 8;
-  ['Single', 'Anyone', 'Joint'].forEach(mode => { cx = checkbox(doc, mode, cx, y) + 20; });
+  ['Single', 'Anyone', 'Joint'].forEach(mode => { cx = checkbox(doc, mode, cx, y, t.mode_of_operation === mode) + 20; });
   y += 18;
 
   // Declaration
@@ -752,17 +803,17 @@ function pageDeclaration(doc, t) {
   y = doc.y + 4;
 
   y = field(doc, 'Nominee Name *:', M, y, t.nominee_name || '', 270, 100);
-  y = field(doc, 'Flat No. & Building:', M, y, '', 270, 115);
-  y = field(doc, 'Road No & Name:', M, y, '', 270, 105);
-  y = field(doc, 'Landmark:', M, y, '', 270, 65);
-  y = field(doc, 'City:', M, y, '', 145, 35);
-  field(doc, 'PIN Code:', M + 240, y - 16, '', 75, 60);
-  y = field(doc, 'State:', M, y, '', 145, 38);
-  field(doc, 'Country:', M + 240, y - 16, '', 75, 55);
+  y = field(doc, 'Flat No. & Building:', M, y, t.nominee_flat_building || '', 270, 115);
+  y = field(doc, 'Road No & Name:', M, y, t.nominee_road_name || '', 270, 105);
+  y = field(doc, 'Landmark:', M, y, t.nominee_landmark || '', 270, 65);
+  y = field(doc, 'City:', M, y, t.nominee_city || '', 145, 35);
+  field(doc, 'PIN Code:', M + 240, y - 16, t.nominee_pincode || '', 75, 60);
+  y = field(doc, 'State:', M, y, t.nominee_state || '', 145, 38);
+  field(doc, 'Country:', M + 240, y - 16, t.nominee_country || '', 75, 55);
   y = field(doc, 'Mobile (+91) *:', M, y, t.nominee_phone || '', 140, 85);
   y = field(doc, 'Aadhaar No.:', M, y, t.nominee_aadhaar || '', 140, 75);
   field(doc, 'PAN No.:', M + 240, y - 16, t.nominee_pan || '', 120, 50);
-  y = field(doc, 'Date of Birth:', M, y, '', 95, 80);
+  y = field(doc, 'Date of Birth:', M, y, formatDate(t.nominee_dob) || '', 95, 80);
   field(doc, 'Relationship with Hirer:', M + 240, y - 16, t.nominee_relation || '', 95, 135);
 
   y += 2;
@@ -773,8 +824,13 @@ function pageDeclaration(doc, t) {
   tx(doc, 'As nominee is a minor as on this date, I appoint', M + 155, y);
   y += 12;
   cx = M;
-  ['Mr.', 'Ms.', 'Mrs.'].forEach(title => { cx = checkbox(doc, title, cx, y) + 2; });
+  ['Mr.', 'Ms.', 'Mrs.'].forEach(title => { cx = checkbox(doc, title, cx, y, t.nominee_minor_guardian_title === title) + 2; });
   doc.save().strokeColor(LGREY).lineWidth(0.5).moveTo(cx + 3, y + 9).lineTo(cx + 190, y + 9).stroke().restore();
+  if (t.nominee_minor_guardian_name) {
+    doc.font('Helvetica').fontSize(7).fillColor(DARK);
+    tx(doc, t.nominee_minor_guardian_name, cx + 5, y);
+    doc.fillColor('black');
+  }
   y += 10;
   doc.font('Helvetica').fontSize(6.5);
   tx(doc, 'to withdraw/take delivery of all the documents/jewellery/other contents from the locker on behalf of the', M, y);
@@ -803,7 +859,7 @@ function pageAcknowledgement(doc, t, branch, locker) {
   y = sectionTitle(doc, 'ACKNOWLEDGEMENT OF HIRER', y);
   y += 6;
   doc.font('Helvetica').fontSize(9).fillColor('black');
-  tx(doc, `I/We hereby acknowledge receipt of Locker No. ${t.locker_number || '__________'}  Key No. __________`, M, y);
+  tx(doc, `I/We hereby acknowledge receipt of Locker No. ${t.locker_number || '__________'}  Key No. ${t.key_no || '__________'}`, M, y);
   y += 25;
 
   y += 10;
@@ -825,7 +881,7 @@ function pageAcknowledgement(doc, t, branch, locker) {
   y = field(doc, 'Scheme:', M, y, 'Annual', 115, 55);
   field(doc, 'Locker Type:', W / 2 + 10, y - 16, locker.size || t.locker_size || '', 115, 80);
   y = field(doc, 'Locker No.:', M, y, t.locker_number || '', 115, 70);
-  field(doc, 'Cabinet No.:', W / 2 + 10, y - 16, '', 115, 80);
+  field(doc, 'Cabinet No.:', W / 2 + 10, y - 16, t.cabinet_no || '', 115, 80);
   y += 2;
   y = field(doc, 'Received Locker Rent: Rs.', M, y, t.rent_amount ? formatRupees(t.rent_amount) : '', 115, 155);
   // If we have a GST/waiver breakup, render a small itemised note below the rent line

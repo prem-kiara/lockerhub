@@ -1,0 +1,1 @@
+/sessions/awesome-bold-mendel/mnt/LockerHub/receipt-generator.js

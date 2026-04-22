@@ -2210,6 +2210,7 @@
                 <li id="navFeedback" style="display:none;"><a onclick="switchSection('feedback')" class="nav-link" data-section="feedback">Feedback</a></li>
                 <li id="navLeads" style="display:none;"><a onclick="switchSection('leads')" class="nav-link" data-section="leads">Leads</a></li>
                 <li id="navLeadCapture" style="display:none;"><a onclick="switchSection('leadCapture')" class="nav-link" data-section="leadCapture">Capture Lead</a></li>
+                <li id="navNcdSeries" style="display:none;"><a onclick="switchSection('ncdSeries')" class="nav-link" data-section="ncdSeries">NCD Series</a></li>
                 <li id="navStaffManual" style="display:none; margin-top:14px; border-top:1px solid rgba(255,255,255,0.08); padding-top:6px;"><a href="/LockerHub_Staff_Manual.pdf" target="_blank" rel="noopener" class="nav-link" style="color:#d4a84b;">📘 Staff Manual</a></li>
             </ul>
             <div style="flex-shrink:0; padding:12px 16px; border-top:1px solid rgba(255,255,255,0.1); font-size:11px; text-align:center;">
@@ -3019,17 +3020,18 @@
                                     <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 1)">Name</th>
                                     <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 2)">Phone</th>
                                     <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 3)">Series</th>
-                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 4)">Place</th>
-                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 5)">Amount</th>
-                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 6)">Narration</th>
-                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 7)">Follow-up</th>
-                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 8)">Created By</th>
-                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 9)">Status</th>
+                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 4)">Scheme</th>
+                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 5)">Place</th>
+                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 6)">Amount</th>
+                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 7)">Narration</th>
+                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 8)">Follow-up</th>
+                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 9)">Created By</th>
+                                    <th class="sortable" onclick="sortTable(this, 'leadsNcdTable', 10)">Status</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
                             <tbody id="leadsNcdTable">
-                                <tr><td colspan="11" class="loading"><div class="spinner"></div></td></tr>
+                                <tr><td colspan="12" class="loading"><div class="spinner"></div></td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -3082,11 +3084,17 @@
                             </div>
                             <!-- NCD-specific fields -->
                             <div id="lcNcdFields" style="display:none;">
-                                <div style="margin-bottom:16px;">
-                                    <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Series *</label>
-                                    <select id="lcNcdScheme" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
-                                        <option value="">Loading…</option>
-                                    </select>
+                                <div style="margin-bottom:16px; display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+                                    <div>
+                                        <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Series *</label>
+                                        <select id="lcNcdScheme" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px;">
+                                            <option value="">Loading…</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Scheme <span style="color:#888; font-weight:400;">(auto)</span></label>
+                                        <div id="lcNcdSchemeDerived" style="width:100%; padding:10px 14px; border:1px solid #ddd; border-radius:8px; font-size:14px; background:#f5f3ed; color:#2c1810; min-height:20px;">—</div>
+                                    </div>
                                 </div>
                                 <div style="margin-bottom:16px;">
                                     <label style="font-weight:600; font-size:13px; color:#333; display:block; margin-bottom:6px;">Investment Amount (₹) *</label>
@@ -3103,6 +3111,34 @@
                             <div class="section-title" style="font-size:15px; margin-bottom:10px;">My Recent Leads</div>
                             <div id="myRecentLeads" style="font-size:13px; color:#888;">Loading...</div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- NCD Series admin (HO only) -->
+                <div id="ncdSeriesScreen" class="screen">
+                    <div style="display:flex; gap:12px; align-items:center; margin-bottom:16px;">
+                        <div class="section-title" style="margin:0;">NCD Series</div>
+                        <button class="btn btn-primary" onclick="openNcdSeriesModal()" style="margin-left:auto; background:#b8860b; border-color:#b8860b;">+ Add Series</button>
+                    </div>
+                    <div style="font-size:12px; color:#666; margin-bottom:16px;">Each series is bound to one payout Scheme (Doubling / Cumulative / Annual / Monthly). Only the currently-active series (today within range AND active=on) is available to staff on the lead-creation form. Head Office can override.</div>
+                    <div id="ncdSeriesTableWrap" class="table-container">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Scheme</th>
+                                    <th>Start</th>
+                                    <th>End</th>
+                                    <th>Active</th>
+                                    <th>Status</th>
+                                    <th>Notes</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ncdSeriesTable">
+                                <tr><td colspan="8" class="loading"><div class="spinner"></div></td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
@@ -3644,6 +3680,257 @@
             </div>
         </div>
     </div>
+
+    <!-- Allotment Form Modal (structured capture of all printable fields) -->
+    <div id="allotmentFormModal" class="modal-overlay">
+        <div class="modal" style="max-width:920px;">
+            <div class="modal-header">
+                <h2>Allotment Form — <span id="allotmentModalTenantName"></span></h2>
+                <button class="modal-close" onclick="closeModal('allotmentFormModal')">×</button>
+            </div>
+            <div class="modal-body">
+                <div id="allotmentLockedBanner" style="display:none; padding:12px; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; margin-bottom:12px; color:#991b1b; font-weight:600;">
+                    🔒 This allotment is locked — the agreement has been e-signed. Fields are read-only.
+                </div>
+                <div id="allotmentStatusBanner" style="display:none; padding:10px 12px; background:#ecfdf5; border:1px solid #a7f3d0; border-radius:6px; margin-bottom:12px; color:#065f46; font-weight:500;">
+                    ✅ Allotment Form complete. Fields remain editable until the agreement is e-signed.
+                </div>
+
+                <!-- Tab navigation -->
+                <div style="display:flex; border-bottom:2px solid var(--border); margin-bottom:16px; gap:4px; flex-wrap:wrap;">
+                    <button type="button" class="allot-tab active" data-tab="personal" onclick="switchAllotmentTab('personal')">1. Personal</button>
+                    <button type="button" class="allot-tab" data-tab="address" onclick="switchAllotmentTab('address')">2. Address</button>
+                    <button type="button" class="allot-tab" data-tab="kycprofile" onclick="switchAllotmentTab('kycprofile')">3. KYC Profile</button>
+                    <button type="button" class="allot-tab" data-tab="kycdocs" onclick="switchAllotmentTab('kycdocs')">4. KYC Documents</button>
+                    <button type="button" class="allot-tab" data-tab="nominee" onclick="switchAllotmentTab('nominee')">5. Nominee</button>
+                    <button type="button" class="allot-tab" data-tab="issuance" onclick="switchAllotmentTab('issuance')">6. Locker Issuance</button>
+                </div>
+
+                <form id="allotmentForm">
+                    <input type="hidden" id="allot_tenant_id">
+
+                    <!-- TAB 1: Personal -->
+                    <div class="allot-tab-panel" data-panel="personal">
+                        <div class="form-row">
+                            <div class="form-group"><label>Title *</label>
+                                <select id="allot_title"><option value="">Select...</option><option>Mr.</option><option>Ms.</option><option>Mrs.</option><option>Dr.</option><option>Other</option></select></div>
+                            <div class="form-group"><label>Father / Husband / Guardian Name *</label>
+                                <input type="text" id="allot_guardian_name" maxlength="120"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Date of Birth *</label>
+                                <input type="date" id="allot_dob"></div>
+                            <div class="form-group"><label>Gender *</label>
+                                <select id="allot_gender"><option value="">Select...</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Nationality</label>
+                                <input type="text" id="allot_nationality" value="Indian"></div>
+                            <div class="form-group"><label>Marital Status *</label>
+                                <select id="allot_marital_status"><option value="">Select...</option><option>Married</option><option>Single</option><option>Others</option></select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1 1 100%;"><label>Mother's Maiden Name</label>
+                                <input type="text" id="allot_mothers_maiden_name" maxlength="120"></div>
+                        </div>
+                        <h4 style="margin-top:16px; color:#b8860b;">Contact Extras (primary email/phone live on the Tenant record)</h4>
+                        <div class="form-row">
+                            <div class="form-group"><label>Tel Res</label>
+                                <input type="text" id="allot_tel_res" maxlength="15"></div>
+                            <div class="form-group"><label>Tel Office</label>
+                                <input type="text" id="allot_tel_office" maxlength="15"></div>
+                            <div class="form-group" style="max-width:120px;"><label>Extn</label>
+                                <input type="text" id="allot_tel_office_ext" maxlength="8"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Secondary Email</label>
+                                <input type="email" id="allot_email_secondary"></div>
+                            <div class="form-group"><label>Secondary Mobile</label>
+                                <input type="text" id="allot_mobile_secondary" maxlength="10" placeholder="10 digits"></div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 2: Address -->
+                    <div class="allot-tab-panel" data-panel="address" style="display:none;">
+                        <h4 style="color:#b8860b;">Permanent Address</h4>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1 1 100%;"><label>Flat No. & Building *</label>
+                                <input type="text" id="allot_perm_flat_building" maxlength="200"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Road No. & Name</label>
+                                <input type="text" id="allot_perm_road_name" maxlength="200"></div>
+                            <div class="form-group"><label>Landmark</label>
+                                <input type="text" id="allot_perm_landmark" maxlength="200"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>City *</label>
+                                <input type="text" id="allot_perm_city" maxlength="80"></div>
+                            <div class="form-group" style="max-width:150px;"><label>PIN Code *</label>
+                                <input type="text" id="allot_perm_pincode" maxlength="6" placeholder="6 digits"></div>
+                            <div class="form-group"><label>State *</label>
+                                <input type="text" id="allot_perm_state" maxlength="80"></div>
+                            <div class="form-group" style="max-width:150px;"><label>Country</label>
+                                <input type="text" id="allot_perm_country" value="India"></div>
+                        </div>
+                        <h4 style="margin-top:20px; color:#b8860b;">Residence Address</h4>
+                        <label style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+                            <input type="checkbox" id="allot_res_same_as_perm" checked onchange="toggleResAddress()">
+                            <span>Same as Permanent Address</span>
+                        </label>
+                        <div id="allot_res_fields">
+                            <div class="form-row">
+                                <div class="form-group" style="flex:1 1 100%;"><label>Flat No. & Building</label>
+                                    <input type="text" id="allot_res_flat_building" maxlength="200"></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group"><label>Road No. & Name</label>
+                                    <input type="text" id="allot_res_road_name" maxlength="200"></div>
+                                <div class="form-group"><label>Landmark</label>
+                                    <input type="text" id="allot_res_landmark" maxlength="200"></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group"><label>City</label>
+                                    <input type="text" id="allot_res_city" maxlength="80"></div>
+                                <div class="form-group" style="max-width:150px;"><label>PIN Code</label>
+                                    <input type="text" id="allot_res_pincode" maxlength="6"></div>
+                                <div class="form-group"><label>State</label>
+                                    <input type="text" id="allot_res_state" maxlength="80"></div>
+                                <div class="form-group" style="max-width:150px;"><label>Country</label>
+                                    <input type="text" id="allot_res_country" value="India"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 3: KYC Profile -->
+                    <div class="allot-tab-panel" data-panel="kycprofile" style="display:none;">
+                        <div class="form-row">
+                            <div class="form-group"><label>Education *</label>
+                                <select id="allot_education"><option value="">Select...</option><option>Professional</option><option>Post Graduate</option><option>Graduate</option><option>Non Graduate</option><option>Others</option></select></div>
+                            <div class="form-group"><label>Occupation *</label>
+                                <select id="allot_occupation"><option value="">Select...</option><option>Salaried</option><option>Self-employed Professional</option><option>Self-employed Business</option><option>Farmer</option><option>Retired</option><option>Student</option><option>Home Maker</option><option>Others</option></select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Profession</label>
+                                <select id="allot_profession"><option value="">Select...</option><option>Doctor</option><option>Lawyer</option><option>Architect</option><option>CA-CS</option><option>IT Consultant</option><option>Others</option></select></div>
+                            <div class="form-group"><label>Line of Business</label>
+                                <select id="allot_line_of_business"><option value="">Select...</option><option>Manufacturing</option><option>Trading</option><option>Agricultural</option><option>CA-CS</option></select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Residence Type *</label>
+                                <select id="allot_residence_type"><option value="">Select...</option><option>Owned</option><option>Rented</option><option>Ancestral</option><option>Company Provided</option></select></div>
+                            <div class="form-group"><label>Annual Income (₹ lakhs) *</label>
+                                <select id="allot_annual_income_bracket"><option value="">Select...</option><option>Upto 1</option><option>1 to 3</option><option>3 to 6</option><option>6 to 12</option><option>12 to 25</option><option>25 to 50</option><option>50 to 100</option><option>Above 100</option></select></div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 4: KYC Documents -->
+                    <div class="allot-tab-panel" data-panel="kycdocs" style="display:none;">
+                        <div style="padding:10px; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; margin-bottom:12px; font-size:13px;">
+                            <strong>Note:</strong> PAN and Aadhaar of the hirer are managed on the main Tenant modal (mandatory for all tenants) — they are not duplicated here.
+                        </div>
+                        <h4 style="color:#b8860b;">Passport (optional — may serve as both POI & POA if address matches)</h4>
+                        <div class="form-row">
+                            <div class="form-group"><label>Passport No.</label>
+                                <input type="text" id="allot_passport_no" maxlength="20"></div>
+                            <div class="form-group"><label>Issued at</label>
+                                <input type="text" id="allot_passport_issued_at" maxlength="80"></div>
+                            <div class="form-group"><label>Issued Date</label>
+                                <input type="date" id="allot_passport_issued_date"></div>
+                        </div>
+                        <h4 style="margin-top:16px; color:#b8860b;">Proof of Identity *</h4>
+                        <div class="form-row">
+                            <div class="form-group"><label>POI Type</label>
+                                <select id="allot_poi_type"><option value="">Select...</option><option>Passport</option><option>Voter ID card</option><option>Driving License</option><option>Aadhaar Card</option><option>Ration card with photo</option></select></div>
+                            <div class="form-group"><label>POI Doc No.</label>
+                                <input type="text" id="allot_poi_doc_no" maxlength="40"></div>
+                            <div class="form-group"><label>Issued at</label>
+                                <input type="text" id="allot_poi_issued_at" maxlength="80"></div>
+                            <div class="form-group"><label>Expiry Date</label>
+                                <input type="date" id="allot_poi_expiry_date"></div>
+                        </div>
+                        <h4 style="margin-top:16px; color:#b8860b;">Proof of Address *</h4>
+                        <div class="form-row">
+                            <div class="form-group"><label>POA Type</label>
+                                <select id="allot_poa_type"><option value="">Select...</option><option>Voter ID card</option><option>Driving License</option><option>Aadhaar Card</option><option>Ration card with photo</option><option>Electricity Bill</option><option>Telephone Bill (landline)</option><option>Bank account statement (3 months)</option><option>Bank Pass Book</option><option>Registered Lease Agreement</option><option>Property tax receipt</option></select></div>
+                            <div class="form-group"><label>POA Doc No.</label>
+                                <input type="text" id="allot_poa_doc_no" maxlength="40"></div>
+                            <div class="form-group"><label>Issued at</label>
+                                <input type="text" id="allot_poa_issued_at" maxlength="80"></div>
+                            <div class="form-group"><label>Expiry Date</label>
+                                <input type="date" id="allot_poa_expiry_date"></div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 5: Nominee -->
+                    <div class="allot-tab-panel" data-panel="nominee" style="display:none;">
+                        <div style="padding:10px; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; margin-bottom:12px; font-size:13px;">
+                            <strong>Note:</strong> Nominee name, phone, Aadhaar and PAN are set on the Tenant modal. Fill the additional details below.
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Relationship with Hirer *</label>
+                                <input type="text" id="allot_nominee_relation" maxlength="60" placeholder="e.g. Spouse, Son, Daughter, Father"></div>
+                            <div class="form-group"><label>Nominee Date of Birth</label>
+                                <input type="date" id="allot_nominee_dob"></div>
+                        </div>
+                        <h4 style="margin-top:10px; color:#b8860b;">Nominee Address</h4>
+                        <div class="form-row">
+                            <div class="form-group" style="flex:1 1 100%;"><label>Flat No. & Building</label>
+                                <input type="text" id="allot_nominee_flat_building" maxlength="200"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Road No. & Name</label>
+                                <input type="text" id="allot_nominee_road_name" maxlength="200"></div>
+                            <div class="form-group"><label>Landmark</label>
+                                <input type="text" id="allot_nominee_landmark" maxlength="200"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>City</label>
+                                <input type="text" id="allot_nominee_city" maxlength="80"></div>
+                            <div class="form-group" style="max-width:150px;"><label>PIN Code *</label>
+                                <input type="text" id="allot_nominee_pincode" maxlength="6"></div>
+                            <div class="form-group"><label>State *</label>
+                                <input type="text" id="allot_nominee_state" maxlength="80"></div>
+                            <div class="form-group" style="max-width:150px;"><label>Country</label>
+                                <input type="text" id="allot_nominee_country" value="India"></div>
+                        </div>
+                        <h4 style="margin-top:16px; color:#b8860b;">If Nominee is a Minor — Guardian Appointment</h4>
+                        <div class="form-row">
+                            <div class="form-group" style="max-width:140px;"><label>Title</label>
+                                <select id="allot_nominee_minor_guardian_title"><option value="">—</option><option>Mr.</option><option>Ms.</option><option>Mrs.</option></select></div>
+                            <div class="form-group"><label>Guardian Name</label>
+                                <input type="text" id="allot_nominee_minor_guardian_name" maxlength="120"></div>
+                        </div>
+                    </div>
+
+                    <!-- TAB 6: Locker Issuance -->
+                    <div class="allot-tab-panel" data-panel="issuance" style="display:none;">
+                        <div class="form-row">
+                            <div class="form-group"><label>Mode of Operation *</label>
+                                <select id="allot_mode_of_operation"><option value="">Select...</option><option>Single</option><option>Anyone</option><option>Joint</option></select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group"><label>Key No. *</label>
+                                <input type="text" id="allot_key_no" maxlength="40"></div>
+                            <div class="form-group"><label>Cabinet No. *</label>
+                                <input type="text" id="allot_cabinet_no" maxlength="40"></div>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeModal('allotmentFormModal')">Cancel</button>
+                <button type="button" class="btn btn-secondary" id="allotmentSaveDraftBtn" onclick="saveAllotmentForm(false)">Save Draft</button>
+                <button type="button" class="btn btn-primary" id="allotmentCompleteBtn" onclick="saveAllotmentForm(true)" style="background:#16a34a;">Save &amp; Complete</button>
+            </div>
+        </div>
+    </div>
+    <style>
+      .allot-tab { background:transparent; border:none; padding:10px 14px; font-size:13px; cursor:pointer; color:var(--text-light); border-bottom:3px solid transparent; margin-bottom:-2px; font-weight:500; }
+      .allot-tab:hover { color:#2c1810; }
+      .allot-tab.active { color:#b8860b; border-bottom-color:#b8860b; font-weight:600; }
+      .allot-tab-panel { padding-top:4px; }
+    </style>
 
     <!-- Modal for Add Visit -->
     <div id="visitModal" class="modal-overlay">
@@ -4503,6 +4790,7 @@
                 document.getElementById('navReminders').style.display = 'block';
                 document.getElementById('navFeedback').style.display = 'block';
                 document.getElementById('navLeads').style.display = 'block';
+                document.getElementById('navNcdSeries').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('lockerAddBtns').style.display = isHeadOffice ? 'inline' : 'none';
                 document.getElementById('createNewUnitBtn').style.display = isHeadOffice ? 'block' : 'none';
                 document.getElementById('userInfo').textContent = `${result.name} (${isHeadOffice ? 'Head Office' : result.branch_name || 'Branch'})`;
@@ -4514,7 +4802,7 @@
                     try { loadBranchSelector(); } catch(e) {}
                 }
                 const savedSection = localStorage.getItem('lockerhub_section');
-                const hoSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads'];
+                const hoSections = ['dashboard','lockerTypes','units','tenants','payments','visits','bgchecks','esign','reports','backup','branches','users','appointments','reminders','feedback','leads','ncdSeries'];
                 const branchSections = ['dashboard','units','tenants','payments','visits','bgchecks','esign','appointments','reminders','feedback','leads'];
                 const validSections = isHeadOffice ? hoSections : branchSections;
                 try { await switchSection(validSections.includes(savedSection) ? savedSection : 'dashboard'); } catch(e) { console.warn('Section load failed:', e.message); }
@@ -5263,6 +5551,7 @@
                 feedback: 'Customer Feedback',
                 leads: 'Leads',
                 leadCapture: 'Capture Lead',
+                ncdSeries: 'Manage NCD Series',
             };
             document.getElementById('topbarTitle').textContent = titles[section];
 
@@ -5290,6 +5579,7 @@
             else if (section === 'feedback') await loadFeedback();
             else if (section === 'leads') await loadLeads();
             else if (section === 'leadCapture') await loadLeadCapture();
+            else if (section === 'ncdSeries') await loadNcdSeriesAdmin();
         }
 
         // ===== Dashboard =====
@@ -5887,7 +6177,7 @@
                     new Date(t.lease_end).toLocaleDateString('en-IN');
                 return `
                 <tr${t.account_status === 'Closed' ? ' style="opacity:0.6;"' : ''}${t.account_status === 'Closure Requested' ? ' style="background:rgba(234,179,8,0.08);"' : ''}>
-                    <td><strong>${t.name}</strong>${t.account_status === 'Closed' ? ' <span style="font-size:10px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:3px;">Closed</span>' : ''}${t.account_status === 'Closure Requested' ? ' <span style="font-size:10px;padding:1px 6px;background:#eab308;color:#000;border-radius:3px;font-weight:600;">Closure Requested</span>' : ''}</td>
+                    <td><strong>${t.name}</strong>${t.account_status === 'Closed' ? ' <span style="font-size:10px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:3px;">Closed</span>' : ''}${t.account_status === 'Closure Requested' ? ' <span style="font-size:10px;padding:1px 6px;background:#eab308;color:#000;border-radius:3px;font-weight:600;">Closure Requested</span>' : ''}${renderAllotmentChip(t)}</td>
                     <td>${t.phone.startsWith('+91') ? t.phone : '+91 ' + t.phone}</td>
                     <td>${t.locker_number || '-'}</td>
                     <td>₹${t.annual_rent ? formatIndianNumber(t.annual_rent) : '-'}</td>
@@ -5904,6 +6194,7 @@
                             ` : `
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-secondary" onclick="openEditTenantModal('${t.id}')">Edit</button>` : ''}
                               ${currentUser.role === 'headoffice' ? `<button class="btn btn-primary" onclick="downloadSOA('${t.id}')">SOA</button>` : ''}
+                              <button class="btn btn-primary" style="background:#b8860b;" onclick="openAllotmentFormModal('${t.id}','${(t.name||'').replace(/'/g, "\\'")}')" title="Capture structured Allotment Form details">Allotment</button>
                               <button class="btn btn-primary" style="background:#2c1810;" onclick="downloadAllotmentForm('${t.id}')">Form</button>
                               <button class="btn btn-secondary" onclick="openWaiverModal('${t.id}')" style="font-size:11px;padding:4px 8px;background:#f59e0b;color:#fff;">Waiver</button>
                               ${(currentUser.role === 'headoffice' || currentUser.role === 'branch') ? `<button class="btn btn-primary" onclick="quickEsign('${t.id}', '${t.branch_id}', 'agreement')" style="font-size:11px;padding:4px 8px;background:#6366f1;">E-Sign</button>` : ''}
@@ -6223,6 +6514,17 @@
             const content = box.querySelector('.kyc-upload-content');
             const statusEl = box.querySelector('.kyc-upload-status');
 
+            // Re-upload overwrite confirmation: this slot already has a file
+            // saved to SharePoint. Replacing it removes the old file (orphan
+            // cleanup runs server-side when the extension changes), so make
+            // the user explicitly opt in — matches the eSign confirm() flow.
+            if (box.classList.contains('uploaded')) {
+                if (!confirm('This document is already uploaded. Replace it with the new file?')) {
+                    input.value = '';
+                    return;
+                }
+            }
+
             // If no tenant ID (new tenant), queue the file for upload after save
             if (!tenantId) {
                 pendingKycFiles[docType] = file;
@@ -6259,23 +6561,69 @@
             }
         }
 
+        // Recovery helper — re-fetch KYC status to see whether a Save-to-SP
+        // upload actually succeeded server-side even though the response was
+        // lost in transit (proxy timeout, dropped connection, etc.). The
+        // server writes the SharePoint URL into kyc_documents BEFORE replying.
+        async function _recoverKycUpload(tenantId, docType) {
+            try {
+                const status = await api('GET', `/api/tenants/${tenantId}/kyc-status`);
+                const doc = status && status.kyc_documents && status.kyc_documents[docType];
+                if (doc && doc.uploaded && doc.sharepoint_url) {
+                    return { ok: true, doc_type: docType, sharepoint_url: doc.sharepoint_url, recovered: true };
+                }
+            } catch (_) {}
+            return null;
+        }
+
         async function uploadKycFile(tenantId, docType, file) {
             const formData = new FormData();
             formData.append('file', file);
             formData.append('doc_type', docType);
 
             const token = localStorage.getItem('lockerhub_token');
-            const resp = await fetch(`/api/tenants/${tenantId}/kyc-upload`, {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token },
-                body: formData
-            });
+            // 120s cap mirrors the eSign Save-to-Repo flow. Without a timeout
+            // a hung Graph upload would leave the UI spinner running forever.
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+            let resp;
+            try {
+                resp = await fetch(`/api/tenants/${tenantId}/kyc-upload`, {
+                    method: 'POST',
+                    headers: { 'Authorization': 'Bearer ' + token },
+                    body: formData,
+                    signal: controller.signal
+                });
+            } catch (err) {
+                clearTimeout(timeoutId);
+                // AbortError means our 120s cap fired. Even on timeout the
+                // server may have completed the upload before the proxy
+                // dropped the connection — re-check before reporting failure.
+                if (err && err.name === 'AbortError') {
+                    const recovered = await _recoverKycUpload(tenantId, docType);
+                    if (recovered) return recovered;
+                    throw new Error('Upload timed out after 2 minutes — please retry');
+                }
+                // Network/DNS error — same recovery check.
+                const recovered = await _recoverKycUpload(tenantId, docType);
+                if (recovered) return recovered;
+                throw err;
+            }
+            clearTimeout(timeoutId);
+
             // Safely parse: empty/non-JSON bodies (proxy timeout etc.) shouldn't
             // raise the cryptic "Unexpected end of JSON input" error.
             const text = await resp.text();
             let result = {};
             if (text) { try { result = JSON.parse(text); } catch (_) { result = { error: text.slice(0, 200) }; } }
-            if (!resp.ok) throw new Error(result.error || ('Upload failed (HTTP ' + resp.status + ')'));
+            if (!resp.ok) {
+                // Even an HTTP error may mask a successful SP upload (e.g. the
+                // SP write succeeded but the DB-update path threw). Recover.
+                const recovered = await _recoverKycUpload(tenantId, docType);
+                if (recovered) return recovered;
+                throw new Error(result.error || ('Upload failed (HTTP ' + resp.status + ')'));
+            }
             return result;
         }
 
@@ -10217,6 +10565,200 @@
             triggerAuthDownload(`/api/allotment-form/${tenantId}`, `allotment-form-${tenantId}.pdf`, 'Generating Allotment Form...');
         }
 
+        // ===== Allotment Form (structured capture) =====
+        // Renders the chip next to the tenant name showing: Complete / Locked / Pending.
+        // Grandfathered tenants (created before the Allotment module shipped) show no
+        // chip while incomplete — branch staff can still open the form to fill it in
+        // manually. Completed/locked states always show, regardless of grandfathering.
+        function renderAllotmentChip(t) {
+            if (t.account_status === 'Closed') return '';
+            const base = 'font-size:10px;padding:1px 6px;border-radius:3px;margin-left:6px;font-weight:500;white-space:nowrap;';
+            if (t.allotment_locked) {
+                return ` <span style="${base}background:#111827;color:#fff;" title="Agreement e-signed — fields locked">🔒 Allotment locked</span>`;
+            }
+            if (t.allotment_completed) {
+                return ` <span style="${base}background:#059669;color:#fff;" title="Allotment Form completed">✓ Allotment</span>`;
+            }
+            if (t.allotment_grandfathered) return ''; // legacy tenant — don't nag
+            return ` <span style="${base}background:#f59e0b;color:#fff;" title="Allotment Form not yet completed">⚠ Allotment pending</span>`;
+        }
+
+        // All fields we POST/GET — must stay in sync with ALLOTMENT_FIELDS in server.js
+        const ALLOTMENT_FIELD_IDS = [
+            'title','guardian_name','dob','gender','nationality','marital_status','mothers_maiden_name',
+            'tel_res','tel_office','tel_office_ext','email_secondary','mobile_secondary',
+            'perm_flat_building','perm_road_name','perm_landmark','perm_city','perm_pincode','perm_state','perm_country',
+            'res_same_as_perm','res_flat_building','res_road_name','res_landmark','res_city','res_pincode','res_state','res_country',
+            'education','occupation','profession','line_of_business','residence_type','annual_income_bracket',
+            'passport_no','passport_issued_at','passport_issued_date',
+            'poi_type','poi_doc_no','poi_issued_at','poi_expiry_date',
+            'poa_type','poa_doc_no','poa_issued_at','poa_expiry_date',
+            'nominee_relation','nominee_flat_building','nominee_road_name','nominee_landmark',
+            'nominee_city','nominee_pincode','nominee_state','nominee_country',
+            'nominee_dob','nominee_minor_guardian_title','nominee_minor_guardian_name',
+            'mode_of_operation','key_no','cabinet_no'
+        ];
+
+        function switchAllotmentTab(tab) {
+            document.querySelectorAll('#allotmentFormModal .allot-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.tab === tab);
+            });
+            document.querySelectorAll('#allotmentFormModal .allot-tab-panel').forEach(p => {
+                p.style.display = (p.dataset.panel === tab) ? 'block' : 'none';
+            });
+        }
+
+        function toggleResAddress() {
+            const same = document.getElementById('allot_res_same_as_perm').checked;
+            document.getElementById('allot_res_fields').style.display = same ? 'none' : 'block';
+        }
+
+        async function openAllotmentFormModal(tenantId, tenantName) {
+            document.getElementById('allot_tenant_id').value = tenantId;
+            document.getElementById('allotmentModalTenantName').textContent = tenantName || 'Tenant';
+            // Reset all fields to defaults
+            ALLOTMENT_FIELD_IDS.forEach(k => {
+                const el = document.getElementById('allot_' + k);
+                if (!el) return;
+                if (el.type === 'checkbox') el.checked = (k === 'res_same_as_perm');
+                else el.value = '';
+            });
+            // Apply defaults
+            document.getElementById('allot_nationality').value = 'Indian';
+            document.getElementById('allot_perm_country').value = 'India';
+            document.getElementById('allot_res_country').value = 'India';
+            document.getElementById('allot_nominee_country').value = 'India';
+            document.getElementById('allotmentLockedBanner').style.display = 'none';
+            document.getElementById('allotmentStatusBanner').style.display = 'none';
+            switchAllotmentTab('personal');
+
+            showLoading('Loading allotment details...');
+            try {
+                const data = await api('GET', `/api/tenants/${tenantId}/allotment-details`);
+                hideLoading();
+
+                // Populate from server response
+                if (data.details) {
+                    ALLOTMENT_FIELD_IDS.forEach(k => {
+                        const el = document.getElementById('allot_' + k);
+                        if (!el) return;
+                        const v = data.details[k];
+                        if (el.type === 'checkbox') el.checked = !!v;
+                        else if (v !== undefined && v !== null) el.value = v;
+                    });
+                }
+                toggleResAddress();
+
+                const locked = !!data.locked;
+                const completed = !!data.completed;
+                document.getElementById('allotmentLockedBanner').style.display = locked ? 'block' : 'none';
+                document.getElementById('allotmentStatusBanner').style.display = (completed && !locked) ? 'block' : 'none';
+
+                // Disable inputs + hide save buttons when locked
+                const form = document.getElementById('allotmentForm');
+                form.querySelectorAll('input,select,textarea').forEach(el => {
+                    if (el.id !== 'allot_tenant_id') el.disabled = locked;
+                });
+                document.getElementById('allotmentSaveDraftBtn').style.display = locked ? 'none' : 'inline-block';
+                document.getElementById('allotmentCompleteBtn').style.display = locked ? 'none' : 'inline-block';
+            } catch (err) {
+                hideLoading();
+                alert('Failed to load allotment details: ' + (err.message || err));
+                return;
+            }
+
+            document.getElementById('allotmentFormModal').classList.add('active');
+        }
+
+        function collectAllotmentFormPayload() {
+            const payload = {};
+            ALLOTMENT_FIELD_IDS.forEach(k => {
+                const el = document.getElementById('allot_' + k);
+                if (!el) return;
+                if (el.type === 'checkbox') payload[k] = el.checked ? 1 : 0;
+                else payload[k] = (el.value || '').trim();
+            });
+            return payload;
+        }
+
+        function validateAllotmentClient(p, isComplete) {
+            // Only enforce strict validation on "Complete" — draft saves go through.
+            const errors = [];
+            // Always-on (applies to draft & complete)
+            if (p.perm_pincode && !/^\d{6}$/.test(p.perm_pincode)) errors.push('Permanent PIN must be 6 digits');
+            if (p.res_pincode && !/^\d{6}$/.test(p.res_pincode)) errors.push('Residence PIN must be 6 digits');
+            if (p.nominee_pincode && !/^\d{6}$/.test(p.nominee_pincode)) errors.push('Nominee PIN must be 6 digits');
+            if (p.mobile_secondary && !/^\d{10}$/.test(p.mobile_secondary)) errors.push('Secondary mobile must be 10 digits');
+            if (p.email_secondary && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(p.email_secondary)) errors.push('Secondary email format is invalid');
+            if (!isComplete) return errors;
+
+            // Required-on-complete
+            const req = {
+                'Title': p.title,
+                'Guardian name': p.guardian_name,
+                'Date of Birth': p.dob,
+                'Gender': p.gender,
+                'Marital status': p.marital_status,
+                'Permanent: Flat & Building': p.perm_flat_building,
+                'Permanent: City': p.perm_city,
+                'Permanent: PIN Code': p.perm_pincode,
+                'Permanent: State': p.perm_state,
+                'Education': p.education,
+                'Occupation': p.occupation,
+                'Residence Type': p.residence_type,
+                'Annual Income bracket': p.annual_income_bracket,
+                'POI Type': p.poi_type,
+                'POI Doc No.': p.poi_doc_no,
+                'POA Type': p.poa_type,
+                'POA Doc No.': p.poa_doc_no,
+                'Nominee Relationship': p.nominee_relation,
+                'Nominee PIN Code': p.nominee_pincode,
+                'Nominee State': p.nominee_state,
+                'Mode of Operation': p.mode_of_operation,
+                'Key No.': p.key_no,
+                'Cabinet No.': p.cabinet_no
+            };
+            if (p.res_same_as_perm !== 1) {
+                req['Residence: Flat & Building'] = p.res_flat_building;
+                req['Residence: City'] = p.res_city;
+                req['Residence: PIN'] = p.res_pincode;
+                req['Residence: State'] = p.res_state;
+            }
+            Object.entries(req).forEach(([label, v]) => { if (!v) errors.push('Missing: ' + label); });
+
+            // Age ≥ 18 at allotment — server re-validates against lease_start, but catch obvious cases here
+            if (p.dob) {
+                const ageNow = (Date.now() - new Date(p.dob).getTime()) / (365.25 * 24 * 3600 * 1000);
+                if (isNaN(ageNow)) errors.push('DOB is invalid');
+                else if (ageNow < 18) errors.push('Hirer must be 18+ (DOB indicates under 18)');
+            }
+            return errors;
+        }
+
+        async function saveAllotmentForm(isComplete) {
+            const tenantId = document.getElementById('allot_tenant_id').value;
+            if (!tenantId) return;
+            const payload = collectAllotmentFormPayload();
+            const errors = validateAllotmentClient(payload, isComplete);
+            if (errors.length) {
+                alert('Please fix the following before saving:\n\n• ' + errors.join('\n• '));
+                return;
+            }
+            payload.complete = !!isComplete;
+
+            showLoading(isComplete ? 'Completing allotment form...' : 'Saving draft...');
+            try {
+                await api('PUT', `/api/tenants/${tenantId}/allotment-details`, payload);
+                hideLoading();
+                closeModal('allotmentFormModal');
+                alert(isComplete ? 'Allotment Form marked complete. You can now generate the pre-filled PDF.' : 'Draft saved.');
+                if (typeof loadTenants === 'function') loadTenants();
+            } catch (err) {
+                hideLoading();
+                alert('Save failed: ' + (err.message || err));
+            }
+        }
+
         function downloadReceipt(paymentId, customerCopyOnly) {
             const path = `/api/receipt/${paymentId}${customerCopyOnly ? '?copy=customer' : ''}`;
             triggerAuthDownload(path, `receipt-${paymentId}.pdf`, 'Generating Receipt...');
@@ -11899,24 +12441,61 @@
             try { return v.toLocaleString('en-IN'); } catch (_) { return String(v); }
         }
 
-        // Cached list of NCD series options — fetched once per page load and reused
-        // for every creation form (HO modal + lead-capture screen). We preserve the
-        // in-use series values from the DB so newly-added series appear automatically.
-        let _ncdSeriesCache = null;
-        async function loadNcdSeries() {
-            if (_ncdSeriesCache) return _ncdSeriesCache;
+        // NCD Series master (fetched from /api/ncd/series). Each entry carries the
+        // scheme it's bound to, so when a user picks a series we can auto-display
+        // the locked Scheme label. Active-series lookup is a separate endpoint.
+        let _ncdSeriesCache = null;       // Array<{id,name,scheme,active,start_date,end_date,is_active_today}>
+        let _ncdActiveSeriesCache = null; // single object or {__none__:true}
+
+        async function loadNcdSeries(force) {
+            if (!force && _ncdSeriesCache) return _ncdSeriesCache;
             try {
-                const r = await api('GET', '/api/ncd/series-list');
+                const r = await api('GET', '/api/ncd/series');
                 _ncdSeriesCache = (r && Array.isArray(r.series)) ? r.series : [];
-            } catch (_) { _ncdSeriesCache = ['Doubling','Cumulative','Annual','Monthly']; }
+            } catch (_) { _ncdSeriesCache = []; }
             return _ncdSeriesCache;
         }
-        async function populateNcdSeriesSelect(selectEl, preselect) {
+        async function loadActiveNcdSeries(force) {
+            if (!force && _ncdActiveSeriesCache) {
+                return _ncdActiveSeriesCache.__none__ ? null : _ncdActiveSeriesCache;
+            }
+            try {
+                const r = await api('GET', '/api/ncd/active-series');
+                _ncdActiveSeriesCache = r;
+                return r;
+            } catch (err) {
+                // 404 → no active series (legitimate state, not a bug)
+                _ncdActiveSeriesCache = { __none__: true };
+                return null;
+            }
+        }
+        function invalidateNcdSeriesCache() {
+            _ncdSeriesCache = null;
+            _ncdActiveSeriesCache = null;
+        }
+
+        // Populate a <select> with all series (HO usage). Adds a "(active)" suffix
+        // on the currently active one so HO can spot it.
+        async function populateAllSeriesSelect(selectEl, preselect) {
             if (!selectEl) return;
             const list = await loadNcdSeries();
             const current = preselect || selectEl.value || '';
-            selectEl.innerHTML = '<option value="">Select series...</option>' +
-                list.map(s => `<option value="${s}" ${current === s ? 'selected' : ''}>${s}</option>`).join('');
+            if (list.length === 0) {
+                selectEl.innerHTML = '<option value="">No series configured</option>';
+                return;
+            }
+            selectEl.innerHTML = '<option value="">Select series…</option>' +
+                list.map(s => {
+                    const label = s.name + (s.is_active_today ? ' (active today)' : s.active ? '' : ' (inactive)');
+                    return `<option value="${s.name}" data-scheme="${s.scheme}" ${current === s.name ? 'selected' : ''}>${label}</option>`;
+                }).join('');
+        }
+
+        // Look up a series row from the cache by name. Helpful to render the
+        // bound scheme without another round-trip.
+        function lookupSeries(name) {
+            const list = _ncdSeriesCache || [];
+            return list.find(s => s.name === name) || null;
         }
 
         // Canonical NCD status set (post-migration). 'Lost' stays in the list so
@@ -11972,7 +12551,7 @@
             const tbody = document.getElementById('leadsNcdTable');
             if (!tbody) return;
             if (filtered.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:#888;">No NCD leads found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:#888;">No NCD leads found.</td></tr>';
                 return;
             }
             const canDelete = currentUser && currentUser.role === 'headoffice';
@@ -12017,6 +12596,7 @@
                     <td style="white-space:nowrap;"><strong>${safeName}</strong></td>
                     <td style="white-space:nowrap;">${r.phone ? escapeHtml(r.phone) : '-'}</td>
                     <td style="white-space:nowrap;">${r.series ? `<span style="display:inline-block;padding:2px 8px;background:#f5edd8;color:#8a6d18;border-radius:10px;font-size:11px;font-weight:700;">${escapeHtml(r.series)}</span>` : '-'}</td>
+                    <td style="white-space:nowrap;">${r.scheme ? `<span style="display:inline-block;padding:2px 8px;background:#e8f0f8;color:#1f5c8e;border-radius:10px;font-size:11px;font-weight:700;">${escapeHtml(r.scheme)}</span>` : '-'}</td>
                     <td style="white-space:nowrap;max-width:160px;overflow:hidden;text-overflow:ellipsis;" title="${escapeHtml(r.place || '')}">${escapeHtml(r.place || '-')}</td>
                     <td style="text-align:right;white-space:nowrap;">${r.amount ? '₹' + fmtINR(r.amount) : '-'}</td>
                     <td>${narrCell}</td>
@@ -12045,13 +12625,18 @@
             const bs = s.by_status || {};
             const seriesHtml = (s.by_series || []).length === 0
                 ? '<div style="font-size:12px;color:#888;padding:10px;">No series-wise data yet.</div>'
-                : (s.by_series).map(row => `
-                    <div class="stat-card" style="border-left:4px solid #b8860b;">
-                        <div class="stat-card-label">${escapeHtml(row.series)} — Total</div>
-                        <div class="stat-card-value">${row.total || 0}</div>
-                        <div class="stat-card-subtext">Converted: ${row.converted || 0}</div>
-                    </div>
-                `).join('');
+                : (s.by_series).map(row => {
+                    const schemeTag = row.scheme
+                        ? ` <span style="font-size:10px;font-weight:600;color:#1f5c8e;background:#e8f0f8;padding:1px 6px;border-radius:8px;">${escapeHtml(row.scheme)}</span>`
+                        : '';
+                    return `
+                        <div class="stat-card" style="border-left:4px solid #b8860b;">
+                            <div class="stat-card-label">${escapeHtml(row.series)}${schemeTag}</div>
+                            <div class="stat-card-value">${row.total || 0}</div>
+                            <div class="stat-card-subtext">Converted: ${row.converted || 0}</div>
+                        </div>
+                    `;
+                }).join('');
             host.innerHTML = `
                 <!-- Row 1: Overall stats -->
                 <div class="stat-cards" style="margin-bottom:10px;">
@@ -12090,13 +12675,42 @@
             `;
         }
 
-        function openNcdLeadModal() {
+        async function openNcdLeadModal() {
+            // Fetch both the master list (for HO override) and the active series
+            // (for display + auto-select) up front so the modal renders without
+            // layout flicker.
+            const isHO = currentUser && currentUser.role === 'headoffice';
+            const [allSeries, active] = await Promise.all([
+                loadNcdSeries(true),
+                loadActiveNcdSeries(true)
+            ]);
+
+            // Series picker markup differs for HO vs everyone else.
+            let seriesPickerHtml;
+            if (isHO) {
+                const opts = allSeries.length === 0
+                    ? '<option value="">No series configured</option>'
+                    : '<option value="">Select series…</option>' +
+                        allSeries.map(s => {
+                            const label = s.name + (s.is_active_today ? ' (active)' : s.active ? '' : ' (inactive)');
+                            const sel = (active && s.name === active.name) ? 'selected' : '';
+                            return `<option value="${escapeHtml(s.name)}" data-scheme="${escapeHtml(s.scheme)}" ${sel}>${escapeHtml(label)}</option>`;
+                        }).join('');
+                seriesPickerHtml = `<select id="ncdSeries" onchange="updateNcdSchemeDisplay()" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">${opts}</select>`;
+            } else if (!active) {
+                seriesPickerHtml = `<div style="padding:8px 12px;border:1px solid #f0d4d4;background:#fdecea;color:#c0392b;border-radius:6px;font-size:13px;">No active NCD series today. Contact Head Office.</div>
+                                    <input type="hidden" id="ncdSeries" value="">`;
+            } else {
+                seriesPickerHtml = `<div style="padding:8px 12px;border:1px solid #ddd;background:#f5f3ed;color:#2c1810;border-radius:6px;font-size:14px;font-weight:600;">${escapeHtml(active.name)} <span style="font-size:11px;color:#888;font-weight:400;">(active)</span></div>
+                                    <input type="hidden" id="ncdSeries" value="${escapeHtml(active.name)}">`;
+            }
+            const initialScheme = active ? active.scheme : '';
+
             const modal = `
             <div id="addNcdLeadModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
                 <div style="background:#fff;border-radius:16px;max-width:520px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
                     <h3 style="margin:0 0 4px;font-size:18px;color:#2c1810;">Add NCD Lead</h3>
-                    <div style="font-size:12px;color:#888;margin-bottom:4px;">Required: Name &amp; Series. Fields are locked after creation (only status stays editable).</div>
-                    <div style="font-size:12px;color:#888;margin-bottom:16px;"></div>
+                    <div style="font-size:12px;color:#888;margin-bottom:16px;">Required: Name &amp; Series. Scheme is auto-linked to the Series. Fields lock after creation (only Status stays editable).</div>
                     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Name *</label><input type="text" id="ncdName" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
                         <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Phone</label><input type="tel" id="ncdPhone" maxlength="10" oninput="this.value=this.value.replace(/[^0-9]/g,'').slice(0,10)" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
@@ -12108,28 +12722,43 @@
                     <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div>
                             <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Series *</label>
-                            <select id="ncdSeries" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
-                                <option value="">Loading…</option>
-                            </select>
+                            ${seriesPickerHtml}
                         </div>
+                        <div>
+                            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Scheme <span style="color:#888;font-weight:400;">(auto)</span></label>
+                            <div id="ncdSchemeDerived" style="padding:8px 12px;border:1px solid #ddd;background:#f5f3ed;color:#2c1810;border-radius:6px;font-size:14px;font-weight:600;min-height:20px;">${escapeHtml(initialScheme) || '—'}</div>
+                        </div>
+                    </div>
+                    <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px;">
                         <div>
                             <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Follow-up Date <span style="color:#888;font-weight:400;">(reminder)</span></label>
                             <input type="date" id="ncdFollowUpDate" min="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
                         </div>
+                        <div>
+                            <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Follow-up Note</label>
+                            <input type="text" id="ncdFollowUpNote" placeholder="e.g., Will invest in 2 days" maxlength="500" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">
+                        </div>
                     </div>
-                    <div style="margin-top:12px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Follow-up Note</label><input type="text" id="ncdFollowUpNote" placeholder="e.g., Will invest in 2 days" maxlength="500" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
                     <div style="margin-top:12px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Narration</label><textarea id="ncdNarration" rows="3" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;"></textarea></div>
                     <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px;">
                         <button class="btn btn-secondary" onclick="document.getElementById('addNcdLeadModal').remove()" style="padding:8px 20px;">Cancel</button>
-                        <button class="btn btn-primary" onclick="submitNcdLeadFromModal()" style="padding:8px 20px;background:#b8860b;border-color:#b8860b;">Add NCD Lead</button>
+                        <button class="btn btn-primary" onclick="submitNcdLeadFromModal()" style="padding:8px 20px;background:#b8860b;border-color:#b8860b;" ${(!isHO && !active) ? 'disabled' : ''}>Add NCD Lead</button>
                     </div>
                 </div>
             </div>`;
             const existing = document.getElementById('addNcdLeadModal');
             if (existing) existing.remove();
             document.body.insertAdjacentHTML('beforeend', modal);
-            // Populate the Series dropdown (async, non-blocking).
-            populateNcdSeriesSelect(document.getElementById('ncdSeries'));
+        }
+
+        // Called when HO picks a different series — updates the derived Scheme box.
+        function updateNcdSchemeDisplay() {
+            const sel = document.getElementById('ncdSeries');
+            const box = document.getElementById('ncdSchemeDerived');
+            if (!sel || !box) return;
+            const opt = sel.options[sel.selectedIndex];
+            const scheme = opt ? (opt.getAttribute('data-scheme') || '') : '';
+            box.textContent = scheme || '—';
         }
 
         async function submitNcdLeadFromModal() {
@@ -12146,7 +12775,7 @@
                     place: document.getElementById('ncdPlace').value.trim(),
                     occupation: document.getElementById('ncdOccupation').value.trim(),
                     amount: parseFloat(document.getElementById('ncdAmount').value) || 0,
-                    series,
+                    series,  // scheme is derived server-side from the series master
                     narration: document.getElementById('ncdNarration').value.trim(),
                     reference: document.getElementById('ncdReference').value.trim(),
                     follow_up_date: document.getElementById('ncdFollowUpDate').value || '',
@@ -12154,9 +12783,7 @@
                     created_by: currentUser.id,
                     created_by_name: currentUser.name
                 });
-                // Bust the series cache so a freshly-introduced series shows up on the
-                // next create form without a page reload.
-                _ncdSeriesCache = null;
+                invalidateNcdSeriesCache();
                 document.getElementById('addNcdLeadModal').remove();
                 await loadLeads();
             } catch (err) {
@@ -12195,6 +12822,7 @@
                             ${ro('Name', escapeHtml(r.name || ''))}
                             ${ro('Phone', r.phone ? escapeHtml(r.phone) : '')}
                             ${ro('Series', r.series ? `<span style="display:inline-block;padding:2px 8px;background:#f5edd8;color:#8a6d18;border-radius:10px;font-size:11px;font-weight:700;">${escapeHtml(r.series)}</span>` : '')}
+                            ${ro('Scheme', r.scheme ? `<span style="display:inline-block;padding:2px 8px;background:#e8f0f8;color:#1f5c8e;border-radius:10px;font-size:11px;font-weight:700;">${escapeHtml(r.scheme)}</span>` : '')}
                             ${ro('Reference', escapeHtml(r.reference || ''))}
                             ${ro('Place', escapeHtml(r.place || ''))}
                             ${ro('Occupation', escapeHtml(r.occupation || ''))}
@@ -12242,6 +12870,117 @@
                 await loadLeads();
             } catch (err) {
                 alert('Failed to save: ' + err.message);
+            }
+        }
+
+        // ===== NCD SERIES ADMIN (HO only) =====
+        // Renders the ncd_series master as an editable table. New series can be
+        // added via the modal; existing ones can be edited, toggled active, or
+        // deleted (only when they have no leads referencing them).
+        async function loadNcdSeriesAdmin() {
+            const tbody = document.getElementById('ncdSeriesTable');
+            if (!tbody) return;
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:#888;">Loading…</td></tr>';
+            try {
+                const list = await loadNcdSeries(true); // always pull fresh on this page
+                if (!list || list.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:#888;">No series configured yet. Click "+ Add Series" to start.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = list.map(s => {
+                    const statusLabel = s.is_active_today
+                        ? '<span style="background:#e8f8ed;color:#1f7a3d;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;">Active today</span>'
+                        : (s.active
+                            ? '<span style="background:#f4f4f4;color:#888;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">Out of window</span>'
+                            : '<span style="background:#fdecea;color:#c0392b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;">Inactive</span>');
+                    const schemeTag = `<span style="display:inline-block;padding:2px 8px;background:#e8f0f8;color:#1f5c8e;border-radius:10px;font-size:11px;font-weight:700;">${escapeHtml(s.scheme)}</span>`;
+                    const notesShort = (s.notes || '').length > 40 ? s.notes.slice(0, 40) + '…' : (s.notes || '');
+                    return `<tr>
+                        <td style="white-space:nowrap;"><strong>${escapeHtml(s.name)}</strong></td>
+                        <td style="white-space:nowrap;">${schemeTag}</td>
+                        <td style="white-space:nowrap;font-size:12px;">${escapeHtml(s.start_date)}</td>
+                        <td style="white-space:nowrap;font-size:12px;">${escapeHtml(s.end_date)}</td>
+                        <td style="white-space:nowrap;">${s.active ? '✓' : '—'}</td>
+                        <td style="white-space:nowrap;">${statusLabel}</td>
+                        <td title="${escapeHtml(s.notes || '')}" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:#555;">${escapeHtml(notesShort)}</td>
+                        <td style="white-space:nowrap;">
+                            <button class="btn btn-secondary" onclick='openNcdSeriesModal(${JSON.stringify(s).replace(/'/g, "&#39;")})' style="font-size:11px;padding:3px 8px;">Edit</button>
+                            <button class="btn btn-danger" onclick="deleteNcdSeries('${s.id}','${escapeHtml(s.name)}')" style="font-size:11px;padding:3px 8px;">Del</button>
+                        </td>
+                    </tr>`;
+                }).join('');
+            } catch (err) {
+                tbody.innerHTML = `<tr><td colspan="8" style="color:#c00;padding:20px;">Failed to load: ${escapeHtml(err.message)}</td></tr>`;
+            }
+        }
+
+        // Opens the add/edit modal. If `series` is passed, we're in edit mode.
+        function openNcdSeriesModal(series) {
+            const isEdit = !!(series && series.id);
+            const s = series || { id: '', name: '', scheme: 'Monthly', start_date: '', end_date: '', active: 1, notes: '' };
+            const schemeOpts = ['Doubling', 'Cumulative', 'Annual', 'Monthly']
+                .map(x => `<option value="${x}" ${s.scheme === x ? 'selected' : ''}>${x}</option>`)
+                .join('');
+            const modal = `
+            <div id="ncdSeriesModal" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px;" onclick="if(event.target===this)this.remove()">
+                <div style="background:#fff;border-radius:16px;max-width:480px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto;">
+                    <h3 style="margin:0 0 4px;font-size:18px;color:#2c1810;">${isEdit ? 'Edit' : 'Add'} NCD Series</h3>
+                    <div style="font-size:12px;color:#888;margin-bottom:16px;">Each series is bound to one payout scheme and valid within a date range.</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Name *</label><input type="text" id="sfName" value="${escapeHtml(s.name)}" placeholder="e.g. NCD26" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Scheme *</label>
+                            <select id="sfScheme" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;">${schemeOpts}</select>
+                        </div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Start Date *</label><input type="date" id="sfStart" value="${escapeHtml(s.start_date)}" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                        <div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">End Date *</label><input type="date" id="sfEnd" value="${escapeHtml(s.end_date)}" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"></div>
+                    </div>
+                    <div style="margin-top:12px;display:flex;align-items:center;gap:8px;">
+                        <input type="checkbox" id="sfActive" ${s.active ? 'checked' : ''} style="width:18px;height:18px;">
+                        <label for="sfActive" style="font-size:13px;font-weight:600;">Active (staff can use this series when in range)</label>
+                    </div>
+                    <div style="margin-top:12px;"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Notes</label><textarea id="sfNotes" rows="3" placeholder="Optional internal notes" style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;resize:vertical;font-family:inherit;">${escapeHtml(s.notes || '')}</textarea></div>
+                    <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:20px;">
+                        <button class="btn btn-secondary" onclick="document.getElementById('ncdSeriesModal').remove()" style="padding:8px 20px;">Cancel</button>
+                        <button class="btn btn-primary" onclick="saveNcdSeries('${s.id || ''}')" style="padding:8px 20px;background:#b8860b;border-color:#b8860b;">${isEdit ? 'Save Changes' : 'Create Series'}</button>
+                    </div>
+                </div>
+            </div>`;
+            const existing = document.getElementById('ncdSeriesModal');
+            if (existing) existing.remove();
+            document.body.insertAdjacentHTML('beforeend', modal);
+        }
+
+        async function saveNcdSeries(id) {
+            const payload = {
+                name: document.getElementById('sfName').value.trim(),
+                scheme: document.getElementById('sfScheme').value,
+                start_date: document.getElementById('sfStart').value,
+                end_date: document.getElementById('sfEnd').value,
+                active: document.getElementById('sfActive').checked ? 1 : 0,
+                notes: document.getElementById('sfNotes').value.trim()
+            };
+            if (!payload.name) return alert('Series name is required');
+            if (!payload.start_date || !payload.end_date) return alert('Start and end dates are required');
+            if (payload.end_date < payload.start_date) return alert('End date cannot be before start date');
+            try {
+                if (id) await api('PUT', `/api/ncd/series/${id}`, payload);
+                else    await api('POST', '/api/ncd/series', payload);
+                invalidateNcdSeriesCache();
+                document.getElementById('ncdSeriesModal').remove();
+                await loadNcdSeriesAdmin();
+            } catch (err) {
+                alert('Failed: ' + err.message);
+            }
+        }
+
+        async function deleteNcdSeries(id, name) {
+            if (!confirm(`Delete series "${name}"?\n\nThis is rejected if any leads are in this series — deactivate it instead.`)) return;
+            try {
+                await api('DELETE', `/api/ncd/series/${id}`);
+                invalidateNcdSeriesCache();
+                await loadNcdSeriesAdmin();
+            } catch (err) {
+                alert('Failed: ' + err.message);
             }
         }
 
@@ -12566,11 +13305,28 @@
             const ncdFields = document.getElementById('lcNcdFields');
             if (lockerFields) lockerFields.style.display = isNcd ? 'none' : 'block';
             if (ncdFields) ncdFields.style.display = isNcd ? 'block' : 'none';
-            // Populate the Series dropdown lazily the first time the user switches
-            // to NCD — keeps initial page load light and still gives fresh values.
+            // Lead-capture is a non-HO surface, so Series is auto-locked to the
+            // currently active series and Scheme is shown as a derived read-only
+            // label. If no active series exists, we disable the Submit flow.
             if (isNcd) {
                 const sel = document.getElementById('lcNcdScheme');
-                if (sel) populateNcdSeriesSelect(sel);
+                const schemeLbl = document.getElementById('lcNcdSchemeDerived');
+                if (sel) {
+                    // Replace the old free dropdown with a single locked option.
+                    loadActiveNcdSeries(true).then(active => {
+                        if (active) {
+                            sel.innerHTML = `<option value="${active.name}" selected>${active.name} (active)</option>`;
+                            sel.disabled = true;
+                            sel.style.background = '#f5f3ed';
+                            if (schemeLbl) schemeLbl.textContent = active.scheme;
+                        } else {
+                            sel.innerHTML = '<option value="">No active series — contact Head Office</option>';
+                            sel.disabled = true;
+                            sel.style.background = '#fdecea';
+                            if (schemeLbl) schemeLbl.textContent = '—';
+                        }
+                    });
+                }
             }
         }
 
