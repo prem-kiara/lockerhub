@@ -390,10 +390,14 @@ const PERMISSION_CATALOG = {
 // Default capability set per role (used when user.permissions is empty)
 const ROLE_DEFAULT_PERMISSIONS = {
   // HO is omitted on purpose — HO is treated as "all permissions" via hasPermission()
+  // 'leads_ncd' is granted to branch + lead_agent by default so every authenticated
+  // user can create/view NCD leads. The GET /api/leads route still role-filters rows
+  // (creator sees own, branch sees branch, HO sees all) so the permission being
+  // open doesn't leak data across scopes.
   branch: [
     'tenants', 'lockers', 'payments', 'visits',
     'appointments', 'esign', 'bg_checks', 'transfers', 'reminders',
-    'leads_locker', 'feedback'
+    'leads_locker', 'leads_ncd', 'feedback'
   ],
   lead_agent: [
     'leads_locker', 'leads_ncd'
@@ -823,8 +827,39 @@ addColumnIfMissing('leads', 'narration', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'reference', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'follow_up_date', "TEXT DEFAULT ''");
 addColumnIfMissing('leads', 'follow_up_note', "TEXT DEFAULT ''");
+// NCD Series (mandatory for new NCD leads; locker leads leave this blank).
+// Also used as the source-of-truth for the Series dropdown list on the creation form.
+addColumnIfMissing('leads', 'series', "TEXT DEFAULT ''");
 // Backfill any NULL lead_type rows to 'locker' so filters never miss them
 try { db.prepare("UPDATE leads SET lead_type = 'locker' WHERE lead_type IS NULL OR lead_type = ''").run(); } catch (e) {}
+
+// ── NCD status migration (one-time, idempotent) ────────────────────────────
+// The NCD funnel was reduced from 5 statuses (New/Contacted/Interested/Invested/Lost)
+// to 3 canonical values (New/Following Up/Converted). 'Lost' is kept as a historical
+// value so previously-lost leads stay labelled. We run the mapping every boot but it
+// only changes rows that still hold the old values.
+try {
+  db.prepare("UPDATE leads SET status = 'Following Up' WHERE lead_type = 'ncd' AND status IN ('Contacted','Interested')").run();
+  db.prepare("UPDATE leads SET status = 'Converted'    WHERE lead_type = 'ncd' AND status = 'Invested'").run();
+  // Rows with status '' or NULL get the default 'New' so badges always render.
+  db.prepare("UPDATE leads SET status = 'New' WHERE lead_type = 'ncd' AND (status IS NULL OR status = '')").run();
+} catch (e) { logError('NCD status migration failed', { error: e.message }); }
+
+// ── NCD series backfill (one-time, idempotent) ─────────────────────────────
+// Prior to this change, the NCD "Scheme" on the lead-capture form was stored in the
+// narration field (values: Doubling/Cumulative/Annual/Monthly). Now that Series is a
+// first-class field, copy those known scheme values into `series` for existing rows.
+// Free-text narrations from the HO modal are left alone (series stays '').
+try {
+  const knownSchemes = ['Doubling','Cumulative','Annual','Monthly'];
+  const placeholders = knownSchemes.map(() => '?').join(',');
+  db.prepare(
+    `UPDATE leads SET series = narration
+       WHERE lead_type = 'ncd'
+         AND (series IS NULL OR series = '')
+         AND narration IN (${placeholders})`
+  ).run(...knownSchemes);
+} catch (e) { logError('NCD series backfill failed', { error: e.message }); }
 
 // Per-user permission overrides (JSON object). NULL/empty = role defaults only.
 addColumnIfMissing('users', 'permissions', "TEXT DEFAULT ''");
@@ -6563,15 +6598,14 @@ app.get('/api/feedback/summary', requireAuth, (req, res) => {
 
 // Create a lead (lead_agent, branch, or HO)
 // Supports both 'locker' (default — backward compatible) and 'ncd' lead types.
-// NCD leads: HO-only, no branch_id, all fields optional except name.
+// NCD leads: any authenticated user can create. We stamp branch_id = creator's branch
+// (empty for HO) so the branch-scoped visibility rule in GET /api/leads works later.
 app.post('/api/leads', requireAuth, (req, res) => {
   try {
     const lead_type = (req.body.lead_type === 'ncd') ? 'ncd' : 'locker';
 
-    // NCD leads can only be created by users with leads_ncd permission (HO + opt-in)
-    if (lead_type === 'ncd' && !hasPermission(req.user, 'leads_ncd')) {
-      return res.status(403).json({ error: 'You do not have permission to create NCD leads' });
-    }
+    // NCD is now open to every authenticated user (no leads_ncd gate on create).
+    // Role-based *visibility* is enforced on GET /api/leads and the dashboard summary.
 
     const { name, email, locker_size, branch_id, notes } = req.body;
     if (!name || !name.trim()) return res.status(400).json({ error: 'Name is required' });
@@ -6590,20 +6624,27 @@ app.post('/api/leads', requireAuth, (req, res) => {
       const amount     = parseFloat(req.body.amount) || 0;
       const narration  = (req.body.narration || '').toString();
       const reference  = (req.body.reference || '').toString().slice(0, 200);
+      // Series is mandatory for NCD leads (per the new workflow). Trimmed and capped
+      // at 120 chars so a rogue client can't blow up the column.
+      const series     = (req.body.series || '').toString().trim().slice(0, 120);
+      if (!series) return res.status(400).json({ error: 'Series is required for NCD leads' });
       // Follow-up reminder fields (optional). Validate YYYY-MM-DD format if provided.
       let follow_up_date = (req.body.follow_up_date || '').toString().trim();
       if (follow_up_date && !/^\d{4}-\d{2}-\d{2}$/.test(follow_up_date)) {
         return res.status(400).json({ error: 'Follow-up date must be in YYYY-MM-DD format' });
       }
       const follow_up_note = (req.body.follow_up_note || '').toString().slice(0, 500);
-      // NCD leads are global (no branch_id), default status 'New'
+      // Stamp the creator's branch on NCD leads so branch-login visibility works.
+      // HO-created leads end up with branch_id='' and remain HO-only by rule (branch
+      // users don't see null-branch NCD leads).
+      const ncdBranchId = (req.user && req.user.branch_id) || '';
       db.prepare(`INSERT INTO leads
-        (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, place, occupation, amount, narration, reference, follow_up_date, follow_up_note)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
-        id, name.trim(), phone, email || '', '', '', notes || '', 'New', created_by, created_by_name, 'Staff',
-        'ncd', place, occupation, amount, narration, reference, follow_up_date, follow_up_note
+        (id, name, phone, email, locker_size, branch_id, notes, status, created_by, created_by_name, source, lead_type, place, occupation, amount, narration, reference, series, follow_up_date, follow_up_note)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, name.trim(), phone, email || '', '', ncdBranchId, notes || '', 'New', created_by, created_by_name, 'Staff',
+        'ncd', place, occupation, amount, narration, reference, series, follow_up_date, follow_up_note
       );
-      logInfo('NCD lead created', { id, name: name.trim(), by: created_by_name });
+      logInfo('NCD lead created', { id, name: name.trim(), by: created_by_name, series, branch_id: ncdBranchId });
     } else {
       // Locker lead — original behavior preserved, now with optional follow-up reminder
       let lock_fud = (req.body.follow_up_date || '').toString().trim();
@@ -6639,19 +6680,18 @@ app.post('/api/leads', requireAuth, (req, res) => {
 
 // List leads. Defaults to lead_type='locker' if no filter, so the existing UI keeps working unchanged.
 // Pass ?lead_type=ncd to fetch NCD leads, or ?lead_type=all for both.
+//
+// NCD visibility (enforced only for lead_type='ncd'; locker leads keep their prior behavior):
+//   - role === 'headoffice'            → see all NCD leads
+//   - role === 'branch'                → see only NCD leads with branch_id === user.branch_id
+//   - everyone else (lead_agent, etc.) → see only NCD leads created by them (created_by === user.id)
+// This is layered on top of any explicit ?branch_id/?created_by/?status filters the caller passes.
 app.get('/api/leads', requireAuth, (req, res) => {
   try {
     const { branch_id, created_by, status } = req.query;
     let lead_type = req.query.lead_type;
     // Backward compat: if no lead_type provided, return ONLY locker leads (existing UI behavior)
     if (!lead_type) lead_type = 'locker';
-
-    // NCD access guard: only users with leads_ncd permission may see NCD leads
-    if ((lead_type === 'ncd' || lead_type === 'all') && !hasPermission(req.user, 'leads_ncd')) {
-      // If they asked for "all" without NCD perm, silently restrict to locker
-      if (lead_type === 'all') lead_type = 'locker';
-      else return res.status(403).json({ error: 'You do not have permission to view NCD leads' });
-    }
 
     let sql = `SELECT l.*, b.name as branch_name FROM leads l LEFT JOIN branches b ON l.branch_id = b.id`;
     const conditions = [];
@@ -6660,6 +6700,21 @@ app.get('/api/leads', requireAuth, (req, res) => {
     if (branch_id) { conditions.push('l.branch_id = ?'); params.push(branch_id); }
     if (created_by) { conditions.push('l.created_by = ?'); params.push(created_by); }
     if (status) { conditions.push('l.status = ?'); params.push(status); }
+
+    // Role-based visibility for NCD leads. We only constrain rows where lead_type='ncd'
+    // so locker leads keep their existing behavior untouched.
+    if (lead_type === 'ncd' || lead_type === 'all') {
+      if (req.user.role === 'headoffice') {
+        /* HO sees everything — no extra filter */
+      } else if (req.user.role === 'branch') {
+        conditions.push("(l.lead_type != 'ncd' OR l.branch_id = ?)");
+        params.push(req.user.branch_id || '');
+      } else {
+        // Creator/staff (lead_agent, custom roles, etc.) — only their own NCD leads
+        conditions.push("(l.lead_type != 'ncd' OR l.created_by = ?)");
+        params.push(req.user.id || '');
+      }
+    }
     if (conditions.length) sql += ' WHERE ' + conditions.join(' AND ');
     // Prioritize follow-ups for both lead types — overdue/today first (ascending
     // date), leads with no follow-up date sink to the bottom, then newest first
@@ -6677,21 +6732,46 @@ app.get('/api/leads', requireAuth, (req, res) => {
 });
 
 // Update lead (status, notes, visit_time, editable fields, converted_tenant_id)
-// For NCD leads, also accepts: place, occupation, amount, narration, reference.
-// NCD leads cannot be converted to tenants — converted_tenant_id is rejected for ncd type.
+// For NCD leads: ALL fields are locked after creation EXCEPT `status`. This applies
+// to every role including Head Office — NCD leads are immutable by design. Any
+// attempt to update other fields on an NCD lead is rejected with 403.
+// Locker leads keep their original edit surface untouched.
 app.put('/api/leads/:id', requireAuth, (req, res) => {
   try {
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
     const isNcd = (lead.lead_type === 'ncd');
 
-    // NCD leads require leads_ncd permission to edit
-    if (isNcd && !hasPermission(req.user, 'leads_ncd')) {
-      return res.status(403).json({ error: 'You do not have permission to edit NCD leads' });
+    // ── NCD lock: only `status` may be edited post-creation ──────────────
+    if (isNcd) {
+      // Reject any attempt to edit a locked field. We check explicitly rather than
+      // silently dropping extras so callers (including admins) get a clear error
+      // instead of confusingly-successful no-op saves.
+      const lockedFieldsPresent = Object.keys(req.body).filter(k =>
+        k !== 'status' && req.body[k] !== undefined
+      );
+      if (lockedFieldsPresent.length > 0) {
+        return res.status(403).json({
+          error: 'NCD leads are locked after creation. Only status can be changed.',
+          locked_fields: lockedFieldsPresent
+        });
+      }
+      if (req.body.status !== undefined && req.body.status) {
+        // Accept the new 3-value funnel plus 'Lost' as a historical value so
+        // previously-Lost leads can still be re-opened to New/Following Up.
+        const validNcdStatuses = ['New', 'Following Up', 'Converted', 'Lost'];
+        if (!validNcdStatuses.includes(req.body.status)) {
+          return res.status(400).json({ error: 'Invalid status for NCD lead' });
+        }
+        db.prepare("UPDATE leads SET status = ?, updated_at = datetime('now') WHERE id = ?").run(req.body.status, req.params.id);
+        logInfo('NCD lead status updated', { id: req.params.id, status: req.body.status, by: req.user && req.user.username });
+      }
+      return res.json({ ok: true });
     }
 
+    // ── Locker leads — original behavior preserved exactly ────────────────
     // Prevent backdated visit times (locker leads only)
-    if (!isNcd && req.body.visit_time) {
+    if (req.body.visit_time) {
       const visitDate = new Date(req.body.visit_time);
       const now = new Date();
       now.setMinutes(now.getMinutes() - 5); // 5 min grace
@@ -6700,48 +6780,32 @@ app.put('/api/leads/:id', requireAuth, (req, res) => {
       }
     }
 
-    // NCD leads do not convert to tenants
-    if (isNcd && req.body.converted_tenant_id) {
-      return res.status(400).json({ error: 'NCD leads cannot be converted to tenants' });
-    }
-
     // Validate status against the type-appropriate workflow.
-    // Locker leads keep the existing rich status set used by the UI (no restriction
-    // tightening to avoid breaking current flows). NCD has its own funnel.
     if (req.body.status !== undefined && req.body.status) {
       const validLockerStatuses = ['New', 'Contacted', 'Interested', 'Visit Scheduled', 'Visited', 'Converted', 'Follow Up Later', 'Lost'];
-      const validNcdStatuses    = ['New', 'Contacted', 'Interested', 'Invested', 'Lost'];
-      const list = isNcd ? validNcdStatuses : validLockerStatuses;
-      if (!list.includes(req.body.status)) {
-        return res.status(400).json({ error: 'Invalid status for ' + (isNcd ? 'NCD' : 'locker') + ' lead' });
+      if (!validLockerStatuses.includes(req.body.status)) {
+        return res.status(400).json({ error: 'Invalid status for locker lead' });
       }
     }
 
-    // Validate follow_up_date format if provided (applies to both lead types)
+    // Validate follow_up_date format if provided
     if (req.body.follow_up_date !== undefined && req.body.follow_up_date) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(String(req.body.follow_up_date).trim())) {
         return res.status(400).json({ error: 'Follow-up date must be in YYYY-MM-DD format' });
       }
     }
 
-    const commonFields = ['status', 'notes', 'name', 'phone', 'email', 'follow_up_date', 'follow_up_note'];
-    const lockerOnly   = ['branch_id', 'visit_time', 'locker_size', 'converted_tenant_id'];
-    const ncdOnly      = ['place', 'occupation', 'amount', 'narration', 'reference'];
-    const allowed = isNcd ? commonFields.concat(ncdOnly) : commonFields.concat(lockerOnly);
-
+    const allowed = ['status', 'notes', 'name', 'phone', 'email', 'follow_up_date', 'follow_up_note',
+                     'branch_id', 'visit_time', 'locker_size', 'converted_tenant_id'];
     allowed.forEach(f => {
       if (req.body[f] !== undefined) {
         db.prepare(`UPDATE leads SET ${f} = ?, updated_at = datetime('now') WHERE id = ?`).run(req.body[f], req.params.id);
       }
     });
-    logInfo('Lead updated', { id: req.params.id, type: lead.lead_type || 'locker', status: req.body.status });
-    // If the follow-up date was set/updated, fire the appropriate reminder
-    // check immediately so the persistent notification lands right away.
+    logInfo('Lead updated', { id: req.params.id, type: 'locker', status: req.body.status });
+    // If the follow-up date was set/updated, fire the locker reminder check
     if (req.body.follow_up_date !== undefined) {
-      try {
-        if (isNcd) checkNcdFollowUpReminders();
-        else checkLockerFollowUpReminders();
-      } catch (_) {}
+      try { checkLockerFollowUpReminders(); } catch (_) {}
     }
     res.json({ ok: true });
   } catch (err) {
@@ -6835,6 +6899,107 @@ app.get('/api/leads/summary', requireAuth, (req, res) => {
 });
 
 // ============================
+//  NCD — SERIES LIST + DASHBOARD SUMMARY
+// ============================
+// Small helper used by the create form and dashboard. Returns the distinct series
+// values currently in use (seeded with the four historical schemes so a fresh
+// install still has a usable dropdown). Visible to every authenticated user
+// because anyone can create NCD leads now.
+function getNcdSeriesList() {
+  const seeded = ['Doubling', 'Cumulative', 'Annual', 'Monthly'];
+  try {
+    const rows = db.prepare(
+      `SELECT DISTINCT series FROM leads
+         WHERE lead_type = 'ncd' AND series IS NOT NULL AND series != ''
+         ORDER BY series ASC`
+    ).all();
+    const fromDb = rows.map(r => r.series).filter(Boolean);
+    // Merge + dedupe, preserving seeded ordering first then any extras the DB has.
+    const seen = new Set();
+    const out = [];
+    seeded.concat(fromDb).forEach(s => {
+      if (!seen.has(s)) { seen.add(s); out.push(s); }
+    });
+    return out;
+  } catch (e) {
+    logError('NCD series list failed', { error: e.message });
+    return seeded;
+  }
+}
+app.get('/api/ncd/series-list', requireAuth, (req, res) => {
+  res.json({ series: getNcdSeriesList() });
+});
+
+// Apply the same role-based NCD visibility the GET /api/leads route uses.
+// Returns { where: "...", params: [...] } fragments ready to splice into queries
+// that already target `leads` (no alias) with `lead_type='ncd'` pre-applied.
+function ncdVisibilityClause(user) {
+  if (!user) return { where: '', params: [] };
+  if (user.role === 'headoffice') return { where: '', params: [] };
+  if (user.role === 'branch')     return { where: ' AND branch_id = ?', params: [user.branch_id || ''] };
+  return { where: ' AND created_by = ?', params: [user.id || ''] };
+}
+
+// GET /api/ncd/dashboard-summary
+// Role-scoped metric payload for the new NCD dashboard cards. Shape:
+//   {
+//     total: N,
+//     follow_up_amount: N,
+//     converted_amount: N,
+//     by_status: { New: n, 'Following Up': n, Converted: n, Lost: n },
+//     by_series: [ { series, total, converted } ... ]
+//   }
+// Every count/amount already respects the creator-sees-own / branch-sees-branch /
+// HO-sees-all rule, so the frontend can render cards directly without extra math.
+app.get('/api/ncd/dashboard-summary', requireAuth, (req, res) => {
+  try {
+    const vis = ncdVisibilityClause(req.user);
+    const baseWhere = "WHERE lead_type = 'ncd'" + vis.where;
+
+    const total = db.prepare(`SELECT COUNT(*) AS c FROM leads ${baseWhere}`).get(...vis.params).c;
+
+    const followUpAmt = db.prepare(
+      `SELECT COALESCE(SUM(amount),0) AS t FROM leads ${baseWhere} AND status = 'Following Up'`
+    ).get(...vis.params).t;
+
+    const convertedAmt = db.prepare(
+      `SELECT COALESCE(SUM(amount),0) AS t FROM leads ${baseWhere} AND status = 'Converted'`
+    ).get(...vis.params).t;
+
+    // Status breakdown — shape as an object keyed by status for easy frontend access.
+    const byStatusRows = db.prepare(
+      `SELECT status, COUNT(*) AS c FROM leads ${baseWhere} GROUP BY status`
+    ).all(...vis.params);
+    const by_status = { 'New': 0, 'Following Up': 0, 'Converted': 0, 'Lost': 0 };
+    byStatusRows.forEach(r => { by_status[r.status || 'New'] = r.c; });
+
+    // Series-wise rollup: total leads + converted leads per series.
+    const bySeriesRows = db.prepare(
+      `SELECT COALESCE(series, '') AS series,
+              COUNT(*) AS total,
+              SUM(CASE WHEN status = 'Converted' THEN 1 ELSE 0 END) AS converted
+         FROM leads ${baseWhere}
+         GROUP BY COALESCE(series, '')
+         ORDER BY total DESC`
+    ).all(...vis.params);
+    const by_series = bySeriesRows
+      .filter(r => r.series) // drop legacy rows with no series
+      .map(r => ({ series: r.series, total: r.total, converted: r.converted || 0 }));
+
+    res.json({
+      total,
+      follow_up_amount: followUpAmt,
+      converted_amount: convertedAmt,
+      by_status,
+      by_series
+    });
+  } catch (err) {
+    logError('NCD dashboard summary failed', { error: err.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ============================
 //  NCD LEADS — EXCEL REPORT
 // ============================
 // GET /api/reports/ncd-leads.xlsx — streams a multi-sheet workbook:
@@ -6842,11 +7007,9 @@ app.get('/api/leads/summary', requireAuth, (req, res) => {
 //   2. Status Breakdown  — count + amount per status
 //   3. Agent Breakdown   — count + amount per created_by_name
 //   4. Lead List         — full row-level dump of every NCD lead
-// Requires leads_ncd permission (HO always has it via hasPermission).
+// Accessible to any authenticated user; rows are role-filtered the same way as
+// the regular NCD list view (creator/branch/HO).
 app.get('/api/reports/ncd-leads.xlsx', requireAuth, (req, res) => {
-  if (!hasPermission(req.user, 'leads_ncd')) {
-    return res.status(403).json({ error: 'You do not have permission to view NCD leads' });
-  }
   let ExcelJS;
   try {
     ExcelJS = require('exceljs');
@@ -6856,14 +7019,24 @@ app.get('/api/reports/ncd-leads.xlsx', requireAuth, (req, res) => {
   }
 
   try {
-    // Pull all NCD leads with their branch name (if any)
+    // Pull NCD leads with their branch name, scoped to what this user may see.
+    // (HO → all; branch → own branch; everyone else → own created leads.)
+    let scopeSql = '';
+    const scopeParams = [];
+    if (req.user.role === 'branch') {
+      scopeSql = ' AND l.branch_id = ?';
+      scopeParams.push(req.user.branch_id || '');
+    } else if (req.user.role !== 'headoffice') {
+      scopeSql = ' AND l.created_by = ?';
+      scopeParams.push(req.user.id || '');
+    }
     const rows = db.prepare(`
       SELECT l.*, b.name as branch_name
       FROM leads l
       LEFT JOIN branches b ON l.branch_id = b.id
-      WHERE l.lead_type = 'ncd'
+      WHERE l.lead_type = 'ncd'${scopeSql}
       ORDER BY l.created_at DESC
-    `).all();
+    `).all(...scopeParams);
 
     // Aggregations
     const totalCount  = rows.length;
